@@ -56,8 +56,12 @@ export function DetailSheet({ bottomInset }: { bottomInset: number }) {
 
   return (
     <Overlay zIndex={50} background="rgba(16,20,8,.42)" onRequestClose={close} style={{ justifyContent: 'flex-end' }}>
+      {/* Tap-outside-to-dismiss. Hidden from the accessibility tree: it would
+          otherwise announce as a second, identical "Close" control, and screen
+          reader users have the real button below plus back/Escape. */}
       <Pressable
-        accessibilityLabel="Close"
+        accessible={false}
+        importantForAccessibility="no-hide-descendants"
         onPress={close}
         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
       />

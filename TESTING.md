@@ -42,7 +42,7 @@ The app opens on the **Join** screen the first time only. After that your state 
 
 **Week / Friends.** Five moment types. The 🔥 button toggles — tap once to cheer, again to take it back, and watch the toast change. The card itself opens a sheet; the buttons on it don't.
 
-**Week / Global.** Four posts from outside the circle, with follower-scale cheer counts.
+**Week / Global.** Four posts from outside the circle, with follower-scale cheer counts. Cheering one counts toward YOU GAVE on Me but deliberately *not* toward "cheers exchanged in the circle" on Circle — that bar means the circle. On a fresh account the feed ends with a nudge to build one.
 
 **Circle.** Podium with progress rings, then the ranked list. The row metric is follow-through (`71% · 5 of 7 · 🔥 2w`) because that's what the sort uses. Tap anyone to open their profile sheet; tap yourself to jump to Me. Close your own tasks and watch yourself climb the ranking.
 
@@ -108,5 +108,5 @@ Driving the app on a second platform and writing render tests each turned up def
 
 - **Simulator only.** Running on a physical iPhone needs an Apple developer team for signing, which I can't set up for you. Once you add one in Xcode, `npx expo run:ios --device` will do it.
 - **Android is verified but less exercised.** I built the release APK, walked Join → Plan → Week → Me on a Pixel 9 Pro emulator and fixed the two platform bugs it surfaced (above), but I didn't drive every screen there the way I did on iOS.
-- **The global feed stays populated on a fresh account.** It's a public feed, so a brand-new user would still see it. Deliberate, but worth knowing when you're checking empty states.
-- **Plaintext at rest.** See the README — fine for fixtures, wants encrypting before real content.
+- **The global feed stays populated on a fresh account** — it's public, so a brand-new user would genuinely see it. It now closes with a line explaining the strangers and an invite CTA.
+- **Not encrypted at rest** beyond what iOS and Android do themselves. It is kept out of both platforms' backups. See the README for what to do before this holds real content.

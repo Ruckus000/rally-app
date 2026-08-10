@@ -297,7 +297,8 @@ function MomentItem({ moment: m }: { moment: Moment }) {
 /* ── global ─────────────────────────────────────────────────────────────── */
 
 function GlobalFeed() {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, world } = useStore();
+  const alone = world.members.length < 2;
 
   return (
     <>
@@ -330,6 +331,33 @@ function GlobalFeed() {
           />
         );
       })}
+
+      {/* The global feed is public, so a brand-new account sees it too — but
+          without a circle it's a wall of strangers. Say why, and offer the way out. */}
+      {alone ? (
+        <View style={{ alignItems: 'center', paddingTop: 22, paddingBottom: 6, paddingHorizontal: 20 }}>
+          <Sans size={13} lineHeight={18} color={color.muted} style={{ textAlign: 'center' }}>
+            These are strangers, and they’re doing fine without you. Your circle is the part that
+            counts.
+          </Sans>
+          <Tap
+            onPress={() => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'invite', id: null } })}
+            style={{
+              marginTop: 14,
+              borderRadius: 999,
+              paddingVertical: 12,
+              paddingHorizontal: 18,
+              minHeight: 44,
+              justifyContent: 'center',
+              backgroundColor: color.ink,
+            }}
+          >
+            <Bri size={13.5} weight={800} color={color.lime}>
+              Invite someone
+            </Bri>
+          </Tap>
+        </View>
+      ) : null}
     </>
   );
 }

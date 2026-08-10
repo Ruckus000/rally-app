@@ -6,6 +6,7 @@ import { reducer, State } from '../store';
 import {
   allTasksDone,
   cheersGiven,
+  circleCheersGiven,
   helpedByThisWeek,
   myRank,
   personalFeed,
@@ -120,6 +121,37 @@ describe('cheers', () => {
     const before = totalCheersExchanged(base);
     const s = reducer(base, { type: 'ACT', id: 'f1', kind: 'cheer' });
     expect(totalCheersExchanged(s)).toBe(before + 1);
+  });
+
+  describe('scope', () => {
+    // The Circle bar says "in the circle", so a cheer given to a stranger on
+    // the global feed must not inflate it.
+    it('a cheer on a circle member counts everywhere', () => {
+      const s = reducer(base, { type: 'ACT', id: 'f1', kind: 'cheer' });
+      expect(cheersGiven(s)).toBe(cheersGiven(base) + 1);
+      expect(circleCheersGiven(s)).toBe(circleCheersGiven(base) + 1);
+      expect(totalCheersExchanged(s)).toBe(totalCheersExchanged(base) + 1);
+    });
+
+    it('a cheer on a global post counts on Me but not in the circle', () => {
+      const s = reducer(base, { type: 'ACT', id: 'g1', kind: 'cheer' });
+      expect(cheersGiven(s)).toBe(cheersGiven(base) + 1);
+      expect(circleCheersGiven(s)).toBe(circleCheersGiven(base));
+      expect(totalCheersExchanged(s)).toBe(totalCheersExchanged(base));
+    });
+
+    it('does not reorder the leaderboard — the sort ignores cheers given', () => {
+      const before = ranking(base).map((r) => r.k);
+      const s = reducer(base, { type: 'ACT', id: 'g1', kind: 'cheer' });
+      expect(ranking(s).map((r) => r.k)).toEqual(before);
+    });
+
+    it('counts nothing toward the circle on an account that has none', () => {
+      const fresh: State = { ...base, account: 'fresh', moments: [] };
+      const s = reducer(fresh, { type: 'ACT', id: 'g1', kind: 'cheer' });
+      expect(cheersGiven(s)).toBe(1);
+      expect(circleCheersGiven(s)).toBe(0);
+    });
   });
 });
 

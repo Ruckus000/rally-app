@@ -10,15 +10,38 @@ import { getWorld } from '../data/seed';
 import type { PersonKey } from '../theme/tokens';
 import type { State } from './store';
 
+/** The ids you've cheered. Cheers only ever land on a moment or a global post. */
+const cheeredIds = (state: State) =>
+  Object.keys(state.acted)
+    .filter((k) => k.endsWith(':cheer'))
+    .map((k) => k.slice(0, -':cheer'.length));
+
+/**
+ * Every cheer you gave, wherever it landed. Feeds YOU GAVE on Me.
+ *
+ * Its counterpart on that card, YOU GOT, is circle-sourced, so the two halves
+ * of the exchange bar are scoped differently. Both are fixtures — there's no
+ * way to receive a cheer in this build — so leave it be rather than narrowing
+ * a number that is honestly reporting what you did.
+ */
 export const cheersGiven = (state: State) =>
+  getWorld(state.account).profile.baseCheersGiven + cheeredIds(state).length;
+
+/**
+ * Only cheers that landed on someone in your circle. The Circle bar says
+ * "in the circle", so a cheer given to a stranger on the global feed must not
+ * inflate it.
+ */
+export const circleCheersGiven = (state: State) =>
   getWorld(state.account).profile.baseCheersGiven +
-  Object.keys(state.acted).filter((k) => k.endsWith(':cheer')).length;
+  cheeredIds(state).filter((id) => state.moments.some((m) => m.id === id)).length;
 
 export const myStats = (state: State): MemberStats => ({
   done: state.myTasks.filter((t) => t.done).length,
   total: state.myTasks.length,
   streak: getWorld(state.account).profile.currentStreak,
-  given: cheersGiven(state),
+  // Circle-scoped: this feeds ranking(), the row chips and the circle total.
+  given: circleCheersGiven(state),
 });
 
 export const weekPoints = (state: State) =>

@@ -25,6 +25,7 @@ function openFresh() {
 
 const goToPersonal = () => fireEvent.press(screen.getByText('Personal'));
 const goToFriends = () => fireEvent.press(screen.getByText('Friends'));
+const goToGlobal = () => fireEvent.press(screen.getByText('Global'));
 
 describe('shell', () => {
   it('shows the week from the week context, not a literal', () => {
@@ -269,5 +270,46 @@ describe('reset', () => {
     spy.mockRestore();
 
     expect(screen.getByText('Nothing staked yet')).toBeTruthy();
+  });
+});
+
+describe('the global feed', () => {
+  it('is public, so a fresh account still sees it', () => {
+    openFresh();
+    goToGlobal();
+    expect(screen.getByText('Day 77 — still going')).toBeTruthy();
+  });
+
+  it('explains the strangers and offers a way out when you have no circle', () => {
+    openFresh();
+    goToGlobal();
+    expect(screen.getByText(/These are strangers/)).toBeTruthy();
+    fireEvent.press(screen.getByText('Invite someone'));
+    expect(screen.getByText('Grow the circle')).toBeTruthy();
+  });
+
+  it('drops the nudge once you have a circle', () => {
+    open();
+    goToGlobal();
+    expect(screen.getByText('Day 77 — still going')).toBeTruthy();
+    expect(screen.queryByText(/These are strangers/)).toBeNull();
+  });
+
+  // The arithmetic is pinned in selectors.test.ts; what this proves is that the
+  // sheet's cheer button — a dynamic dispatch a grep would miss — really does
+  // fire with the global post's id and reaches YOU GAVE.
+  it('cheering a stranger from the detail sheet still counts on Me', () => {
+    open();
+    fireEvent.press(screen.getByLabelText('Me'));
+    expect(screen.getByText('12')).toBeTruthy();
+
+    fireEvent.press(screen.getByLabelText('Week'));
+    goToGlobal();
+    fireEvent.press(screen.getByLabelText('@kwon.builds: Day 77 — still going'));
+    fireEvent.press(screen.getByText('Cheer kwon.builds'));
+    fireEvent.press(screen.getByLabelText('Close'));
+
+    fireEvent.press(screen.getByLabelText('Me'));
+    expect(screen.getByText('13')).toBeTruthy();
   });
 });

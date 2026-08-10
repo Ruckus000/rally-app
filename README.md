@@ -83,10 +83,15 @@ The handoff lists seven gaps needing a product decision before building. What th
 
 Durable state is written to AsyncStorage, debounced, and flushed when the app backgrounds. Overlay flags, draft buffers and the toast are deliberately excluded — reopening into a half-written composer would be wrong. The payload carries a version and a week number; a mismatch, malformed JSON, or a task with an out-of-range day discards the whole thing rather than half-restoring into a crash.
 
-Two consequences worth knowing:
+Editing a fixture won't reach an existing install until the version in `src/state/persistence.ts` is bumped, or you reset.
 
-- Editing a fixture won't reach an existing install until the version in `src/state/persistence.ts` is bumped, or you reset.
-- **It's plaintext at rest.** Fine for fixtures, but task titles are exactly what gets personal — the demo literally includes "Therapy homework". Before this holds real content it wants `expo-secure-store` or an encrypted store.
+### Where the data sits
+
+- **iOS** — AsyncStorage marks its own storage directory `NSURLIsExcludedFromBackupKey`, so it never reaches an iCloud backup. On disk it's covered by iOS Data Protection, readable after first unlock.
+- **Android** — `android.allowBackup: false` in `app.json`, so Google Auto Backup, device-to-device transfer and `adb backup` all leave it alone. The trade: a user changing phones loses their data. Right for a fixtures build, a real decision for a real product.
+- **Not encrypted** beyond the OS's own full-disk encryption. That's proportionate here, but task titles are exactly the kind of thing that gets personal — the demo literally includes "Therapy homework". Before this holds real user content, reach for an encrypted store: MMKV's `encryptionKey` with a random key in `expo-secure-store` is the straightforward route. Two traps worth knowing first — SecureStore values are unreliable above ~2 KB, so the key goes there but never the payload; and `requireAuthentication: true` fails when the app is backgrounded, which would break the flush-on-background.
+
+iOS data protection is deliberately left at its default. Raising it needs the `com.apple.developer.default-data-protection` entitlement and a matching provisioning capability — real signing setup for a marginal gain, given the data is already out of backups.
 
 **Reset app data** at the bottom of Me offers *Fresh start* (empty account) or *Reload demo*, so both states are reachable without reinstalling.
 
