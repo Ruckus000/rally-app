@@ -1,9 +1,12 @@
 /**
  * The 🔥 / 💬 / optional-CTA row under a feed card.
  *
- * Two rules from the handoff live here: a zero count becomes the verb
- * ("Cheer", "Note") rather than a bare zero, and every button stops the tap
- * from reaching the card underneath — the card itself opens the detail sheet.
+ * Two rules from the handoff live here. A zero count becomes the verb
+ * ("Cheer", "Note") rather than a bare zero. And a tap on one of these buttons
+ * must not also open the card's detail sheet: RN's responder system already
+ * gives the inner pressable the touch so the card behind it never fires, and
+ * the explicit stopPropagation below keeps that true if this ever renders on
+ * web, where events really do bubble.
  */
 import React from 'react';
 import { GestureResponderEvent, View } from 'react-native';

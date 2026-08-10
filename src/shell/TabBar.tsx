@@ -64,6 +64,7 @@ export function TabBar({ bottomInset }: { bottomInset: number }) {
             <Tap
               key={t.key}
               onPress={() => dispatch({ type: 'SET_TAB', tab: t.key })}
+              accessibilityRole="tab"
               accessibilityState={{ selected: active }}
               accessibilityLabel={t.label}
               style={{

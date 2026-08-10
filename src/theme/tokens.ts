@@ -186,3 +186,13 @@ export const monoDigits: TextStyle = Platform.select({
   ios: { fontVariant: ['tabular-nums'] },
   default: {},
 }) as TextStyle;
+
+/**
+ * The bloom behind the Plan hero number. Android clips a text shadow to the
+ * glyph box, which shows up as a lit rectangle, so the glow is iOS-only —
+ * the lime on near-black already carries the emphasis without it.
+ */
+export const heroGlow: TextStyle = Platform.select({
+  ios: { textShadowColor: 'rgba(195,245,60,.32)', textShadowRadius: 44 },
+  default: {},
+}) as TextStyle;

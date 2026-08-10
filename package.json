@@ -24,13 +24,15 @@
   },
   "scripts": {
     "start": "expo start",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
+    "android": "./scripts/android.sh",
     "web": "expo start --web",
     "test": "jest",
     "typecheck": "tsc --noEmit",
     "sim": "./scripts/sim.sh",
-    "sim:build": "./scripts/sim.sh --build"
+    "sim:build": "./scripts/sim.sh --build",
+    "android:build": "./scripts/android.sh --build",
+    "android:dev": "expo run:android",
+    "ios:dev": "expo run:ios"
   },
   "private": true,
   "expo": {

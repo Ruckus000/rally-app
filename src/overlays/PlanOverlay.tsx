@@ -4,7 +4,7 @@
 import React from 'react';
 import { ScrollView, TextInput, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { color, gradientAngle, onDark, planGutter, shadows } from '../theme/tokens';
+import { color, gradientAngle, heroGlow, onDark, planGutter, shadows } from '../theme/tokens';
 import {
   AUDIENCE_LABEL,
   AUDIENCE_WORD,
@@ -99,7 +99,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
             tracking={-3.5}
             lineHeight={61}
             color={color.lime}
-            style={{ textShadowColor: 'rgba(195,245,60,.32)', textShadowRadius: 44 }}
+            style={heroGlow}
           >
             {staked}
           </Bri>

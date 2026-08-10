@@ -46,7 +46,14 @@ export function Header({ topInset }: { topInset: number }) {
           {/* The Me tab is its own profile card — no duplicate name above it. */}
           {state.tab !== 'me' ? (
             <>
-              <Bri size={29} weight={800} tracking={-0.7} lineHeight={32} style={{ marginTop: 6 }}>
+              <Bri
+                accessibilityRole="header"
+                size={29}
+                weight={800}
+                tracking={-0.7}
+                lineHeight={32}
+                style={{ marginTop: 6 }}
+              >
                 {title}
               </Bri>
               <Sans size={12} color={color.muted} style={{ marginTop: 3 }}>
@@ -103,6 +110,7 @@ export function Header({ topInset }: { topInset: number }) {
               <Tap
                 key={s.key}
                 onPress={() => dispatch({ type: 'SET_SCOPE', scope: s.key })}
+                accessibilityRole="tab"
                 accessibilityState={{ selected: active }}
                 style={{ flex: 1, paddingBottom: 12, alignItems: 'center', minHeight: 44, justifyContent: 'flex-end' }}
               >

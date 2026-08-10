@@ -21,6 +21,14 @@ die() { printf '\033[1;31m✗\033[0m %s\n' "$1" >&2; exit 1; }
 
 [ -d ios ] || die "No ios/ folder. Run: npx expo prebuild --platform ios"
 
+# Resolve to a UDID first: several runtimes can share a device name, and
+# xcodebuild refuses an ambiguous -destination.
+UDID=$(xcrun simctl list devices available \
+  | grep -F "$DEVICE_NAME (" \
+  | head -1 \
+  | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
+[ -n "$UDID" ] || die "No simulator named '$DEVICE_NAME'. Set RALLY_SIM to one from: xcrun simctl list devices available"
+
 if [ "${1:-}" = "--build" ] || [ ! -d "$APP" ]; then
   if [ ! -d ios/Pods ]; then
     say "Installing pods"
@@ -32,19 +40,13 @@ if [ "${1:-}" = "--build" ] || [ ! -d "$APP" ]; then
     -scheme Rally \
     -configuration Release \
     -sdk iphonesimulator \
-    -destination "platform=iOS Simulator,name=$DEVICE_NAME" \
+    -destination "id=$UDID" \
     -derivedDataPath build-release \
     ONLY_ACTIVE_ARCH=YES \
     -quiet)
 fi
 
 [ -d "$APP" ] || die "Build produced no app at $APP"
-
-UDID=$(xcrun simctl list devices available \
-  | grep -F "$DEVICE_NAME (" \
-  | head -1 \
-  | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
-[ -n "$UDID" ] || die "No simulator named '$DEVICE_NAME'. Set RALLY_SIM to one from: xcrun simctl list devices available"
 
 if ! xcrun simctl list devices | grep -F "$UDID" | grep -q Booted; then
   say "Booting $DEVICE_NAME"

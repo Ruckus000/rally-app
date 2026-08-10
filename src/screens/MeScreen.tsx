@@ -338,7 +338,9 @@ const GRID_GAP = 4;
 /** One cell per week since joining, plus this week and the one being staked. */
 function YearGrid() {
   const [width, setWidth] = React.useState(0);
-  const cell = width ? (width - GRID_GAP * (GRID_COLUMNS - 1)) / GRID_COLUMNS : 0;
+  // Floor the cell: a fractional width overflows the row by a hair on Android
+  // and wraps the grid to 12 columns. The handoff specifies 13.
+  const cell = width ? Math.floor((width - GRID_GAP * (GRID_COLUMNS - 1)) / GRID_COLUMNS) : 0;
   const box = { width: cell, height: cell, borderRadius: 4 };
 
   return (

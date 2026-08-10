@@ -17,10 +17,18 @@ npm run sim:build
 Want live reload while poking at code instead? That's the normal Expo path:
 
 ```bash
-npx expo run:ios
+npm run ios:dev
 ```
 
 Other simulators work too — `RALLY_SIM="iPhone 16" npm run sim`.
+
+**Android** is built and verified too:
+
+```bash
+npm run android
+```
+
+Same deal — boots an emulator, installs a release APK with the bundle baked in, no Metro. `npm run android:build` rebuilds it, and `RALLY_AVD=Pixel_4a npm run android` picks a different device.
 
 ## What to walk through
 
@@ -30,7 +38,7 @@ The app opens on the **Join** screen every launch (state is in memory, so every 
 
 **Week / Personal.** Quick-log composer at the top (tap the pill, type, hit the lime check — lands as 20 pts, category "Quick log", today). Points bar shows the running total and routes to Plan. Task rows: tap the checkbox to close one, tap the row to open its sheet. Close all six and the perfect-week card appears at the top with "Post it to the circle".
 
-**Week / Friends.** Five moment types. The 🔥 button toggles — tap once to cheer, again to take it back, and watch the toast change. The card itself opens a sheet; the buttons on it don't (that's the `stopPropagation` rule).
+**Week / Friends.** Five moment types. The 🔥 button toggles — tap once to cheer, again to take it back, and watch the toast change. The card itself opens a sheet; the buttons on it don't.
 
 **Week / Global.** Four posts from outside the circle, with follower-scale cheer counts.
 
@@ -75,9 +83,16 @@ npm run typecheck
 
 38 tests over the reducer and selectors; `tsc` runs in strict mode.
 
+## Fixed by testing on Android
+
+Two defects only showed up on the second platform, both now fixed:
+
+- The Plan hero number's glow used a text shadow, which Android clips to the glyph box — it rendered as a lit rectangle behind "190". The glow is now iOS-only.
+- The year grid wrapped to 12 columns instead of 13, because a fractional cell width overflowed the row by a fraction of a pixel. Cell widths are floored now, which is also safer on iOS.
+
 ## Known limits
 
 - **No persistence.** Every launch starts from the fixtures. This was your call ("full spec, mock data") and it makes each test run reproducible — but it does mean you can't leave state overnight.
 - **Simulator only.** Running on a physical iPhone needs an Apple developer team for signing, which I can't set up for you. Once you add one in Xcode, `npx expo run:ios --device` will do it.
-- **iOS only so far.** The code is portable and uses no iOS-only APIs, but I haven't built or looked at Android.
+- **Android is verified but less exercised.** I built the release APK, walked Join → Plan → Week → Me on a Pixel 9 Pro emulator and fixed the two platform bugs it surfaced (above), but I didn't drive every screen there the way I did on iOS.
 - **No first-run empty state for a brand-new account** beyond the written empty states on the feed, Circle and past weeks.
