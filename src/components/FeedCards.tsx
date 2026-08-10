@@ -412,29 +412,56 @@ export function MineWinCard({
 
 export function EmptyFeed({ onPlan }: { onPlan: () => void }) {
   return (
+    <EmptyState
+      title="Nothing staked yet"
+      body="The week doesn’t count itself."
+      cta="Stake your week"
+      onPress={onPlan}
+    />
+  );
+}
+
+/**
+ * The written empty state. Every surface that can run out of content uses
+ * this rather than a generic "No items" — empty states say something human.
+ */
+export function EmptyState({
+  title,
+  body,
+  cta,
+  onPress,
+}: {
+  title: string;
+  body: string;
+  cta?: string;
+  onPress?: () => void;
+}) {
+  return (
     <View style={{ alignItems: 'center', paddingVertical: 34, paddingHorizontal: 20 }}>
-      <Bri size={18} weight={800} tracking={-0.3}>
-        Nothing staked yet
+      <Bri size={18} weight={800} tracking={-0.3} style={{ textAlign: 'center' }}>
+        {title}
       </Bri>
       <Sans size={13} lineHeight={18} color={color.muted} style={{ marginTop: 6, textAlign: 'center' }}>
-        The week doesn’t count itself.
+        {body}
       </Sans>
-      <Tap
-        onPress={onPlan}
-        style={{
-          marginTop: 14,
-          borderRadius: 999,
-          paddingVertical: 12,
-          paddingHorizontal: 18,
-          minHeight: 44,
-          justifyContent: 'center',
-          backgroundColor: color.ink,
-        }}
-      >
-        <Bri size={13.5} weight={800} color={color.lime}>
-          Stake your week
-        </Bri>
-      </Tap>
+      {cta && onPress ? (
+        <Tap
+          onPress={onPress}
+          style={{
+            marginTop: 14,
+            borderRadius: 999,
+            paddingVertical: 12,
+            paddingHorizontal: 18,
+            minHeight: 44,
+            justifyContent: 'center',
+            backgroundColor: color.ink,
+          }}
+        >
+          <Bri size={13.5} weight={800} color={color.lime}>
+            {cta}
+          </Bri>
+        </Tap>
+      ) : null}
     </View>
   );
 }

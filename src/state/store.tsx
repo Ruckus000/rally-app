@@ -66,6 +66,8 @@ export type State = {
   draftPair: PersonKey[];
   /** null = fall back to config.defaultAudience */
   draftAud: Audience | null;
+  /** Non-null when the composer is editing an existing stake rather than adding one. */
+  editingId: string | null;
 
   planOpen: boolean;
   wrapOpen: boolean;
@@ -102,6 +104,7 @@ const initialState: State = {
   draftCat: 'Fitness',
   draftPair: [],
   draftAud: null,
+  editingId: null,
   planOpen: false,
   wrapOpen: false,
   wrapWeek: null,
@@ -132,6 +135,9 @@ export type Action =
   | { type: 'SET_DRAFT_AUD'; aud: Audience }
   | { type: 'TOGGLE_PAIR'; key: PersonKey }
   | { type: 'ADD_TASK'; aud: Audience }
+  | { type: 'START_EDIT'; id: string }
+  | { type: 'SAVE_EDIT'; aud: Audience }
+  | { type: 'CANCEL_EDIT' }
   | { type: 'ADD_SUGGESTION'; suggestion: Suggestion }
   | { type: 'REMOVE_TASK'; id: string }
   | { type: 'CYCLE_TASK_AUD'; id: string }
@@ -175,6 +181,15 @@ const CLEARED = {
   wrapWeek: null,
   notifOpen: false,
   planOpen: false,
+} satisfies Partial<State>;
+
+/** Fields reset when an edit session is abandoned rather than saved. */
+const ABANDON_EDIT = {
+  editingId: null,
+  draft: '',
+  draftPair: [],
+  draftAud: null,
+  draftDay: null,
 } satisfies Partial<State>;
 
 let taskSeq = 0;
@@ -298,6 +313,64 @@ export function reducer(state: State, action: Action): State {
       );
     }
 
+    case 'START_EDIT': {
+      const t = state.myTasks.find((x) => x.id === action.id);
+      if (!t) return state;
+      // Load the stake back into the composer, and route to Plan to edit it there.
+      return {
+        ...state,
+        ...CLEARED,
+        planOpen: true,
+        editingId: t.id,
+        draft: t.title,
+        draftCat: t.cat,
+        draftDay: t.day,
+        draftPair: [...t.pair],
+        draftAud: t.aud,
+      };
+    }
+
+    case 'SAVE_EDIT': {
+      const title = state.draft.trim();
+      if (!title || !state.editingId) return state;
+      const pts = CATEGORY_POINTS[state.draftCat] ?? 30;
+      return withToast(
+        {
+          ...state,
+          myTasks: state.myTasks.map((t) =>
+            t.id !== state.editingId
+              ? t
+              : {
+                  ...t,
+                  title,
+                  cat: state.draftCat,
+                  pts,
+                  day: state.draftDay ?? t.day,
+                  aud: action.aud,
+                  pair: [...state.draftPair],
+                  pairKind: state.draftPair.length ? (t.pairKind ?? 'loose') : null,
+                },
+          ),
+          editingId: null,
+          draft: '',
+          draftPair: [],
+          draftAud: null,
+          draftDay: null,
+        },
+        'Updated — still on the line',
+      );
+    }
+
+    case 'CANCEL_EDIT':
+      return {
+        ...state,
+        editingId: null,
+        draft: '',
+        draftPair: [],
+        draftAud: null,
+        draftDay: null,
+      };
+
     case 'ADD_SUGGESTION': {
       const s = action.suggestion;
       if (state.usedSugg[s.id]) return state;
@@ -326,7 +399,13 @@ export function reducer(state: State, action: Action): State {
 
     case 'REMOVE_TASK':
       return withToast(
-        { ...state, myTasks: state.myTasks.filter((t) => t.id !== action.id) },
+        {
+          ...state,
+          myTasks: state.myTasks.filter((t) => t.id !== action.id),
+          ...(state.editingId === action.id
+            ? { editingId: null, draft: '', draftPair: [], draftAud: null, draftDay: null }
+            : null),
+        },
         'Unstaked — off the line',
       );
 
@@ -378,6 +457,7 @@ export function reducer(state: State, action: Action): State {
           ...state,
           ...CLEARED,
           planOpen: true,
+          editingId: null,
           draft: s.title ?? '',
           draftCat: s.cat ?? state.draftCat,
           draftPair: s.pair ?? [],
@@ -388,10 +468,10 @@ export function reducer(state: State, action: Action): State {
     }
 
     case 'CLOSE_PLAN':
-      return { ...state, planOpen: false };
+      return { ...state, planOpen: false, ...(state.editingId ? ABANDON_EDIT : null) };
 
     case 'GO_PLACE':
-      return { ...state, ...CLEARED, ...action.patch };
+      return { ...state, ...CLEARED, ...(state.editingId ? ABANDON_EDIT : null), ...action.patch };
 
     case 'OPEN_WRAP':
       return { ...state, ...CLEARED, wrapOpen: true, wrapWeek: action.week };

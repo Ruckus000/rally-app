@@ -35,6 +35,13 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
   const draftDay = (state.draftDay ?? state.day) as DayIndex;
   const hasDraft = !!state.draft.trim();
   const draftPoints = CATEGORY_POINTS[state.draftCat] ?? 30;
+  const editing = !!state.editingId;
+  const submitDraft = () =>
+    dispatch(
+      editing
+        ? { type: 'SAVE_EDIT', aud: effectiveAudience }
+        : { type: 'ADD_TASK', aud: effectiveAudience },
+    );
 
   const close = () =>
     onboarding ? dispatch({ type: 'SKIP_ONBOARD' }) : dispatch({ type: 'CLOSE_PLAN' });
@@ -161,13 +168,26 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
               paddingBottom: 16,
             }}
           >
-            <Caps size={10} tracking={2.2} color={color.lime}>
-              I will…
-            </Caps>
+            <View style={[row, { gap: 9 }]}>
+              <Caps size={10} tracking={2.2} color={color.lime} style={fill}>
+                {editing ? 'Editing a stake' : 'I will…'}
+              </Caps>
+              {editing ? (
+                <Tap
+                  onPress={() => dispatch({ type: 'CANCEL_EDIT' })}
+                  accessibilityLabel="Cancel editing"
+                  style={{ paddingHorizontal: 4, minHeight: 32, justifyContent: 'center' }}
+                >
+                  <Sans size={11.5} weight={700} color={onDark.secondary}>
+                    Cancel
+                  </Sans>
+                </Tap>
+              ) : null}
+            </View>
             <TextInput
               value={state.draft}
               onChangeText={(value) => dispatch({ type: 'SET_DRAFT', value })}
-              onSubmitEditing={() => dispatch({ type: 'ADD_TASK', aud: effectiveAudience })}
+              onSubmitEditing={submitDraft}
               placeholder={CATEGORY_HINT[state.draftCat] ?? 'name it in your own words'}
               placeholderTextColor={onDark.tertiary}
               selectionColor={color.lime}
@@ -325,7 +345,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
             </Sans>
 
             <Tap
-              onPress={() => dispatch({ type: 'ADD_TASK', aud: effectiveAudience })}
+              onPress={submitDraft}
               disabled={!hasDraft}
               accessibilityState={{ disabled: !hasDraft }}
               style={{
@@ -339,9 +359,11 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
               }}
             >
               <Bri size={15.5} weight={800} color={hasDraft ? color.ink : 'rgba(241,242,236,.35)'}>
-                {hasDraft
-                  ? `Stake it on ${DAY_NAMES[draftDay]} · +${draftPoints} pts`
-                  : 'Write it down first'}
+                {!hasDraft
+                  ? 'Write it down first'
+                  : editing
+                    ? `Save it on ${DAY_NAMES[draftDay]} · +${draftPoints} pts`
+                    : `Stake it on ${DAY_NAMES[draftDay]} · +${draftPoints} pts`}
               </Bri>
             </Tap>
           </View>
@@ -470,7 +492,16 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                     {t.title}
                   </Sans>
                 </Tap>
-                {t.pair.length ? <FaceStack people={t.pair} size={20} ringColor={color.planCard} /> : null}
+                {t.pair.length ? (
+                  <FaceStack
+                    people={t.pair}
+                    size={20}
+                    ringColor={color.planCard}
+                    onPressPerson={(who) =>
+                      dispatch({ type: 'OPEN_SHEET', sheet: { type: 'person', id: who } })
+                    }
+                  />
+                ) : null}
                 <Tap
                   onPress={() => dispatch({ type: 'CYCLE_TASK_AUD', id: t.id })}
                   accessibilityLabel={`Seen by ${AUDIENCE_WORD[t.aud]}. Change.`}

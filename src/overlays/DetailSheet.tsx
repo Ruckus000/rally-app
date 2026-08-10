@@ -188,6 +188,42 @@ function TaskSheet({ id }: { id: string }) {
 
       {mine && mine.pairKind === 'joint' ? <JointProgress task={mine} /> : null}
 
+      {/* Your own stake is editable — the one thing the prototype couldn't do. */}
+      {mine ? (
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 13, flexWrap: 'wrap' }}>
+          <Tap
+            onPress={() => dispatch({ type: 'START_EDIT', id: mine.id })}
+            accessibilityLabel={`Edit ${mine.title}`}
+            style={sheetChip(color.chip)}
+          >
+            <Sans size={12.5} weight={600}>
+              Edit this
+            </Sans>
+          </Tap>
+          <Tap
+            onPress={() => dispatch({ type: 'TOGGLE_TASK', id: mine.id })}
+            accessibilityLabel={mine.done ? `Reopen ${mine.title}` : `Close ${mine.title}`}
+            style={sheetChip(mine.done ? color.chip : color.lime)}
+          >
+            <Sans size={12.5} weight={600}>
+              {mine.done ? 'Reopen it' : 'Mark it done'}
+            </Sans>
+          </Tap>
+          <Tap
+            onPress={() => {
+              dispatch({ type: 'CLOSE_SHEET' });
+              dispatch({ type: 'REMOVE_TASK', id: mine.id });
+            }}
+            accessibilityLabel={`Unstake ${mine.title}`}
+            style={sheetChip('transparent', color.divider)}
+          >
+            <Sans size={12.5} weight={600} color={color.muted}>
+              Unstake
+            </Sans>
+          </Tap>
+        </View>
+      ) : null}
+
       {actions.length ? (
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 13, flexWrap: 'wrap' }}>
           {actions.map((a) => {
@@ -482,6 +518,16 @@ function InviteSheet() {
     </ScrollView>
   );
 }
+
+const sheetChip = (background: string, border?: string) => ({
+  borderRadius: 999,
+  paddingHorizontal: 13,
+  paddingVertical: 10,
+  minHeight: 40,
+  justifyContent: 'center' as const,
+  backgroundColor: background,
+  ...(border ? { borderWidth: 1, borderColor: border } : null),
+});
 
 const inviteRow = {
   flexDirection: 'row' as const,

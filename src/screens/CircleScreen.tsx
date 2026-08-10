@@ -13,6 +13,7 @@ import { Icon } from '../components/Icon';
 import { useStore } from '../state/store';
 import { RankedMember, ranking, totalCheersExchanged } from '../state/selectors';
 import { TREND } from '../data/fixtures';
+import { EmptyState } from '../components/FeedCards';
 
 const TREND_GLYPH = { up: '▲', down: '▼', same: '–' } as const;
 const TREND_COLOR = { up: color.moss, down: color.faintInk, same: color.dash } as const;
@@ -24,6 +25,20 @@ export function CircleScreen() {
   const rest = ranked.slice(3);
   // Centre the winner: 2nd · 1st · 3rd.
   const podium = top3.length === 3 ? [top3[1], top3[0], top3[2]] : top3;
+
+  const openInvite = () => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'invite', id: null } });
+
+  // A circle of one has nothing to rank. Ask for people instead of showing a podium of you.
+  if (ranked.length < 2) {
+    return (
+      <EmptyState
+        title="A circle of one"
+        body="Rally works when someone notices. Bring in the people who would."
+        cta="Invite someone"
+        onPress={openInvite}
+      />
+    );
+  }
 
   const openMember = (k: RankedMember['k']) =>
     k === 'you'
@@ -136,7 +151,7 @@ export function CircleScreen() {
       </View>
 
       <Tap
-        onPress={() => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'invite', id: null } })}
+        onPress={openInvite}
         style={{
           backgroundColor: color.chip,
           borderRadius: radius.chip,

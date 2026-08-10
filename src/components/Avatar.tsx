@@ -7,7 +7,7 @@ import { StyleProp, View, ViewStyle } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { color, PersonKey, tint as TINT } from '../theme/tokens';
 import { INITIALS, NAME } from '../data/fixtures';
-import { Bri } from './primitives';
+import { Bri, Tap } from './primitives';
 
 export function Avatar({
   who,
@@ -58,26 +58,42 @@ export function FaceStack({
   size = 20,
   ringColor = color.paper,
   ringWidth = 2,
+  onPressPerson,
 }: {
   people: PersonKey[];
   size?: number;
   ringColor?: string;
   ringWidth?: number;
+  /** When set, each face becomes a route to that person's profile. */
+  onPressPerson?: (who: PersonKey) => void;
 }) {
   return (
     <View style={{ flexDirection: 'row' }}>
-      {people.map((k, i) => (
-        <Avatar
-          key={k}
-          who={k}
-          size={size}
-          style={{
-            borderWidth: ringWidth,
-            borderColor: ringColor,
-            marginLeft: i ? -(size * 0.28) : 0,
-          }}
-        />
-      ))}
+      {people.map((k, i) => {
+        const face = (
+          <Avatar
+            who={k}
+            size={size}
+            style={{
+              borderWidth: ringWidth,
+              borderColor: ringColor,
+              marginLeft: i ? -(size * 0.28) : 0,
+            }}
+          />
+        );
+        return onPressPerson ? (
+          <Tap
+            key={k}
+            onPress={() => onPressPerson(k)}
+            accessibilityLabel={`Open ${NAME[k]}`}
+            minSize={size}
+          >
+            {face}
+          </Tap>
+        ) : (
+          <React.Fragment key={k}>{face}</React.Fragment>
+        );
+      })}
     </View>
   );
 }

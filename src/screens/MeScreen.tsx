@@ -273,6 +273,11 @@ export function MeScreen() {
         Past weeks
       </Caps>
       <View style={{ gap: 8, marginBottom: 16 }}>
+        {PAST_WEEKS.length === 0 ? (
+          <Sans size={13} lineHeight={18} color={color.muted} style={{ paddingHorizontal: 2 }}>
+            This is your first week. There’s nothing behind you yet — that’s the point.
+          </Sans>
+        ) : null}
         {PAST_WEEKS.map((n) => {
           const w = WEEK_HISTORY[n];
           return (
