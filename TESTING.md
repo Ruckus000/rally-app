@@ -54,7 +54,22 @@ The app opens on the **Join** screen the first time only. After that your state 
 
 **Notifications.** The bell badge counts only the "Needs you" tier. Three tiers with blurbs, filter chips, and per-item read state — open one and the badge drops by one. "Mark all read" clears it. Rows route individually: some to a task sheet, some to a person, some to Plan, some to the ledger.
 
-**Ledger.** From Me ("See this week's ledger"), from a past-week row, from the Friends feed footer, or from a notification. Footer labels change with context: current week → `Not yet` / `Stake Week 34`; historical → `Close` / `Back to today`.
+**Ledger.** From Me ("See this week's ledger"), from a past-week row, from the Friends feed footer, or from a notification. Footer labels change with context: current week → `Not yet` / `Stake Week n+1`; historical → `Close` / `Back to today`.
+
+**Week rollover.** The week now comes from the real clock, so it turns over on Monday. **"Simulate next week"** at the bottom of Me triggers it on demand. You get the closed week, a checklist of unfinished stakes to carry, and a confirm — nothing is rewritten until you answer. Committing archives the week into Past weeks, adds a year-grid cell, and moves your all-time points and streak. A week holds the streak if you closed at least one stake. Try force-quitting while the prompt is open: it comes back waiting.
+
+## Running on a real iPhone
+
+Everything is configured — bundle id `app.rally.weekspine`, scheme set, both native projects generate. The missing piece is an Apple account, which only you can supply.
+
+1. `open ios/Rally.xcworkspace`
+2. Select the **Rally** target → **Signing & Capabilities** → pick your Team. Xcode will provision automatically.
+3. Plug the phone in, then on the device: **Settings → General → VPN & Device Management** → trust your certificate.
+4. `npm run ios:dev -- --device`
+
+With a **free Apple ID** the build expires after seven days and needs re-signing; you also can't have push notifications or Sign in with Apple. With the **paid programme** ($99/yr) the build lasts a year, and push becomes possible — which is what the handoff's notification tiers ultimately want, though that also needs `expo-notifications` and an APNs key, neither of which is set up.
+
+Android needs none of this: the release APK from `npm run android:build` sideloads onto any device with developer mode on.
 
 ## Persistence and the empty account
 

@@ -40,7 +40,9 @@ npm run lint
 |---|---|
 | `src/theme/tokens.ts` | Every colour, type ramp, radius, shadow and the gradient-hairline definition. Nothing else hardcodes a design value. |
 | `src/theme/motion.ts` | The four keyframes as RN easings, plus the `prefers-reduced-motion` hook every animated component checks. |
-| `src/data/week.ts` | The single week-context object. Every "Week 33", date range and day count derives from it. |
+| `src/data/week.ts` | Week context and ISO week maths. `liveWeek()` for the real clock, `FIXTURE_WEEK` for tests. |
+| `src/data/seed.ts` | Which fixtures an account gets: the demo, or nothing. |
+| `supabase/`, `docs/backend.md` | Schema and sync design. Not wired to anything — see the note at the top of the doc. |
 | `src/data/fixtures.ts` | Mock people, tasks, moments, history, notifications. Explicitly not spec. |
 | `src/state/store.tsx` | One reducer for the whole app; routes between overlays are explicit actions. |
 | `src/state/selectors.ts` | Ranking, points, feed ordering, the ledger's helped/helped-by rollups. |
@@ -54,7 +56,7 @@ npm run lint
 
 The handoff lists seven gaps needing a product decision before building. What this build does:
 
-1. **Week rollover** — `src/data/week.ts` exports one `WeekContext` (number, Monday-start range, current day, days left). Swap its anchor for a real clock and every week reference follows.
+1. **Week rollover** — implemented. The week comes from the clock (ISO-8601, Monday start) and lives in state so it can persist. When the calendar moves on, the app asks rather than rewriting: you see the closed week and pick what carries. Confirming archives it, advances your totals and starts the new week. `FIXTURE_WEEK` stays pinned so tests don't drift.
 2. **Calendar math** — weeks start Monday, day 0 is Monday, dates render in the device timezone, and the week closes at the end of Sunday.
 3. **Two creation paths** — both kept, but differentiated: a quick log carries `source: 'quicklog'` and reads "Quick log" in its category line, so it never looks like a stake worth 45 points.
 4. **Task editing** — implemented. Your own stake carries Edit / Mark done / Unstake in its detail sheet; Edit routes to Plan with the stake loaded and the composer switched to "Save it on {Day}". Closing Plan, routing away or unstaking abandons the edit rather than half-applying it.
