@@ -63,22 +63,18 @@ export const TREND: Record<PersonKey, 'up' | 'down' | 'same'> = {
 };
 
 export const CIRCLE_NAME = 'The Basement';
+
+/**
+ * Who you are. The numbers that used to live here — points, streaks, weeks in —
+ * moved to `World['profile']` in `seed.ts`, because they depend on whether you
+ * joined the demo circle or started fresh. Identity doesn't.
+ */
 export const ME = {
   key: 'you' as PersonKey,
   name: 'Alex Rivera',
   handle: '@alexrivera',
   shortHandle: '@alexr',
   since: 'rallying since Nov 2025',
-  allTimePoints: 2840,
-  weeksIn: 37,
-  bestWeekPoints: 240,
-  bestWeekLabel: 'Wk 31',
-  longestStreak: 5,
-  mostTasksClosed: 9,
-  perfectWeeks: 3,
-  currentStreak: 3,
-  cheersReceived: 19,
-  baseCheersGiven: 12,
   inviteLink: 'rally.app/join/basement-9x2',
 };
 

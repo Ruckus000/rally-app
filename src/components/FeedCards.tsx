@@ -343,11 +343,14 @@ export function QuietRow({
 export function MineWinCard({
   taskCount,
   points,
+  streak,
   shared,
   onShare,
 }: {
   taskCount: number;
   points: number;
+  /** Weeks held once this one closes. */
+  streak: number;
   shared: boolean;
   onShare: () => void;
 }) {
@@ -382,7 +385,7 @@ export function MineWinCard({
         <View style={[row, { gap: 18, marginTop: 12 }]}>
           <Stat value={`${taskCount}/${taskCount}`} label="tasks" accent />
           <Stat value={String(points)} label="pts" accent />
-          <Stat value="4w" label="streak" accent />
+          <Stat value={`${streak}w`} label="streak" accent />
         </View>
 
         <Tap

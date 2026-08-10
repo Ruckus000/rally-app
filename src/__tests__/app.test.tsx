@@ -4,17 +4,27 @@
  * result reaches the screen.
  */
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { Alert } from 'react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { App } from '../App';
 import { CURRENT_WEEK } from '../data/week';
 
-/** Skip onboarding and land on a given tab/scope. */
+/** Join the demo circle, which is what seeds the populated fixtures. */
 function open(options?: { config?: React.ComponentProps<typeof App>['config'] }) {
-  render(<App config={options?.config} />);
+  render(<App config={options?.config} persist={false} />);
+  fireEvent.press(screen.getByText('Join The Basement'));
+  // Joining lands on the onboarding Plan step; step past it into the app.
+  fireEvent.press(screen.getByText('Start my week'));
+}
+
+/** Decline the invite, which is what produces an empty first-run account. */
+function openFresh() {
+  render(<App persist={false} />);
   fireEvent.press(screen.getByText('Skip for now'));
 }
 
 const goToPersonal = () => fireEvent.press(screen.getByText('Personal'));
+const goToFriends = () => fireEvent.press(screen.getByText('Friends'));
 
 describe('shell', () => {
   it('shows the week from the week context, not a literal', () => {
@@ -23,11 +33,11 @@ describe('shell', () => {
     expect(screen.getByText(`${CURRENT_WEEK.dateRange} · ${CURRENT_WEEK.todayName}`)).toBeTruthy();
   });
 
-  it('starts on the friends feed and switches scope', () => {
+  it('lands on your own week after onboarding, and switches scope', () => {
     open();
-    expect(screen.getByText('7 of 7 — the entire thing')).toBeTruthy();
-    goToPersonal();
     expect(screen.getByText('Ship the portfolio site')).toBeTruthy();
+    goToFriends();
+    expect(screen.getByText('7 of 7 — the entire thing')).toBeTruthy();
   });
 
   it('moves between tabs', () => {
@@ -65,6 +75,7 @@ describe('week feed', () => {
 
   it('turns a zero cheer count into the verb, and back again', () => {
     open();
+    goToFriends();
     // Sofia's quiet win has no cheers yet.
     expect(screen.getAllByLabelText('Cheer').length).toBeGreaterThan(0);
     fireEvent.press(screen.getAllByLabelText('Cheer')[0]);
@@ -91,13 +102,14 @@ describe('circle', () => {
 
 describe('config', () => {
   it('honours quietComebacks: false by dropping the quiet item', () => {
-    render(<App config={{ showRank: true, defaultAudience: 'friends', quietComebacks: false }} />);
-    fireEvent.press(screen.getByText('Skip for now'));
+    open({ config: { showRank: true, defaultAudience: 'friends', quietComebacks: false } });
+    goToFriends();
     expect(screen.queryByText(/Tomás’s week didn’t finish/)).toBeNull();
   });
 
   it('shows the quiet item by default', () => {
     open();
+    goToFriends();
     expect(screen.getByText(/Tomás’s week didn’t finish/)).toBeTruthy();
   });
 });
@@ -163,5 +175,99 @@ describe('ledger', () => {
     fireEvent.press(screen.getByText('See this week’s ledger'));
     expect(screen.getByText('Not yet')).toBeTruthy();
     expect(screen.getByText(`Stake Week ${CURRENT_WEEK.number + 1}`)).toBeTruthy();
+  });
+});
+
+describe('a genuinely empty first run', () => {
+  it('shows nothing staked on your own week', () => {
+    openFresh();
+    goToPersonal();
+    expect(screen.getByText('Nothing staked yet')).toBeTruthy();
+    expect(screen.getByText('The week doesn’t count itself.')).toBeTruthy();
+  });
+
+  it('asks you to bring someone in rather than showing an empty feed', () => {
+    openFresh();
+    goToFriends();
+    expect(screen.getByText('Nobody here yet')).toBeTruthy();
+  });
+
+  it('shows a circle of one', () => {
+    openFresh();
+    fireEvent.press(screen.getByLabelText('Circle'));
+    expect(screen.getByText('A circle of one')).toBeTruthy();
+    expect(screen.queryByText('Top performers this week')).toBeNull();
+  });
+
+  it('has no bell badge and a written notifications empty state', () => {
+    openFresh();
+    expect(screen.getByLabelText('Notifications')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Notifications'));
+    expect(screen.getByText('Nothing needs you')).toBeTruthy();
+    expect(screen.queryByText('Mark all read')).toBeNull();
+  });
+
+  it('zeroes the profile instead of showing the demo numbers', () => {
+    openFresh();
+    fireEvent.press(screen.getByLabelText('Me'));
+    // A fresh profile legitimately has several zeros; what matters is that
+    // none of the demo's numbers survived.
+    expect(screen.getAllByText('0').length).toBeGreaterThan(0);
+    expect(screen.queryByText('2,840')).toBeNull();
+    expect(screen.queryByText('37')).toBeNull();
+    expect(screen.queryByText('5w record')).toBeNull();
+    expect(screen.getByText('Starts here')).toBeTruthy();
+    expect(screen.getByText('No streak yet. Close a week and it starts.')).toBeTruthy();
+    expect(screen.getByText(/This is your first week/)).toBeTruthy();
+    // You haven't joined a circle, so don't claim membership of one.
+    expect(screen.getByText('@alexrivera')).toBeTruthy();
+    expect(screen.queryByText(/The Basement/)).toBeNull();
+    expect(screen.getByText('Nothing exchanged yet. A cheer is one tap.')).toBeTruthy();
+    // Personal bests read as em-dashes, never as a bare zero.
+    expect(screen.getAllByText('—').length).toBe(4);
+  });
+
+  it('has no best week to beat, and no NaN in the Plan hero', () => {
+    openFresh();
+    fireEvent.press(screen.getByLabelText('Plan your week'));
+    expect(screen.getByText('Nothing to beat yet. This is the one that sets the bar.')).toBeTruthy();
+    expect(screen.queryByText(/BEST/)).toBeNull();
+    expect(screen.queryByText(/NaN/)).toBeNull();
+    // Nobody to pair with, and nothing to pick back up.
+    expect(screen.queryByText('In it with me')).toBeNull();
+    expect(screen.queryByText('Pick it back up')).toBeNull();
+  });
+
+  it('still lets you stake your first task', () => {
+    openFresh();
+    fireEvent.press(screen.getByLabelText('Plan your week'));
+    fireEvent.changeText(screen.getByLabelText('What will you do?'), 'Walk every morning');
+    fireEvent.press(screen.getByText(/Stake it on/));
+    expect(screen.getByText('Staked · 1')).toBeTruthy();
+  });
+});
+
+describe('reset', () => {
+  it('offers both a fresh start and the demo', () => {
+    const spy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    open();
+    fireEvent.press(screen.getByLabelText('Me'));
+    fireEvent.press(screen.getByLabelText('Reset app data'));
+
+    const buttons = spy.mock.calls[0][2] ?? [];
+    expect(buttons.map((b) => b.text)).toEqual(['Cancel', 'Fresh start', 'Reload demo']);
+    spy.mockRestore();
+  });
+
+  it('empties the account when fresh start is chosen', () => {
+    const spy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    open();
+    fireEvent.press(screen.getByLabelText('Me'));
+    fireEvent.press(screen.getByLabelText('Reset app data'));
+    const buttons = spy.mock.calls[0][2] ?? [];
+    act(() => buttons.find((b) => b.text === 'Fresh start')?.onPress?.());
+    spy.mockRestore();
+
+    expect(screen.getByText('Nothing staked yet')).toBeTruthy();
   });
 });

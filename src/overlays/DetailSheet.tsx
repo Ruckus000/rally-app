@@ -13,7 +13,6 @@ import {
   FIRST,
   GLOBAL_POSTS,
   INITIALS,
-  INVITE_SUGGESTIONS,
   ME,
   NAME,
   Note,
@@ -419,9 +418,9 @@ function PersonSheet({ who }: { who: PersonKey }) {
 /* ── invite ─────────────────────────────────────────────────────────────── */
 
 function InviteSheet() {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, world } = useStore();
   const pending = Object.keys(state.pending) as PersonKey[];
-  const suggestions = INVITE_SUGGESTIONS.filter((k) => !state.pending[k]);
+  const suggestions = world.inviteSuggestions.filter((k) => !state.pending[k]);
 
   return (
     <ScrollView
@@ -490,6 +489,11 @@ function InviteSheet() {
         People you might know
       </Caps>
       <View style={{ gap: 8 }}>
+        {suggestions.length === 0 ? (
+          <Sans size={13} color={color.muted} style={{ paddingHorizontal: 2 }}>
+            Nobody to suggest yet. The link above is the way in.
+          </Sans>
+        ) : null}
         {suggestions.map((k) => (
           <View key={k} style={inviteRow}>
             <Avatar who={k} size={32} />

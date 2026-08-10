@@ -6,9 +6,11 @@
  */
 import { Action, DEFAULT_CONFIG, reducer, State } from '../store';
 import { MY_TASKS, MOMENTS } from '../../data/fixtures';
+import { WORLD, getWorld } from '../../data/seed';
 import { CURRENT_WEEK } from '../../data/week';
 
 const base: State = {
+  account: 'seeded',
   tab: 'week',
   scope: 'friends',
   day: CURRENT_WEEK.today,
@@ -276,6 +278,72 @@ describe('audience', () => {
     expect(s.myTasks.find((t) => t.id === 'm1')?.aud).toBe('private');
     s = reducer(s, { type: 'CYCLE_TASK_AUD', id: 'm1' });
     expect(s.myTasks.find((t) => t.id === 'm1')?.aud).toBe('friends');
+  });
+});
+
+describe('accounts', () => {
+  /** Onboarding starts from nothing — the fixtures aren't the initial state. */
+  const undecided: State = { ...base, account: null, myTasks: [], moments: [], onboardStep: 'join' };
+
+  it('starts empty before you have chosen', () => {
+    expect(getWorld(undecided.account).members).toEqual(['you']);
+    expect(undecided.myTasks).toHaveLength(0);
+  });
+
+  it('joining is what seeds the circle and the demo week', () => {
+    const s = reducer(undecided, { type: 'JOIN_CIRCLE' });
+    expect(s.account).toBe('seeded');
+    expect(s.myTasks).toHaveLength(MY_TASKS.length);
+    expect(s.moments).toHaveLength(MOMENTS.length);
+    expect(s.onboardStep).toBe('plan');
+    expect(getWorld(s.account).members.length).toBeGreaterThan(1);
+  });
+
+  it('skipping leaves a genuinely empty account', () => {
+    const s = reducer(undecided, { type: 'SKIP_ONBOARD' });
+    expect(s.account).toBe('fresh');
+    expect(s.myTasks).toHaveLength(0);
+    expect(s.moments).toHaveLength(0);
+    expect(s.onboardStep).toBeNull();
+
+    const world = getWorld(s.account);
+    expect(world.members).toEqual(['you']);
+    expect(world.notifications).toHaveLength(0);
+    expect(world.pastWeeks).toHaveLength(0);
+    expect(world.yearLevels).toHaveLength(0);
+    expect(world.suggestions).toHaveLength(0);
+    expect(world.profile.allTimePoints).toBe(0);
+    expect(world.profile.currentStreak).toBe(0);
+  });
+
+  it('does not downgrade an account that already joined', () => {
+    const joined = reducer(undecided, { type: 'JOIN_CIRCLE' });
+    expect(reducer(joined, { type: 'SKIP_ONBOARD' }).account).toBe('seeded');
+  });
+
+  it('resets to a fresh account, clearing your work', () => {
+    const dirty = run(base, { type: 'TOGGLE_TASK', id: 'm2' }, { type: 'ACT', id: 'f1', kind: 'cheer' });
+    const s = reducer(dirty, { type: 'RESET', mode: 'fresh' });
+    expect(s.account).toBe('fresh');
+    expect(s.myTasks).toHaveLength(0);
+    expect(s.acted).toEqual({});
+    expect(s.onboardStep).toBeNull();
+    expect(s.scope).toBe('personal');
+  });
+
+  it('resets back to the demo', () => {
+    const s = reducer({ ...base, account: 'fresh', myTasks: [] }, { type: 'RESET', mode: 'seeded' });
+    expect(s.myTasks).toHaveLength(MY_TASKS.length);
+    expect(s.scope).toBe('friends');
+    expect(s.onboardStep).toBeNull();
+  });
+
+  it('marks read only the notifications the account actually has', () => {
+    const fresh: State = { ...base, account: 'fresh' };
+    expect(reducer(fresh, { type: 'READ_ALL_NOTIFS' }).notifRead).toEqual({});
+    expect(
+      Object.keys(reducer(base, { type: 'READ_ALL_NOTIFS' }).notifRead),
+    ).toHaveLength(WORLD.seeded.notifications.length);
   });
 });
 

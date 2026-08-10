@@ -58,7 +58,7 @@ The handoff lists seven gaps needing a product decision before building. What th
 2. **Calendar math** — weeks start Monday, day 0 is Monday, dates render in the device timezone, and the week closes at the end of Sunday.
 3. **Two creation paths** — both kept, but differentiated: a quick log carries `source: 'quicklog'` and reads "Quick log" in its category line, so it never looks like a stake worth 45 points.
 4. **Task editing** — implemented. Your own stake carries Edit / Mark done / Unstake in its detail sheet; Edit routes to Plan with the stake loaded and the composer switched to "Save it on {Day}". Closing Plan, routing away or unstaking abandons the edit rather than half-applying it.
-5. **True empty state** — written empty states for an empty feed, a circle of one, and no week history. A full no-account first run is still undesigned.
+5. **True empty state** — implemented. The fixtures are no longer the initial state: they're one of two seeds picked at onboarding. **Joining** The Basement gets the populated demo; **skipping** gets a genuinely empty account — no circle, no tasks, no history, no notifications, a zeroed profile. Every surface has written copy for it.
 6. **Notification read state** — real per-item tracking (`notifRead`), so the badge counts what you haven't opened rather than clearing wholesale. "Mark all read" is available in the overlay header.
 7. **Fixture data** — unchanged, and isolated in one file.
 
@@ -79,6 +79,17 @@ The handoff lists seven gaps needing a product decision before building. What th
 | `defaultAudience` | `'friends'` | Pre-selects the composer's SEEN BY |
 | `quietComebacks` | `true` | Off → suppresses quiet comeback items from the feed |
 
+## Persistence
+
+Durable state is written to AsyncStorage, debounced, and flushed when the app backgrounds. Overlay flags, draft buffers and the toast are deliberately excluded — reopening into a half-written composer would be wrong. The payload carries a version and a week number; a mismatch, malformed JSON, or a task with an out-of-range day discards the whole thing rather than half-restoring into a crash.
+
+Two consequences worth knowing:
+
+- Editing a fixture won't reach an existing install until the version in `src/state/persistence.ts` is bumped, or you reset.
+- **It's plaintext at rest.** Fine for fixtures, but task titles are exactly what gets personal — the demo literally includes "Therapy homework". Before this holds real content it wants `expo-secure-store` or an encrypted store.
+
+**Reset app data** at the bottom of Me offers *Fresh start* (empty account) or *Reload demo*, so both states are reachable without reinstalling.
+
 ## No backend
 
-State lives in memory for the session. The reducer's shape maps onto what a backend would need: week-scoped task CRUD with audience and pairing, a cheer ledger keyed by actor, threaded notes per task and per person, a per-week rollup, a ranked circle, and a tiered notification service with batching.
+State lives on device only. The reducer's shape maps onto what a backend would need: week-scoped task CRUD with audience and pairing, a cheer ledger keyed by actor, threaded notes per task and per person, a per-week rollup, a ranked circle, and a tiered notification service with batching.

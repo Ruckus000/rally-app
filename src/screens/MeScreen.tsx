@@ -2,17 +2,9 @@
  * Me — profile, points, streak, year grid, exchange, owed, bests, past weeks.
  */
 import React from 'react';
-import { View } from 'react-native';
+import { Alert, View } from 'react-native';
 import { color, onDark, radius, shadows, yearLevelColor } from '../theme/tokens';
-import {
-  CIRCLE_NAME,
-  ME,
-  NAME,
-  OWED_SEED,
-  PAST_WEEKS,
-  WEEK_HISTORY,
-  YEAR_LEVELS,
-} from '../data/fixtures';
+import { CIRCLE_NAME, ME, NAME, WEEK_HISTORY } from '../data/fixtures';
 import { CURRENT_WEEK } from '../data/week';
 import { useStore } from '../state/store';
 import { allTasksDone, cheersGiven, weekPoints } from '../state/selectors';
@@ -20,12 +12,16 @@ import { Avatar } from '../components/Avatar';
 import { Bri, Caps, GlowBloom, Sans, Tap, fill, row } from '../components/primitives';
 
 export function MeScreen() {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, world } = useStore();
+  const { profile } = world;
   const won = allTasksDone(state);
   const gave = cheersGiven(state);
-  const got = ME.cheersReceived;
+  const got = profile.cheersReceived;
   const exchangeTotal = gave + got || 1;
-  const owed = OWED_SEED.filter((o) => !state.replied[o.k]);
+  const owed = world.owed.filter((o) => !state.replied[o.k]);
+  // A closed week extends the streak; the bar shows where you'd land.
+  const streak = won ? profile.currentStreak + 1 : profile.currentStreak;
+  const toHold = Math.max(0, state.myTasks.filter((t) => !t.done).length);
 
   return (
     <View>
@@ -64,16 +60,17 @@ export function MeScreen() {
               {ME.name}
             </Bri>
             <Sans size={12} color={onDark.secondary} style={{ marginTop: 2 }}>
-              {ME.handle} · {CIRCLE_NAME}
+              {/* No circle, no circle name — you haven't joined one. */}
+              {world.members.length > 1 ? `${ME.handle} · ${CIRCLE_NAME}` : ME.handle}
             </Sans>
           </View>
           <Tap
             onPress={() => dispatch({ type: 'SET_TAB', tab: 'circle' })}
-            accessibilityLabel={`${ME.weeksIn} weeks in. Open your circle.`}
+            accessibilityLabel={`${profile.weeksIn} weeks in. Open your circle.`}
             style={{ alignItems: 'flex-end', padding: 2 }}
           >
             <Bri size={19} weight={800} color={color.lime}>
-              {ME.weeksIn}
+              {profile.weeksIn}
             </Bri>
             <Caps size={9.5} tracking={1.2} color={onDark.secondary}>
               Weeks in
@@ -84,7 +81,7 @@ export function MeScreen() {
         {/* 2 · points */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 11, marginTop: 22 }}>
           <Bri size={48} weight={800} tracking={-2.2} lineHeight={41} color={color.paper}>
-            {ME.allTimePoints.toLocaleString()}
+            {profile.allTimePoints.toLocaleString()}
           </Bri>
           <View style={{ paddingBottom: 4 }}>
             <Caps size={9.5} tracking={1.5} color={onDark.secondary} style={{ lineHeight: 13 }}>
@@ -115,18 +112,20 @@ export function MeScreen() {
                   flex: 1,
                   height: 7,
                   borderRadius: 999,
-                  backgroundColor: i < (won ? 4 : 3) ? color.lime : 'rgba(241,242,236,.14)',
+                  backgroundColor: i < streak ? color.lime : 'rgba(241,242,236,.14)',
                 }}
               />
             ))}
           </View>
           <View style={[row, { justifyContent: 'space-between', gap: 10, marginTop: 10 }]}>
             <Sans size={12.5} color={onDark.bodySecondary}>
-              {won ? '🔥 4 weeks — held. Nothing left to close.' : '🔥 3 weeks — close 2 to hold it'}
+              {streakLine(streak, won, toHold)}
             </Sans>
-            <Sans size={11} weight={700} color={color.lime}>
-              {ME.longestStreak}w record
-            </Sans>
+            {profile.longestStreak ? (
+              <Sans size={11} weight={700} color={color.lime}>
+                {profile.longestStreak}w record
+              </Sans>
+            ) : null}
           </View>
         </Tap>
       </View>
@@ -147,10 +146,12 @@ export function MeScreen() {
             Every week since you joined
           </Caps>
           <Sans size={11} weight={700} color={color.moss}>
-            {YEAR_LEVELS.filter((v) => v >= 2).length} of {YEAR_LEVELS.length} finished
+            {world.yearLevels.length
+              ? `${world.yearLevels.filter((v) => v >= 2).length} of ${world.yearLevels.length} finished`
+              : 'Starts here'}
           </Sans>
         </View>
-        <YearGrid />
+        <YearGrid levels={world.yearLevels} />
       </View>
 
       {/* 5 · exchange */}
@@ -195,9 +196,11 @@ export function MeScreen() {
         </View>
 
         <Sans size={12} lineHeight={17} color={color.muted} style={{ marginTop: 8 }}>
-          {gave >= got
-            ? 'You give more than you get. That is a good problem.'
-            : `${got - gave} cheers behind. Nobody is counting except this bar.`}
+          {!gave && !got
+            ? 'Nothing exchanged yet. A cheer is one tap.'
+            : gave >= got
+              ? 'You give more than you get. That is a good problem.'
+              : `${got - gave} cheers behind. Nobody is counting except this bar.`}
         </Sans>
         <Sans size={11} color={color.muted} style={{ marginTop: 4, opacity: 0.8 }}>
           Every cheer lands on their phone, with your name on it.
@@ -262,10 +265,13 @@ export function MeScreen() {
         Personal bests
       </Caps>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 }}>
-        <BestTile value={String(ME.bestWeekPoints)} label={`Best week · ${ME.bestWeekLabel}`} />
-        <BestTile value={`${ME.longestStreak}w`} label="Longest streak" />
-        <BestTile value={String(ME.mostTasksClosed)} label="Most tasks closed" />
-        <BestTile value={String(ME.perfectWeeks)} label="Perfect weeks" />
+        <BestTile
+          value={profile.bestWeekPoints ? String(profile.bestWeekPoints) : '—'}
+          label={profile.bestWeekPoints ? `Best week · ${profile.bestWeekLabel}` : 'Best week'}
+        />
+        <BestTile value={profile.longestStreak ? `${profile.longestStreak}w` : '—'} label="Longest streak" />
+        <BestTile value={profile.mostTasksClosed ? String(profile.mostTasksClosed) : '—'} label="Most tasks closed" />
+        <BestTile value={profile.perfectWeeks ? String(profile.perfectWeeks) : '—'} label="Perfect weeks" />
       </View>
 
       {/* 8 · past weeks — each opens its own ledger with that week's data */}
@@ -273,12 +279,12 @@ export function MeScreen() {
         Past weeks
       </Caps>
       <View style={{ gap: 8, marginBottom: 16 }}>
-        {PAST_WEEKS.length === 0 ? (
+        {world.pastWeeks.length === 0 ? (
           <Sans size={13} lineHeight={18} color={color.muted} style={{ paddingHorizontal: 2 }}>
             This is your first week. There’s nothing behind you yet — that’s the point.
           </Sans>
         ) : null}
-        {PAST_WEEKS.map((n) => {
+        {world.pastWeeks.map((n) => {
           const w = WEEK_HISTORY[n];
           return (
             <Tap
@@ -328,15 +334,64 @@ export function MeScreen() {
           See this week’s ledger
         </Bri>
       </Tap>
+
+      <ResetControl />
     </View>
   );
+}
+
+/**
+ * The escape hatch. State survives relaunches now, so there has to be a way
+ * back — and it doubles as the way to see the empty first-run account without
+ * reinstalling.
+ */
+function ResetControl() {
+  const { dispatch } = useStore();
+
+  const confirm = () =>
+    Alert.alert(
+      'Reset app data',
+      'This clears everything you’ve done and starts over.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Fresh start',
+          style: 'destructive',
+          onPress: () => dispatch({ type: 'RESET', mode: 'fresh' }),
+        },
+        {
+          text: 'Reload demo',
+          onPress: () => dispatch({ type: 'RESET', mode: 'seeded' }),
+        },
+      ],
+      { cancelable: true },
+    );
+
+  return (
+    <Tap
+      onPress={confirm}
+      accessibilityLabel="Reset app data"
+      style={{ alignItems: 'center', minHeight: 44, justifyContent: 'center', marginTop: 14 }}
+    >
+      <Sans size={12} weight={600} color={color.faintInk}>
+        Reset app data
+      </Sans>
+    </Tap>
+  );
+}
+
+/** The streak caption. Zero needs its own line — "0 weeks" reads as a scold. */
+function streakLine(streak: number, won: boolean, open: number) {
+  if (won) return `🔥 ${streak} week${streak === 1 ? '' : 's'} — held. Nothing left to close.`;
+  if (!streak) return 'No streak yet. Close a week and it starts.';
+  return `🔥 ${streak} week${streak === 1 ? '' : 's'} — close ${open} to hold it`;
 }
 
 const GRID_COLUMNS = 13;
 const GRID_GAP = 4;
 
 /** One cell per week since joining, plus this week and the one being staked. */
-function YearGrid() {
+function YearGrid({ levels }: { levels: number[] }) {
   const [width, setWidth] = React.useState(0);
   // Floor the cell: a fractional width overflows the row by a hair on Android
   // and wraps the grid to 12 columns. The handoff specifies 13.
@@ -346,12 +401,16 @@ function YearGrid() {
   return (
     <View
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-      accessibilityLabel={`${YEAR_LEVELS.filter((v) => v >= 2).length} of ${YEAR_LEVELS.length} weeks finished since joining`}
+      accessibilityLabel={
+        levels.length
+          ? `${levels.filter((v) => v >= 2).length} of ${levels.length} weeks finished since joining`
+          : 'Your first week — no history yet'
+      }
       style={{ flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP }}
     >
       {cell
         ? [
-            ...YEAR_LEVELS.map((v, i) => (
+            ...levels.map((v, i) => (
               <View key={i} style={[box, { backgroundColor: yearLevelColor[v] }]} />
             )),
             <View

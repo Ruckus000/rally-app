@@ -5,27 +5,19 @@
  * must be the metric the ranking uses — showing points there would imply a
  * different sort.
  */
-import {
-  CIRCLE,
-  FIRST,
-  INITIALS,
-  ME,
-  MemberStats,
-  NAME,
-  NOTIFICATIONS,
-  STATS,
-  Task,
-} from '../data/fixtures';
+import { FIRST, INITIALS, MemberStats, NAME, STATS, Task } from '../data/fixtures';
+import { getWorld } from '../data/seed';
 import type { PersonKey } from '../theme/tokens';
 import type { State } from './store';
 
 export const cheersGiven = (state: State) =>
-  ME.baseCheersGiven + Object.keys(state.acted).filter((k) => k.endsWith(':cheer')).length;
+  getWorld(state.account).profile.baseCheersGiven +
+  Object.keys(state.acted).filter((k) => k.endsWith(':cheer')).length;
 
 export const myStats = (state: State): MemberStats => ({
   done: state.myTasks.filter((t) => t.done).length,
   total: state.myTasks.length,
-  streak: ME.currentStreak,
+  streak: getWorld(state.account).profile.currentStreak,
   given: cheersGiven(state),
 });
 
@@ -57,7 +49,7 @@ const score = (s: MemberStats) => (s.total ? s.done * (s.done / s.total) : 0);
 
 export function ranking(state: State): RankedMember[] {
   const mine = myStats(state);
-  return CIRCLE.map((k) => {
+  return getWorld(state.account).members.map((k) => {
     const s = k === 'you' ? mine : STATS[k as Exclude<PersonKey, 'you'>];
     return { k, s, score: score(s) };
   })
@@ -83,7 +75,9 @@ export const totalCheersExchanged = (state: State) =>
 
 /** Unread drives the bell badge, and only the "needs you" tier counts. */
 export const unreadNeedsCount = (state: State) =>
-  NOTIFICATIONS.filter((n) => n.tier === 'needs' && !state.notifRead[n.id]).length;
+  getWorld(state.account).notifications.filter(
+    (n) => n.tier === 'needs' && !state.notifRead[n.id],
+  ).length;
 
 /** Personal feed order: closed tasks first (latest day first), then STILL OPEN. */
 export function personalFeed(state: State) {

@@ -5,13 +5,8 @@
 import React from 'react';
 import { ScrollView, View } from 'react-native';
 import { color, gutter, radius, shadows } from '../theme/tokens';
-import {
-  FIRST,
-  NOTIFICATIONS,
-  NOTIF_TIERS,
-  Notification,
-  NotifTier,
-} from '../data/fixtures';
+import { FIRST, NOTIF_TIERS, Notification, NotifTier } from '../data/fixtures';
+import { EmptyState } from '../components/FeedCards';
 import { useStore } from '../state/store';
 import { Icon, IconName } from '../components/Icon';
 import { Avatar } from '../components/Avatar';
@@ -33,7 +28,8 @@ const TIER_ICON: Partial<Record<Notification['kind'], IconName>> = {
 };
 
 export function NotificationsOverlay({ topInset }: { topInset: number }) {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, world } = useStore();
+  const all = world.notifications;
   const close = () => dispatch({ type: 'CLOSE_NOTIF' });
 
   return (
@@ -50,20 +46,29 @@ export function NotificationsOverlay({ topInset }: { topInset: number }) {
         <Bri size={19} weight={800} tracking={-0.3} style={fill}>
           Notifications
         </Bri>
-        <Tap
-          onPress={() => dispatch({ type: 'READ_ALL_NOTIFS' })}
-          accessibilityLabel="Mark all as read"
-          style={{ paddingHorizontal: 10, minHeight: 40, justifyContent: 'center' }}
-        >
-          <Sans size={12} weight={700} color={color.moss}>
-            Mark all read
-          </Sans>
-        </Tap>
+        {all.length ? (
+          <Tap
+            onPress={() => dispatch({ type: 'READ_ALL_NOTIFS' })}
+            accessibilityLabel="Mark all as read"
+            style={{ paddingHorizontal: 10, minHeight: 40, justifyContent: 'center' }}
+          >
+            <Sans size={12} weight={700} color={color.moss}>
+              Mark all read
+            </Sans>
+          </Tap>
+        ) : null}
         <Tap onPress={close} accessibilityLabel="Close notifications" style={closeButton}>
           <Icon name="close" size={16} color={color.ink} />
         </Tap>
       </View>
 
+      {all.length === 0 ? (
+        <EmptyState
+          title="Nothing needs you"
+          body="Nudges only arrive when someone is actually waiting on you. It’s quiet."
+        />
+      ) : (
+      <>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -73,7 +78,7 @@ export function NotificationsOverlay({ topInset }: { topInset: number }) {
         {FILTERS.map((f) => {
           const on = state.notifFilter === f.k;
           const count =
-            f.k === 'all' ? NOTIFICATIONS.length : NOTIFICATIONS.filter((n) => n.tier === f.k).length;
+            f.k === 'all' ? all.length : all.filter((n) => n.tier === f.k).length;
           return (
             <Tap
               key={f.k}
@@ -119,7 +124,7 @@ export function NotificationsOverlay({ topInset }: { topInset: number }) {
       >
         {NOTIF_TIERS.filter((t) => state.notifFilter === 'all' || state.notifFilter === t.key).map(
           (tier) => {
-            const items = NOTIFICATIONS.filter((n) => n.tier === tier.key);
+            const items = all.filter((n) => n.tier === tier.key);
             return (
               <View key={tier.key} style={{ marginBottom: 22 }}>
                 <View style={[row, { gap: 8, marginHorizontal: 2, marginBottom: 4 }]}>
@@ -159,6 +164,8 @@ export function NotificationsOverlay({ topInset }: { topInset: number }) {
           {'Nudges only arrive when someone is actually waiting on you.\nCheers batch into one.'}
         </Sans>
       </ScrollView>
+      </>
+      )}
     </Overlay>
   );
 }

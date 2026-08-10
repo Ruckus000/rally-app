@@ -6,7 +6,7 @@ import { Icon } from '../components/Icon';
 import { useStore } from '../state/store';
 import { unreadNeedsCount } from '../state/selectors';
 import { CURRENT_WEEK } from '../data/week';
-import { CIRCLE, ME } from '../data/fixtures';
+import { ME } from '../data/fixtures';
 import type { Scope } from '../state/store';
 
 const SCOPES: { key: Scope; label: string }[] = [
@@ -16,7 +16,7 @@ const SCOPES: { key: Scope; label: string }[] = [
 ];
 
 export function Header({ topInset }: { topInset: number }) {
-  const { state, dispatch, config } = useStore();
+  const { state, dispatch, config, world } = useStore();
   const unread = unreadNeedsCount(state);
   const isWeek = state.tab === 'week';
 
@@ -27,8 +27,8 @@ export function Header({ topInset }: { topInset: number }) {
       ? `${CURRENT_WEEK.dateRange} · ${CURRENT_WEEK.todayName}`
       : state.tab === 'circle'
         ? config.showRank
-          ? `${CIRCLE.length} people, ranked by follow-through`
-          : `${CIRCLE.length} people, checking in on each other`
+          ? `${world.members.length} people, ranked by follow-through`
+          : `${world.members.length} people, checking in on each other`
         : `${ME.shortHandle} · ${ME.since}`;
 
   return (

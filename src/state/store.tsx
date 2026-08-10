@@ -7,23 +7,24 @@
  * callers have to remember to reset.
  */
 import React, { createContext, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
+import { AppState } from 'react-native';
 import {
   AUDIENCES,
   Audience,
   CATEGORY_POINTS,
   Category,
   FIRST,
-  MY_TASKS,
-  MOMENTS,
   ME,
+  Moment,
   Note,
-  NOTIFICATIONS,
   NotifTier,
   QUICK_LOG_POINTS,
   Suggestion,
   Task,
 } from '../data/fixtures';
 import { CURRENT_WEEK, DayIndex } from '../data/week';
+import { AccountMode, World, getWorld, seedMoments, seedTasks } from '../data/seed';
+import { flush, load, save } from './persistence';
 import type { PersonKey } from '../theme/tokens';
 
 export type Tab = 'week' | 'circle' | 'me';
@@ -45,11 +46,16 @@ export const DEFAULT_CONFIG: Config = {
 };
 
 export type State = {
+  /**
+   * Which seed this account got. null while onboarding is still undecided —
+   * the world is treated as fresh until you either join or skip.
+   */
+  account: AccountMode | null;
   tab: Tab;
   scope: Scope;
   day: DayIndex;
   myTasks: Task[];
-  moments: typeof MOMENTS;
+  moments: Moment[];
   /** `${id}:${kind}` → true. kind: cheer | in | cosign | nod | back | share */
   acted: Record<string, true>;
   replied: Partial<Record<PersonKey, true>>;
@@ -86,12 +92,14 @@ export type State = {
   toastSeq: number;
 };
 
+/** An account starts empty; onboarding decides what it gets seeded with. */
 const initialState: State = {
+  account: null,
   tab: 'week',
   scope: 'friends',
   day: CURRENT_WEEK.today,
-  myTasks: MY_TASKS,
-  moments: MOMENTS,
+  myTasks: [],
+  moments: [],
   acted: {},
   replied: {},
   pending: {},
@@ -158,6 +166,7 @@ export type Action =
   | { type: 'REPLY'; key: PersonKey }
   | { type: 'INVITE'; key: PersonKey }
   | { type: 'JOIN_CIRCLE' }
+  | { type: 'RESET'; mode: AccountMode }
   | { type: 'SKIP_ONBOARD' }
   | { type: 'FINISH_ONBOARD' }
   | { type: 'DISMISS_TOOLTIP' };
@@ -500,7 +509,7 @@ export function reducer(state: State, action: Action): State {
     case 'READ_ALL_NOTIFS':
       return {
         ...state,
-        notifRead: NOTIFICATIONS.reduce<Record<string, true>>((acc, n) => {
+        notifRead: getWorld(state.account).notifications.reduce<Record<string, true>>((acc, n) => {
           acc[n.id] = true;
           return acc;
         }, { ...state.notifRead }),
@@ -516,10 +525,29 @@ export function reducer(state: State, action: Action): State {
       );
 
     case 'JOIN_CIRCLE':
-      return { ...state, onboardStep: 'plan' };
+      // Joining is what grants you the circle, its history and the demo week.
+      return {
+        ...state,
+        account: 'seeded',
+        myTasks: seedTasks('seeded'),
+        moments: seedMoments('seeded'),
+        onboardStep: 'plan',
+      };
 
     case 'SKIP_ONBOARD':
-      return { ...state, onboardStep: null };
+      // Declining the invite leaves you with a genuinely empty account.
+      return { ...state, account: state.account ?? 'fresh', onboardStep: null };
+
+    case 'RESET':
+      return {
+        ...initialState,
+        account: action.mode,
+        myTasks: seedTasks(action.mode),
+        moments: seedMoments(action.mode),
+        onboardStep: null,
+        tab: 'week',
+        scope: action.mode === 'seeded' ? 'friends' : 'personal',
+      };
 
     case 'FINISH_ONBOARD':
       return { ...state, onboardStep: null, tab: 'week', scope: 'personal' };
@@ -538,6 +566,8 @@ type Store = {
   state: State;
   dispatch: React.Dispatch<Action>;
   config: Config;
+  /** What this account has: circle, history, suggestions, profile numbers. */
+  world: World;
   /** Resolved audience for the composer: the draft choice, or the configured default. */
   effectiveAudience: Audience;
 };
@@ -547,11 +577,20 @@ const StoreContext = createContext<Store | null>(null);
 export function StoreProvider({
   children,
   config = DEFAULT_CONFIG,
+  restored,
+  persist = true,
 }: {
   children: React.ReactNode;
   config?: Config;
+  /** State loaded from disk before first paint. */
+  restored?: Partial<State> | null;
+  /** Tests turn this off so no debounced writes outlive the suite. */
+  persist?: boolean;
 }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const [state, dispatch] = useReducer(
+    reducer,
+    restored ? { ...initialState, ...restored } : initialState,
+  );
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Single-slot toast: each new message restarts the dismissal clock.
@@ -564,17 +603,37 @@ export function StoreProvider({
     };
   }, [state.toast, state.toastSeq]);
 
+  // Persist the durable slices. `save` debounces and skips no-op writes itself.
+  useEffect(() => {
+    if (persist) save(state);
+  }, [state, persist]);
+
+  // Backgrounding is the last reliable moment before a force-quit.
+  useEffect(() => {
+    if (!persist) return;
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next !== 'active') flush();
+    });
+    return () => sub.remove();
+  }, [persist]);
+
   const value = useMemo<Store>(
     () => ({
       state,
       dispatch,
       config,
+      world: getWorld(state.account),
       effectiveAudience: state.draftAud ?? config.defaultAudience,
     }),
     [state, config],
   );
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+}
+
+/** Load persisted state before the first render. Used by the root entry point. */
+export async function loadPersistedState(): Promise<Partial<State> | null> {
+  return load();
 }
 
 export function useStore() {

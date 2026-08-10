@@ -9,7 +9,7 @@ import React, { useEffect, useRef } from 'react';
 import { ScrollView, StatusBar, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { color, gutter } from './theme/tokens';
-import { StoreProvider, useStore, Config } from './state/store';
+import { StoreProvider, useStore, Config, State } from './state/store';
 import { Header } from './shell/Header';
 import { TabBar } from './shell/TabBar';
 import { WeekScreen } from './screens/WeekScreen';
@@ -22,10 +22,20 @@ import { JoinOverlay } from './overlays/JoinOverlay';
 import { DetailSheet } from './overlays/DetailSheet';
 import { Toast } from './components/Toast';
 
-export function App({ config }: { config?: Config }) {
+export function App({
+  config,
+  restored,
+  persist,
+}: {
+  config?: Config;
+  /** State loaded from disk before first paint. */
+  restored?: Partial<State> | null;
+  /** Tests turn this off so no debounced writes outlive the suite. */
+  persist?: boolean;
+}) {
   return (
     <SafeAreaProvider>
-      <StoreProvider config={config}>
+      <StoreProvider config={config} restored={restored} persist={persist}>
         <Shell />
       </StoreProvider>
     </SafeAreaProvider>

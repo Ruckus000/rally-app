@@ -5,13 +5,7 @@
 import React from 'react';
 import { TextInput, View } from 'react-native';
 import { color, radius, shadows } from '../theme/tokens';
-import {
-  FIRST,
-  GLOBAL_POSTS,
-  Moment,
-  NAME,
-  parseHours,
-} from '../data/fixtures';
+import { FIRST, GLOBAL_POSTS, Moment, NAME, parseHours } from '../data/fixtures';
 import { useStore } from '../state/store';
 import { allTasksDone, personalFeed, stakedPoints, weekPoints } from '../state/selectors';
 import { Avatar } from '../components/Avatar';
@@ -19,6 +13,7 @@ import { Icon } from '../components/Icon';
 import {
   BigCard,
   EmptyFeed,
+  EmptyState,
   FeedLabel,
   MineRow,
   MineWinCard,
@@ -38,7 +33,7 @@ export function WeekScreen() {
       {scope === 'friends' ? <FriendsFeed /> : null}
       {scope === 'global' ? <GlobalFeed /> : null}
 
-      {scope === 'friends' ? (
+      {scope === 'friends' && state.moments.length ? (
         <Tap
           onPress={() => dispatch({ type: 'OPEN_WRAP', week: null })}
           style={{ paddingTop: 16, paddingBottom: 6, paddingHorizontal: 12, alignItems: 'center' }}
@@ -153,7 +148,7 @@ function PersonalHeader() {
 }
 
 function PersonalFeed() {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, world } = useStore();
   const { done, open } = personalFeed(state);
   const won = allTasksDone(state);
 
@@ -163,6 +158,7 @@ function PersonalFeed() {
         <MineWinCard
           taskCount={state.myTasks.length}
           points={stakedPoints(state)}
+          streak={world.profile.currentStreak + 1}
           shared={!!state.acted['mywin:share']}
           onShare={() =>
             dispatch({ type: 'ACT', id: 'mywin', kind: 'share', toast: 'The circle will see this one' })
@@ -199,11 +195,31 @@ function PersonalFeed() {
 /* ── friends ────────────────────────────────────────────────────────────── */
 
 function FriendsFeed() {
-  const { state, config } = useStore();
+  const { state, config, dispatch, world } = useStore();
 
   const moments = [...state.moments]
     .filter((m) => config.quietComebacks || m.kind !== 'quiet')
     .sort((a, b) => parseHours(a.time) - parseHours(b.time));
+
+  if (world.members.length < 2) {
+    return (
+      <EmptyState
+        title="Nobody here yet"
+        body="A circle is what makes the week count for something. Bring in someone who’d notice."
+        cta="Invite someone"
+        onPress={() => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'invite', id: null } })}
+      />
+    );
+  }
+
+  if (!moments.length) {
+    return (
+      <EmptyState
+        title="A quiet week so far"
+        body="Nobody in the circle has posted yet. That happens."
+      />
+    );
+  }
 
   return (
     <>

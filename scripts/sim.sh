@@ -30,10 +30,10 @@ UDID=$(xcrun simctl list devices available \
 [ -n "$UDID" ] || die "No simulator named '$DEVICE_NAME'. Set RALLY_SIM to one from: xcrun simctl list devices available"
 
 if [ "${1:-}" = "--build" ] || [ ! -d "$APP" ]; then
-  if [ ! -d ios/Pods ]; then
-    say "Installing pods"
-    (cd ios && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 pod install)
-  fi
+  # Always run: a newly added native dependency needs linking, and pod install
+  # is cheap once the spec repo is cached.
+  say "Installing pods"
+  (cd ios && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 pod install)
   say "Building Release (a few minutes the first time)"
   (cd ios && LANG=en_US.UTF-8 xcodebuild \
     -workspace Rally.xcworkspace \

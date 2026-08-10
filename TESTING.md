@@ -32,7 +32,9 @@ Same deal — boots an emulator, installs a release APK with the bundle baked in
 
 ## What to walk through
 
-The app opens on the **Join** screen every launch (state is in memory, so every launch is a clean slate — that's deliberate for testing).
+The app opens on the **Join** screen the first time only. After that your state is restored — including which tab and scope you were on. **Reset app data** at the bottom of Me gets you back.
+
+**The two accounts.** "Join The Basement" seeds the demo you've been testing. **"Skip for now" now gives a genuinely empty account** — no circle, no tasks, no history, no notifications, a zeroed profile — which is the first-run state the handoff left undesigned. Both are one tap apart, and the reset control switches between them.
 
 **Onboarding.** Join The Basement → the Plan overlay opens in first-run mode: eyebrow reads "ONE THING TO START", and a lime tooltip explains the SEEN BY control. Dismiss it with "Got it", then "Start my week" drops you on the Personal feed. "Skip for now" on either screen goes straight to the app.
 
@@ -53,6 +55,12 @@ The app opens on the **Join** screen every launch (state is in memory, so every 
 **Notifications.** The bell badge counts only the "Needs you" tier. Three tiers with blurbs, filter chips, and per-item read state — open one and the badge drops by one. "Mark all read" clears it. Rows route individually: some to a task sheet, some to a person, some to Plan, some to the ledger.
 
 **Ledger.** From Me ("See this week's ledger"), from a past-week row, from the Friends feed footer, or from a notification. Footer labels change with context: current week → `Not yet` / `Stake Week 34`; historical → `Close` / `Back to today`.
+
+## Persistence and the empty account
+
+- **State survives.** Stake something, close a task, then force-quit (`xcrun simctl terminate 2A856B32-BA15-407A-BC1C-851FFA42AC8F app.rally.weekspine`) and run `npm run sim`. Everything comes back, including your tab and scope. Overlays and sheets always start closed.
+- **Reset app data** — bottom of Me. *Fresh start* for the empty account, *Reload demo* for the populated one.
+- **On a fresh account**, check: Week/Personal is the empty card, Week/Friends asks you to invite someone, Circle is "A circle of one", Notifications says "Nothing needs you" with no badge, Me is zeroed with em-dash bests and a "Starts here" grid, and Plan has no best week to beat, no pair chips and no suggestion rail.
 
 ## Things worth poking at
 
@@ -98,7 +106,7 @@ Driving the app on a second platform and writing render tests each turned up def
 
 ## Known limits
 
-- **No persistence.** Every launch starts from the fixtures. This was your call ("full spec, mock data") and it makes each test run reproducible — but it does mean you can't leave state overnight.
 - **Simulator only.** Running on a physical iPhone needs an Apple developer team for signing, which I can't set up for you. Once you add one in Xcode, `npx expo run:ios --device` will do it.
 - **Android is verified but less exercised.** I built the release APK, walked Join → Plan → Week → Me on a Pixel 9 Pro emulator and fixed the two platform bugs it surfaced (above), but I didn't drive every screen there the way I did on iOS.
-- **No first-run empty state for a brand-new account** beyond the written empty states on the feed, Circle and past weeks.
+- **The global feed stays populated on a fresh account.** It's a public feed, so a brand-new user would still see it. Deliberate, but worth knowing when you're checking empty states.
+- **Plaintext at rest.** See the README — fine for fixtures, wants encrypting before real content.

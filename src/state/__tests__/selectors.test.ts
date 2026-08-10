@@ -15,10 +15,12 @@ import {
   unreadNeedsCount,
   weekPoints,
 } from '../selectors';
-import { CIRCLE, ME, MY_TASKS, MOMENTS, NOTIFICATIONS } from '../../data/fixtures';
+import { MY_TASKS, MOMENTS } from '../../data/fixtures';
+import { WORLD } from '../../data/seed';
 import { CURRENT_WEEK } from '../../data/week';
 
 const base: State = {
+  account: 'seeded',
   tab: 'week',
   scope: 'friends',
   day: CURRENT_WEEK.today,
@@ -76,7 +78,7 @@ describe('points', () => {
 
 describe('ranking', () => {
   it('ranks everyone in the circle', () => {
-    expect(ranking(base)).toHaveLength(CIRCLE.length);
+    expect(ranking(base)).toHaveLength(WORLD.seeded.members.length);
   });
 
   it('sorts by follow-through, so a full week beats a bigger partial one', () => {
@@ -111,7 +113,7 @@ describe('cheers', () => {
     let s = reducer(base, { type: 'ACT', id: 'f1', kind: 'cheer' });
     s = reducer(s, { type: 'ACT', id: 'f2', kind: 'in' });
     s = reducer(s, { type: 'ACT', id: 'f5', kind: 'cosign' });
-    expect(cheersGiven(s)).toBe(ME.baseCheersGiven + 1);
+    expect(cheersGiven(s)).toBe(WORLD.seeded.profile.baseCheersGiven + 1);
   });
 
   it('feeds the circle total', () => {
@@ -131,7 +133,7 @@ describe('personal feed order', () => {
 
 describe('unread badge', () => {
   it('counts only the tier that means someone is waiting', () => {
-    const needs = NOTIFICATIONS.filter((n) => n.tier === 'needs').length;
+    const needs = WORLD.seeded.notifications.filter((n) => n.tier === 'needs').length;
     expect(unreadNeedsCount(base)).toBe(needs);
   });
 

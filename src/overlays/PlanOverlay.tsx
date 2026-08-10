@@ -13,9 +13,6 @@ import {
   CATEGORY_HINT,
   CATEGORY_POINTS,
   FIRST,
-  FRIENDS,
-  ME,
-  SUGGESTIONS,
 } from '../data/fixtures';
 import { CURRENT_WEEK, DAY_NAMES, DayIndex } from '../data/week';
 import { useStore } from '../state/store';
@@ -26,12 +23,17 @@ import { Bri, Caps, GlowBloom, GradientHairline, Sans, Tap, fill, row } from '..
 import { Overlay } from './Overlay';
 
 export function PlanOverlay({ topInset, bottomInset }: { topInset: number; bottomInset: number }) {
-  const { state, dispatch, effectiveAudience } = useStore();
+  const { state, dispatch, effectiveAudience, world } = useStore();
   const onboarding = state.onboardStep === 'plan';
 
   const staked = stakedPoints(state);
-  const best = ME.bestWeekPoints;
-  const over = staked >= best;
+  const best = world.profile.bestWeekPoints;
+  // With no history there's nothing to beat, so the bar tracks progress made
+  // rather than progress toward a record — and never divides by zero.
+  const hasBest = best > 0;
+  const over = hasBest && staked >= best;
+  const barPct = hasBest ? Math.min(100, (staked / best) * 100) : staked > 0 ? 100 : 0;
+  const pairable = world.members.filter((k) => k !== 'you');
   const draftDay = (state.draftDay ?? state.day) as DayIndex;
   const hasDraft = !!state.draft.trim();
   const draftPoints = CATEGORY_POINTS[state.draftCat] ?? 30;
@@ -127,7 +129,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
             {...gradientAngle(90)}
             style={{
               height: '100%',
-              width: `${Math.min(100, (staked / best) * 100)}%`,
+              width: `${barPct}%`,
               borderRadius: 999,
             }}
           />
@@ -135,26 +137,30 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
 
         <View style={[row, { justifyContent: 'space-between', gap: 12, marginTop: 9 }]}>
           <Sans size={12.5} lineHeight={17} color={onDark.secondary} style={fill}>
-            {over
-              ? 'The biggest week you’ve ever put on the line.'
-              : `${best - staked} pts short of Week 31 — your best week ever.`}
+            {!hasBest
+              ? 'Nothing to beat yet. This is the one that sets the bar.'
+              : over
+                ? 'The biggest week you’ve ever put on the line.'
+                : `${best - staked} pts short of Week 31 — your best week ever.`}
           </Sans>
-          <Tap
-            onPress={() => dispatch({ type: 'GO_PLACE', patch: { tab: 'me' } })}
-            accessibilityLabel="See your best week"
-            style={{
-              borderRadius: 999,
-              paddingHorizontal: 11,
-              paddingVertical: 6,
-              minHeight: 32,
-              justifyContent: 'center',
-              backgroundColor: over ? color.lime : 'rgba(241,242,236,.07)',
-            }}
-          >
-            <Bri size={10} weight={800} tracking={1} color={over ? color.ink : onDark.secondary}>
-              {over ? 'NEW BEST' : `BEST ${best}`}
-            </Bri>
-          </Tap>
+          {hasBest ? (
+            <Tap
+              onPress={() => dispatch({ type: 'GO_PLACE', patch: { tab: 'me' } })}
+              accessibilityLabel="See your best week"
+              style={{
+                borderRadius: 999,
+                paddingHorizontal: 11,
+                paddingVertical: 6,
+                minHeight: 32,
+                justifyContent: 'center',
+                backgroundColor: over ? color.lime : 'rgba(241,242,236,.07)',
+              }}
+            >
+              <Bri size={10} weight={800} tracking={1} color={over ? color.ink : onDark.secondary}>
+                {over ? 'NEW BEST' : `BEST ${best}`}
+              </Bri>
+            </Tap>
+          ) : null}
         </View>
 
         {/* composer */}
@@ -306,9 +312,11 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
               </View>
             </SectionRule>
 
+            {pairable.length ? (
+              <>
             <SectionRule label="In it with me" />
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 9 }}>
-              {FRIENDS.map((k) => {
+              {pairable.map((k) => {
                 const on = state.draftPair.includes(k);
                 return (
                   <Tap
@@ -343,6 +351,8 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                 ? `${state.draftPair.map((k) => FIRST[k]).join(' and ')} will see this land — and notice if it doesn’t.`
                 : 'Nobody’s watching this one yet.'}
             </Sans>
+              </>
+            ) : null}
 
             <Tap
               onPress={submitDraft}
@@ -370,6 +380,8 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
         </GradientHairline>
 
         {/* pick it back up */}
+        {world.suggestions.length ? (
+          <>
         <View
           style={{
             flexDirection: 'row',
@@ -393,7 +405,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
           style={{ marginHorizontal: -planGutter }}
           contentContainerStyle={{ gap: 10, paddingTop: 11, paddingBottom: 3, paddingHorizontal: planGutter }}
         >
-          {SUGGESTIONS.map((s) => {
+          {world.suggestions.map((s) => {
             const used = !!state.usedSugg[s.id];
             return (
               <View
@@ -442,6 +454,8 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
             );
           })}
         </ScrollView>
+          </>
+        ) : null}
 
         {/* staked list */}
         <View
