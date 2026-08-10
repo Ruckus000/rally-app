@@ -424,30 +424,54 @@ export const PERSON_NOTES: Partial<Record<PersonKey, Note[]>> = {
   tomas: [],
 };
 
+/**
+ * A closed week. The numbers are the data — all-time points, bests and the
+ * year grid derive from them, so the display strings are computed rather than
+ * stored, and the same figure can't exist twice in two formats.
+ */
 export type HistoryWeek = {
   n: number;
   label: string;
+  /** Why this week reads as a near miss rather than a number: "6 of 7 done". */
   sub: string;
-  pts: string;
+  points: number;
+  done: number;
+  total: number;
   quiet?: boolean;
-  did: { title: string; pts: string }[];
+  did: { title: string; points: number }[];
   helpedBy: { k: PersonKey; detail: string }[];
   helped: { k: PersonKey; detail: string }[];
 };
+
+/** "190 pts", or an em dash for a week that scored nothing. */
+export const weekPointsLabel = (w: Pick<HistoryWeek, 'points'>) =>
+  w.points > 0 ? `${w.points} pts` : '—';
+
+/** Year-grid level: nothing · partial · good · perfect. */
+export const weekLevel = (done: number, total: number): number => {
+  if (!total || !done) return 0;
+  if (done >= total) return 3;
+  return done / total >= 0.5 ? 2 : 1;
+};
+
+/** A week holds the streak if you closed at least one stake. */
+export const weekHeldStreak = (done: number) => done > 0;
 
 export const WEEK_HISTORY: Record<number, HistoryWeek> = {
   32: {
     n: 32,
     label: 'Week 32',
     sub: '6 of 7 done',
-    pts: '190 pts',
+    points: 190,
+    done: 6,
+    total: 7,
     did: [
-      { title: 'Run 3x', pts: '+40' },
-      { title: 'Ship newsletter draft', pts: '+35' },
-      { title: 'Meal prep Sunday', pts: '+25' },
-      { title: 'Stretch 5 nights', pts: '+20' },
-      { title: 'Read 60 pages', pts: '+30' },
-      { title: 'Call home twice', pts: '+40' },
+      { title: 'Run 3x', points: 40 },
+      { title: 'Ship newsletter draft', points: 35 },
+      { title: 'Meal prep Sunday', points: 25 },
+      { title: 'Stretch 5 nights', points: 20 },
+      { title: 'Read 60 pages', points: 30 },
+      { title: 'Call home twice', points: 40 },
     ],
     helpedBy: [
       { k: 'maya', detail: 'paced your Tuesday run' },
@@ -459,13 +483,15 @@ export const WEEK_HISTORY: Record<number, HistoryWeek> = {
     n: 31,
     label: 'Week 31',
     sub: '7 of 7 — the whole thing',
-    pts: '240 pts',
+    points: 240,
+    done: 7,
+    total: 7,
     did: [
-      { title: '10K long run', pts: '+50' },
-      { title: 'Portfolio case study', pts: '+60' },
-      { title: 'Meal prep Sunday', pts: '+40' },
-      { title: 'Read 200 pages', pts: '+50' },
-      { title: 'Inbox zero', pts: '+40' },
+      { title: '10K long run', points: 50 },
+      { title: 'Portfolio case study', points: 60 },
+      { title: 'Meal prep Sunday', points: 40 },
+      { title: 'Read 200 pages', points: 50 },
+      { title: 'Inbox zero', points: 40 },
     ],
     helpedBy: [
       { k: 'maya', detail: 'checked in every morning' },
@@ -477,7 +503,9 @@ export const WEEK_HISTORY: Record<number, HistoryWeek> = {
     n: 30,
     label: 'Week 30',
     sub: 'didn’t finish — back at it quietly',
-    pts: '—',
+    points: 0,
+    done: 0,
+    total: 5,
     quiet: true,
     did: [],
     helpedBy: [{ k: 'sofia', detail: 'checked in twice, no pressure' }],

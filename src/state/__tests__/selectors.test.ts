@@ -2,7 +2,7 @@
  * The ranking is the load-bearing selector: the Circle row must read the same
  * metric the sort uses, or the screen implies an order it doesn't have.
  */
-import { reducer, State } from '../store';
+import { reducer } from '../store';
 import {
   allTasksDone,
   cheersGiven,
@@ -17,7 +17,7 @@ import {
   weekPoints,
 } from '../selectors';
 import { WORLD } from '../../data/seed';
-import { baseState as base } from '../../test/baseState';
+import { baseState as base, freshState } from '../../test/baseState';
 
 
 describe('points', () => {
@@ -80,7 +80,7 @@ describe('cheers', () => {
     let s = reducer(base, { type: 'ACT', id: 'f1', kind: 'cheer' });
     s = reducer(s, { type: 'ACT', id: 'f2', kind: 'in' });
     s = reducer(s, { type: 'ACT', id: 'f5', kind: 'cosign' });
-    expect(cheersGiven(s)).toBe(WORLD.seeded.profile.baseCheersGiven + 1);
+    expect(cheersGiven(s)).toBe(base.profile.baseCheersGiven + 1);
   });
 
   it('feeds the circle total', () => {
@@ -113,8 +113,7 @@ describe('cheers', () => {
     });
 
     it('counts nothing toward the circle on an account that has none', () => {
-      const fresh: State = { ...base, account: 'fresh', moments: [] };
-      const s = reducer(fresh, { type: 'ACT', id: 'g1', kind: 'cheer' });
+      const s = reducer(freshState, { type: 'ACT', id: 'g1', kind: 'cheer' });
       expect(cheersGiven(s)).toBe(1);
       expect(circleCheersGiven(s)).toBe(0);
     });

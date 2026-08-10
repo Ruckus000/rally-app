@@ -70,8 +70,47 @@ export const buildWeekContext = (anchor: Date, number: number): WeekContext => {
 };
 
 /**
- * Fixture anchor: Thursday Aug 13 2026. Its Monday-start week is Aug 10–16 —
- * the range the design reference shows — and `today` lands on day 3, matching
- * the prototype's `day: 3`.
+ * ISO-8601 week number: weeks start Monday, and week 1 is the one containing
+ * the first Thursday of the year.
  */
-export const CURRENT_WEEK = buildWeekContext(new Date(2026, 7, 13), 33);
+export const isoWeekNumber = (d: Date): number => {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  // Shift to the Thursday of this week — that's what decides the week's year.
+  t.setUTCDate(t.getUTCDate() - dayIndexOf(d) + 3);
+  const firstThursday = new Date(Date.UTC(t.getUTCFullYear(), 0, 4));
+  firstThursday.setUTCDate(
+    firstThursday.getUTCDate() - ((firstThursday.getUTCDay() + 6) % 7) + 3,
+  );
+  return 1 + Math.round((t.getTime() - firstThursday.getTime()) / (7 * 86400000));
+};
+
+/** The week it actually is, right now. */
+export const liveWeek = (now: Date = new Date()): WeekContext =>
+  buildWeekContext(now, isoWeekNumber(now));
+
+/**
+ * Fixture anchor: Thursday Aug 13 2026, which really is ISO week 33 and whose
+ * Monday-start range is Aug 10–16 — what the design reference shows. Tests seed
+ * from this so the suite doesn't drift with the calendar.
+ */
+export const FIXTURE_WEEK = buildWeekContext(new Date(2026, 7, 13), 33);
+
+/**
+ * Kept for the modules that only need "some week" at import time. Anything
+ * that must react to the week changing reads `state.week` instead.
+ */
+export const CURRENT_WEEK = FIXTURE_WEEK;
+
+/** The week after the given one. */
+export const weekAfter = (week: WeekContext): WeekContext => {
+  const d = new Date(week.start);
+  d.setDate(d.getDate() + 7);
+  return buildWeekContext(d, isoWeekNumber(d));
+};
+
+/** The week `n` weeks before the given one — used to label seeded history. */
+export const weekBefore = (week: WeekContext, n: number): WeekContext => {
+  const d = new Date(week.start);
+  d.setDate(d.getDate() - 7 * n);
+  return buildWeekContext(d, isoWeekNumber(d));
+};

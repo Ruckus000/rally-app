@@ -14,16 +14,29 @@ import {
   CATEGORY_POINTS,
   Category,
   FIRST,
+  HistoryWeek,
   ME,
   Moment,
   Note,
+  weekHeldStreak,
+  weekLevel,
   NotifTier,
   QUICK_LOG_POINTS,
   Suggestion,
   Task,
 } from '../data/fixtures';
-import { CURRENT_WEEK, DayIndex } from '../data/week';
-import { AccountMode, World, getWorld, seedMoments, seedTasks } from '../data/seed';
+import { DayIndex, WeekContext, liveWeek, weekAfter } from '../data/week';
+import {
+  AccountMode,
+  Profile,
+  World,
+  getWorld,
+  seedHistory,
+  seedMoments,
+  seedProfile,
+  seedTasks,
+  seedYearLevels,
+} from '../data/seed';
 import { flush, load, save } from './persistence';
 import type { PersonKey } from '../theme/tokens';
 
@@ -51,6 +64,20 @@ export type State = {
    * the world is treated as fresh until you either join or skip.
    */
   account: AccountMode | null;
+  /** The week this state belongs to. Compared against the clock to spot rollover. */
+  week: WeekContext;
+  /** Closed weeks, newest first. */
+  history: HistoryWeek[];
+  /** One level per week since joining, oldest first. */
+  yearLevels: number[];
+  /** Running totals, advanced when a week closes. */
+  profile: Profile;
+  /**
+   * Set when the calendar has moved on but you haven't been asked yet. Nothing
+   * is rewritten until you confirm — silently rebuilding someone's week on
+   * launch would be the wrong instinct.
+   */
+  pendingRollover: { to: WeekContext } | null;
   tab: Tab;
   scope: Scope;
   day: DayIndex;
@@ -97,9 +124,14 @@ export type State = {
 /** An account starts empty; onboarding decides what it gets seeded with. */
 const initialState: State = {
   account: null,
+  week: liveWeek(),
+  history: [],
+  yearLevels: [],
+  profile: seedProfile(null),
+  pendingRollover: null,
   tab: 'week',
   scope: 'friends',
-  day: CURRENT_WEEK.today,
+  day: liveWeek().today,
   myTasks: [],
   moments: [],
   acted: {},
@@ -170,6 +202,8 @@ export type Action =
   | { type: 'INVITE'; key: PersonKey }
   | { type: 'JOIN_CIRCLE' }
   | { type: 'RESET'; mode: AccountMode }
+  | { type: 'ROLLOVER_DETECTED'; to: WeekContext }
+  | { type: 'COMMIT_ROLLOVER'; carryIds: string[] }
   | { type: 'SKIP_ONBOARD' }
   | { type: 'FINISH_ONBOARD' }
   | { type: 'DISMISS_TOOLTIP' };
@@ -553,23 +587,107 @@ export function reducer(state: State, action: Action): State {
         account: 'seeded',
         myTasks: seedTasks('seeded'),
         moments: seedMoments('seeded'),
+        history: seedHistory('seeded', state.week),
+        yearLevels: seedYearLevels('seeded'),
+        profile: seedProfile('seeded'),
         onboardStep: 'plan',
       };
 
-    case 'SKIP_ONBOARD':
+    case 'SKIP_ONBOARD': {
       // Declining the invite leaves you with a genuinely empty account.
-      return { ...state, account: state.account ?? 'fresh', onboardStep: null };
+      const mode = state.account ?? 'fresh';
+      return {
+        ...state,
+        account: mode,
+        profile: state.account ? state.profile : seedProfile(mode),
+        onboardStep: null,
+      };
+    }
 
-    case 'RESET':
+    case 'RESET': {
+      const week = liveWeek();
       return {
         ...initialState,
+        week,
+        day: week.today,
         account: action.mode,
         myTasks: seedTasks(action.mode),
         moments: seedMoments(action.mode),
+        history: seedHistory(action.mode, week),
+        yearLevels: seedYearLevels(action.mode),
+        profile: seedProfile(action.mode),
         onboardStep: null,
         tab: 'week',
         scope: action.mode === 'seeded' ? 'friends' : 'personal',
       };
+    }
+
+    case 'ROLLOVER_DETECTED':
+      // Only ask once, and never while onboarding is still on screen.
+      if (state.pendingRollover || state.onboardStep) return state;
+      if (action.to.number === state.week.number) return state;
+      return { ...state, ...CLEARED, pendingRollover: { to: action.to } };
+
+    case 'COMMIT_ROLLOVER': {
+      const to = state.pendingRollover?.to;
+      if (!to) return state;
+
+      const closed = state.myTasks;
+      const done = closed.filter((t) => t.done);
+      const points = done.reduce((a, t) => a + t.pts, 0);
+      const perfect = closed.length > 0 && done.length === closed.length;
+
+      const record: HistoryWeek = {
+        n: state.week.number,
+        label: state.week.label,
+        sub: closed.length ? `${done.length} of ${closed.length} done` : 'nothing staked',
+        points,
+        done: done.length,
+        total: closed.length,
+        quiet: done.length === 0,
+        did: done.map((t) => ({ title: t.title, points: t.pts })),
+        helpedBy: [],
+        helped: [],
+      };
+
+      const held = weekHeldStreak(done.length);
+      const currentStreak = held ? state.profile.currentStreak + 1 : 0;
+
+      const carried = state.myTasks
+        .filter((t) => action.carryIds.includes(t.id))
+        .map((t) => ({ ...t, done: false, cmts: [] }));
+
+      return {
+        ...state,
+        week: to,
+        day: to.today,
+        pendingRollover: null,
+        history: [record, ...state.history],
+        yearLevels: [...state.yearLevels, weekLevel(done.length, closed.length)],
+        profile: {
+          ...state.profile,
+          allTimePoints: state.profile.allTimePoints + points,
+          weeksIn: state.profile.weeksIn + 1,
+          bestWeekPoints: Math.max(state.profile.bestWeekPoints, points),
+          bestWeekLabel:
+            points > state.profile.bestWeekPoints
+              ? `Wk ${state.week.number}`
+              : state.profile.bestWeekLabel,
+          longestStreak: Math.max(state.profile.longestStreak, currentStreak),
+          mostTasksClosed: Math.max(state.profile.mostTasksClosed, done.length),
+          perfectWeeks: state.profile.perfectWeeks + (perfect ? 1 : 0),
+          currentStreak,
+        },
+        // Week-scoped. Everything else — who you are, what you've said to
+        // people, your replies on public posts — carries forward.
+        myTasks: carried,
+        acted: {},
+        notifRead: {},
+        usedSugg: {},
+        replied: {},
+        ...CLEARED,
+      };
+    }
 
     case 'FINISH_ONBOARD':
       return { ...state, onboardStep: null, tab: 'week', scope: 'personal' };
@@ -630,14 +748,23 @@ export function StoreProvider({
     if (persist) save(state);
   }, [state, persist]);
 
-  // Backgrounding is the last reliable moment before a force-quit.
+  // Backgrounding is the last reliable moment before a force-quit. Coming back
+  // is when the calendar may have moved on without us.
   useEffect(() => {
-    if (!persist) return;
     const sub = AppState.addEventListener('change', (next) => {
-      if (next !== 'active') flush();
+      if (next !== 'active') {
+        if (persist) flush();
+        return;
+      }
+      dispatch({ type: 'ROLLOVER_DETECTED', to: liveWeek() });
     });
     return () => sub.remove();
   }, [persist]);
+
+  // …and on launch, for the much more common case of reopening days later.
+  useEffect(() => {
+    dispatch({ type: 'ROLLOVER_DETECTED', to: liveWeek() });
+  }, []);
 
   const value = useMemo<Store>(
     () => ({
@@ -657,6 +784,9 @@ export function StoreProvider({
 export async function loadPersistedState(): Promise<Partial<State> | null> {
   return load();
 }
+
+/** The dev affordance behind "Simulate next week" on Me. */
+export const nextWeekAfter = weekAfter;
 
 export function useStore() {
   const ctx = useContext(StoreContext);

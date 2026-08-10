@@ -5,7 +5,6 @@ import { Bri, Sans, Tap, row } from '../components/primitives';
 import { Icon } from '../components/Icon';
 import { useStore } from '../state/store';
 import { unreadNeedsCount } from '../state/selectors';
-import { CURRENT_WEEK } from '../data/week';
 import { ME } from '../data/fixtures';
 import type { Scope } from '../state/store';
 
@@ -17,14 +16,15 @@ const SCOPES: { key: Scope; label: string }[] = [
 
 export function Header({ topInset }: { topInset: number }) {
   const { state, dispatch, config, world } = useStore();
+  const { week } = state;
   const unread = unreadNeedsCount(state);
   const isWeek = state.tab === 'week';
 
   const title =
-    state.tab === 'week' ? CURRENT_WEEK.label : state.tab === 'circle' ? 'Your Circle' : ME.name;
+    state.tab === 'week' ? week.label : state.tab === 'circle' ? 'Your Circle' : ME.name;
   const sub =
     state.tab === 'week'
-      ? `${CURRENT_WEEK.dateRange} · ${CURRENT_WEEK.todayName}`
+      ? `${week.dateRange} · ${week.todayName}`
       : state.tab === 'circle'
         ? config.showRank
           ? `${world.members.length} people, ranked by follow-through`

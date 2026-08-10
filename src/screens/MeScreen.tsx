@@ -4,16 +4,15 @@
 import React from 'react';
 import { Alert, View } from 'react-native';
 import { color, onDark, radius, shadows, yearLevelColor } from '../theme/tokens';
-import { CIRCLE_NAME, ME, NAME, WEEK_HISTORY } from '../data/fixtures';
-import { CURRENT_WEEK } from '../data/week';
-import { useStore } from '../state/store';
+import { CIRCLE_NAME, ME, NAME, weekPointsLabel } from '../data/fixtures';
+import { nextWeekAfter, useStore } from '../state/store';
 import { allTasksDone, cheersGiven, weekPoints } from '../state/selectors';
 import { Avatar } from '../components/Avatar';
 import { Bri, Caps, GlowBloom, Sans, Tap, fill, row } from '../components/primitives';
 
 export function MeScreen() {
   const { state, dispatch, world } = useStore();
-  const { profile } = world;
+  const { profile, week, history, yearLevels } = state;
   const won = allTasksDone(state);
   const gave = cheersGiven(state);
   const got = profile.cheersReceived;
@@ -93,7 +92,7 @@ export function MeScreen() {
               {weekPoints(state)}
             </Bri>
             <Caps size={9.5} tracking={1.2} color={onDark.secondary}>
-              {`Week ${CURRENT_WEEK.number} so far`}
+              {`Week ${week.number} so far`}
             </Caps>
           </View>
         </View>
@@ -146,12 +145,12 @@ export function MeScreen() {
             Every week since you joined
           </Caps>
           <Sans size={11} weight={700} color={color.moss}>
-            {world.yearLevels.length
-              ? `${world.yearLevels.filter((v) => v >= 2).length} of ${world.yearLevels.length} finished`
+            {yearLevels.length
+              ? `${yearLevels.filter((v) => v >= 2).length} of ${yearLevels.length} finished`
               : 'Starts here'}
           </Sans>
         </View>
-        <YearGrid levels={world.yearLevels} />
+        <YearGrid levels={yearLevels} />
       </View>
 
       {/* 5 · exchange */}
@@ -279,18 +278,17 @@ export function MeScreen() {
         Past weeks
       </Caps>
       <View style={{ gap: 8, marginBottom: 16 }}>
-        {world.pastWeeks.length === 0 ? (
+        {history.length === 0 ? (
           <Sans size={13} lineHeight={18} color={color.muted} style={{ paddingHorizontal: 2 }}>
             This is your first week. There’s nothing behind you yet — that’s the point.
           </Sans>
         ) : null}
-        {world.pastWeeks.map((n) => {
-          const w = WEEK_HISTORY[n];
+        {history.map((w) => {
           return (
             <Tap
-              key={n}
-              onPress={() => dispatch({ type: 'OPEN_WRAP', week: n })}
-              accessibilityLabel={`${w.label}, ${w.sub}, ${w.pts}`}
+              key={w.n}
+              onPress={() => dispatch({ type: 'OPEN_WRAP', week: w.n })}
+              accessibilityLabel={`${w.label}, ${w.sub}, ${weekPointsLabel(w)}`}
               style={{
                 ...row,
                 gap: 11,
@@ -312,7 +310,7 @@ export function MeScreen() {
                 </Sans>
               </View>
               <Bri size={14} weight={700} color={w.quiet ? color.faintInk : color.ink}>
-                {w.pts}
+                {weekPointsLabel(w)}
               </Bri>
             </Tap>
           );
@@ -335,7 +333,7 @@ export function MeScreen() {
         </Bri>
       </Tap>
 
-      <ResetControl />
+      <DevControls />
     </View>
   );
 }
@@ -345,8 +343,8 @@ export function MeScreen() {
  * back — and it doubles as the way to see the empty first-run account without
  * reinstalling.
  */
-function ResetControl() {
-  const { dispatch } = useStore();
+function DevControls() {
+  const { state, dispatch } = useStore();
 
   const confirm = () =>
     Alert.alert(
@@ -368,15 +366,27 @@ function ResetControl() {
     );
 
   return (
-    <Tap
-      onPress={confirm}
-      accessibilityLabel="Reset app data"
-      style={{ alignItems: 'center', minHeight: 44, justifyContent: 'center', marginTop: 14 }}
-    >
-      <Sans size={12} weight={600} color={color.faintInk}>
-        Reset app data
-      </Sans>
-    </Tap>
+    <View style={[row, { justifyContent: 'center', gap: 18, marginTop: 14 }]}>
+      <Tap
+        onPress={confirm}
+        accessibilityLabel="Reset app data"
+        style={{ minHeight: 44, justifyContent: 'center' }}
+      >
+        <Sans size={12} weight={600} color={color.faintInk}>
+          Reset app data
+        </Sans>
+      </Tap>
+      {/* Rollover is otherwise untestable without waiting until Monday. */}
+      <Tap
+        onPress={() => dispatch({ type: 'ROLLOVER_DETECTED', to: nextWeekAfter(state.week) })}
+        accessibilityLabel="Simulate next week"
+        style={{ minHeight: 44, justifyContent: 'center' }}
+      >
+        <Sans size={12} weight={600} color={color.faintInk}>
+          Simulate next week
+        </Sans>
+      </Tap>
+    </View>
   );
 }
 

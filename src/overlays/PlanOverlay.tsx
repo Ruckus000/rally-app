@@ -14,7 +14,7 @@ import {
   CATEGORY_POINTS,
   FIRST,
 } from '../data/fixtures';
-import { CURRENT_WEEK, DAY_NAMES, DayIndex } from '../data/week';
+import { DAY_NAMES, DayIndex } from '../data/week';
 import { useStore } from '../state/store';
 import { stakedPoints } from '../state/selectors';
 import { Avatar, FaceStack } from '../components/Avatar';
@@ -27,7 +27,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
   const onboarding = state.onboardStep === 'plan';
 
   const staked = stakedPoints(state);
-  const best = world.profile.bestWeekPoints;
+  const best = state.profile.bestWeekPoints;
   // With no history there's nothing to beat, so the bar tracks progress made
   // rather than progress toward a record — and never divides by zero.
   const hasBest = best > 0;
@@ -80,7 +80,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
           <Caps size={10} tracking={1.9} color={onDark.secondary}>
             {onboarding
               ? 'One thing to start'
-              : `Week ${CURRENT_WEEK.number} · ${CURRENT_WEEK.daysLeft} days left`}
+              : `Week ${state.week.number} · ${state.week.daysLeft} days left`}
           </Caps>
           <Bri size={20} weight={800} tracking={-0.5} color={color.paper} style={{ marginTop: 2 }}>
             {onboarding ? 'Add your first task' : 'Plan your week'}

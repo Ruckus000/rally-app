@@ -6,8 +6,9 @@
  */
 import { Action, DEFAULT_CONFIG, reducer, State } from '../store';
 import { MY_TASKS, MOMENTS } from '../../data/fixtures';
-import { WORLD, getWorld } from '../../data/seed';
-import { baseState as base } from '../../test/baseState';
+import { WORLD, getWorld, seedProfile } from '../../data/seed';
+import { baseState as base, freshState } from '../../test/baseState';
+import { weekAfter } from '../../data/week';
 
 
 const run = (state: State, ...actions: Action[]) => actions.reduce(reducer, state);
@@ -293,7 +294,17 @@ describe('audience', () => {
 
 describe('accounts', () => {
   /** Onboarding starts from nothing — the fixtures aren't the initial state. */
-  const undecided: State = { ...base, account: null, myTasks: [], moments: [], onboardStep: 'join' };
+  // Genuinely pre-decision: the fixtures haven't been granted yet.
+  const undecided: State = {
+    ...base,
+    account: null,
+    myTasks: [],
+    moments: [],
+    history: [],
+    yearLevels: [],
+    profile: seedProfile(null),
+    onboardStep: 'join',
+  };
 
   it('starts empty before you have chosen', () => {
     expect(getWorld(undecided.account).members).toEqual(['you']);
@@ -319,11 +330,11 @@ describe('accounts', () => {
     const world = getWorld(s.account);
     expect(world.members).toEqual(['you']);
     expect(world.notifications).toHaveLength(0);
-    expect(world.pastWeeks).toHaveLength(0);
-    expect(world.yearLevels).toHaveLength(0);
     expect(world.suggestions).toHaveLength(0);
-    expect(world.profile.allTimePoints).toBe(0);
-    expect(world.profile.currentStreak).toBe(0);
+    expect(s.history).toHaveLength(0);
+    expect(s.yearLevels).toHaveLength(0);
+    expect(s.profile.allTimePoints).toBe(0);
+    expect(s.profile.currentStreak).toBe(0);
   });
 
   it('does not downgrade an account that already joined', () => {
@@ -344,6 +355,8 @@ describe('accounts', () => {
   it('resets back to the demo', () => {
     const s = reducer({ ...base, account: 'fresh', myTasks: [] }, { type: 'RESET', mode: 'seeded' });
     expect(s.myTasks).toHaveLength(MY_TASKS.length);
+    expect(s.history.length).toBeGreaterThan(0);
+    expect(s.profile.allTimePoints).toBeGreaterThan(0);
     expect(s.scope).toBe('friends');
     expect(s.onboardStep).toBeNull();
   });
@@ -360,5 +373,110 @@ describe('accounts', () => {
 describe('config', () => {
   it('defaults to the friends audience', () => {
     expect(DEFAULT_CONFIG.defaultAudience).toBe('friends');
+  });
+});
+
+describe('week rollover', () => {
+  const next = weekAfter(base.week);
+  const detected = { type: 'ROLLOVER_DETECTED', to: next } as Action;
+
+  it('asks rather than rewriting anything', () => {
+    const s = reducer(base, detected);
+    expect(s.pendingRollover?.to.number).toBe(next.number);
+    expect(s.week.number).toBe(base.week.number);
+    expect(s.myTasks).toEqual(base.myTasks);
+    expect(s.history).toEqual(base.history);
+  });
+
+  it('does nothing when the week has not moved', () => {
+    expect(reducer(base, { type: 'ROLLOVER_DETECTED', to: base.week })).toBe(base);
+  });
+
+  it('does not interrupt onboarding', () => {
+    const onboarding: State = { ...base, onboardStep: 'join' };
+    expect(reducer(onboarding, detected).pendingRollover).toBeNull();
+  });
+
+  it('only asks once', () => {
+    const once = reducer(base, detected);
+    expect(reducer(once, detected)).toBe(once);
+  });
+
+  it('archives the closed week and carries only what you picked', () => {
+    const closed = run(base, { type: 'TOGGLE_TASK', id: 'm2' }, detected);
+    const s = reducer(closed, { type: 'COMMIT_ROLLOVER', carryIds: ['m4'] });
+
+    expect(s.week.number).toBe(next.number);
+    expect(s.pendingRollover).toBeNull();
+    expect(s.myTasks.map((t) => t.title)).toEqual(['Read 100 pages']);
+    expect(s.myTasks[0].done).toBe(false);
+
+    const record = s.history[0];
+    expect(record.n).toBe(base.week.number);
+    expect(record.done).toBe(2); // m1 was already done, m2 just closed
+    expect(record.total).toBe(base.myTasks.length);
+    expect(record.points).toBe(90);
+  });
+
+  it('advances the running totals', () => {
+    const closed = run(base, { type: 'TOGGLE_TASK', id: 'm2' }, detected);
+    const s = reducer(closed, { type: 'COMMIT_ROLLOVER', carryIds: [] });
+
+    expect(s.profile.allTimePoints).toBe(base.profile.allTimePoints + 90);
+    expect(s.profile.weeksIn).toBe(base.profile.weeksIn + 1);
+    expect(s.profile.currentStreak).toBe(base.profile.currentStreak + 1);
+    expect(s.yearLevels).toHaveLength(base.yearLevels.length + 1);
+  });
+
+  it('breaks the streak when nothing closed, and records a quiet week', () => {
+    const nothingDone: State = {
+      ...base,
+      myTasks: base.myTasks.map((t) => ({ ...t, done: false })),
+    };
+    const s = run(nothingDone, detected, { type: 'COMMIT_ROLLOVER', carryIds: [] });
+    expect(s.profile.currentStreak).toBe(0);
+    expect(s.history[0].quiet).toBe(true);
+    expect(s.yearLevels[s.yearLevels.length - 1]).toBe(0);
+  });
+
+  it('counts a perfect week and keeps the longest streak', () => {
+    const allDone: State = { ...base, myTasks: base.myTasks.map((t) => ({ ...t, done: true })) };
+    const s = run(allDone, detected, { type: 'COMMIT_ROLLOVER', carryIds: [] });
+    expect(s.profile.perfectWeeks).toBe(base.profile.perfectWeeks + 1);
+    expect(s.yearLevels[s.yearLevels.length - 1]).toBe(3);
+    expect(s.profile.longestStreak).toBeGreaterThanOrEqual(base.profile.longestStreak);
+  });
+
+  it('resets the week-scoped slices but keeps what is yours', () => {
+    const busy = run(
+      base,
+      { type: 'ACT', id: 'f1', kind: 'cheer' },
+      { type: 'READ_NOTIF', id: 'n1' },
+      { type: 'OPEN_SHEET', sheet: { type: 'person', id: 'maya' } },
+      { type: 'SET_NOTE', value: 'hi' },
+      { type: 'SEND_NOTE' },
+      detected,
+    );
+    const s = reducer(busy, { type: 'COMMIT_ROLLOVER', carryIds: [] });
+
+    expect(s.acted).toEqual({});
+    expect(s.notifRead).toEqual({});
+    expect(s.usedSugg).toEqual({});
+    // Things you said to people are not week-scoped.
+    expect(s.personNotes.maya).toHaveLength(1);
+    expect(s.account).toBe('seeded');
+  });
+
+  it('works on a fresh account with nothing staked', () => {
+    const s = run(freshState, { type: 'ROLLOVER_DETECTED', to: weekAfter(freshState.week) },
+      { type: 'COMMIT_ROLLOVER', carryIds: [] });
+    expect(s.history[0].total).toBe(0);
+    expect(s.history[0].points).toBe(0);
+    expect(s.profile.allTimePoints).toBe(0);
+    expect(Number.isFinite(s.profile.bestWeekPoints)).toBe(true);
+  });
+
+  it('ignores a commit that was never prompted', () => {
+    expect(reducer(base, { type: 'COMMIT_ROLLOVER', carryIds: [] })).toBe(base);
   });
 });

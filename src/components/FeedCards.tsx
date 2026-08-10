@@ -14,7 +14,6 @@ import {
   NAME,
   Task,
 } from '../data/fixtures';
-import { CURRENT_WEEK } from '../data/week';
 import { Avatar, FaceStack } from './Avatar';
 import { Icon } from './Icon';
 import { EngagementRow } from './EngagementRow';
@@ -344,11 +343,13 @@ export function MineWinCard({
   taskCount,
   points,
   streak,
+  weekLabel,
   shared,
   onShare,
 }: {
   taskCount: number;
   points: number;
+  weekLabel: string;
   /** Weeks held once this one closes. */
   streak: number;
   shared: boolean;
@@ -374,7 +375,7 @@ export function MineWinCard({
             </Bri>
           </View>
           <Sans size={11.5} color={onDark.bodySecondary}>
-            {CURRENT_WEEK.label} — every stake closed.
+            {weekLabel} — every stake closed.
           </Sans>
         </View>
 

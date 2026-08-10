@@ -7,14 +7,21 @@
  */
 import type { State } from '../state/store';
 import { MOMENTS, MY_TASKS } from '../data/fixtures';
-import { CURRENT_WEEK } from '../data/week';
+import { seedHistory, seedProfile, seedYearLevels } from '../data/seed';
+import { FIXTURE_WEEK } from '../data/week';
 
 /** The populated demo account, mid-week, with nothing acted on yet. */
 export const baseState: State = {
   account: 'seeded',
+  // Pinned, so the suite doesn't drift with the calendar.
+  week: FIXTURE_WEEK,
+  history: seedHistory('seeded', FIXTURE_WEEK),
+  yearLevels: seedYearLevels('seeded'),
+  profile: seedProfile('seeded'),
+  pendingRollover: null,
   tab: 'week',
   scope: 'friends',
-  day: CURRENT_WEEK.today,
+  day: FIXTURE_WEEK.today,
   myTasks: MY_TASKS,
   moments: MOMENTS,
   acted: {},
@@ -51,5 +58,8 @@ export const freshState: State = {
   account: 'fresh',
   myTasks: [],
   moments: [],
+  history: [],
+  yearLevels: [],
+  profile: seedProfile('fresh'),
   scope: 'personal',
 };

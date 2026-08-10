@@ -8,14 +8,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { __resetForTests, flush, load, pick, save } from '../persistence';
 import { reducer, State } from '../store';
 import { MY_TASKS } from '../../data/fixtures';
-import { CURRENT_WEEK } from '../../data/week';
 import { baseState as base } from '../../test/baseState';
+import { weekAfter } from '../../data/week';
 
 const KEY = 'rally:state:v1';
 
 
 const envelope = (data: unknown, over: Record<string, unknown> = {}) =>
-  JSON.stringify({ version: 1, week: CURRENT_WEEK.number, data, ...over });
+  JSON.stringify({ version: 2, data, ...over });
 
 /**
  * The async-storage jest mock already makes these jest.fn()s, and `jest.spyOn`
@@ -73,8 +73,15 @@ describe('what gets discarded', () => {
     expect(await load()).toBeNull();
   });
 
-  it('a payload from a different week', async () => {
-    await AsyncStorage.setItem(KEY, envelope(pick(base), { week: CURRENT_WEEK.number - 1 }));
+  it('a task with a malformed history entry', async () => {
+    const bad = { ...pick(base), history: [{ n: 'last week', label: 'Week 32' }] };
+    await AsyncStorage.setItem(KEY, envelope(bad));
+    expect(await load()).toBeNull();
+  });
+
+  it('a week object that would break a day lookup', async () => {
+    const bad = { ...pick(base), week: { ...base.week, today: 11 } };
+    await AsyncStorage.setItem(KEY, envelope(bad));
     expect(await load()).toBeNull();
   });
 
@@ -102,6 +109,47 @@ describe('what gets discarded', () => {
   });
 
   it('nothing stored at all', async () => {
+    expect(await load()).toBeNull();
+  });
+});
+
+// This behaviour is deliberately inverted from what it used to be. Discarding
+// on a week change was right only while the week could never move; now that it
+// can, discarding would throw away the week's work instead of rolling it over.
+describe('a stale week is kept, not discarded', () => {
+  it('loads a payload written in an earlier week', async () => {
+    const lastWeek = { ...pick(base), week: { ...base.week, number: base.week.number - 1 } };
+    await AsyncStorage.setItem(KEY, envelope(lastWeek));
+
+    const restored = await load();
+    expect(restored).not.toBeNull();
+    expect(restored?.week.number).toBe(base.week.number - 1);
+    expect(restored?.myTasks).toHaveLength(base.myTasks.length);
+  });
+
+  it('and the store turns that into a prompt rather than a rewrite', () => {
+    const stale = { ...base, week: { ...base.week, number: base.week.number - 1 } };
+    const s = reducer(stale, { type: 'ROLLOVER_DETECTED', to: base.week });
+    expect(s.pendingRollover?.to.number).toBe(base.week.number);
+    // Nothing has moved yet.
+    expect(s.myTasks).toEqual(stale.myTasks);
+    expect(s.history).toEqual(stale.history);
+  });
+});
+
+describe('an unanswered rollover prompt', () => {
+  it('survives a restart rather than being lost', async () => {
+    const prompted = reducer(base, { type: 'ROLLOVER_DETECTED', to: weekAfter(base.week) });
+    save(prompted);
+    await flush();
+
+    const restored = await load();
+    expect(restored?.pendingRollover?.to.number).toBe(weekAfter(base.week).number);
+  });
+
+  it('is discarded if it came back malformed', async () => {
+    const bad = { ...pick(base), pendingRollover: { to: { number: 34 } } };
+    await AsyncStorage.setItem(KEY, envelope(bad));
     expect(await load()).toBeNull();
   });
 });

@@ -7,8 +7,7 @@
 import React from 'react';
 import { ScrollView, View } from 'react-native';
 import { color, gutter, radius } from '../theme/tokens';
-import { NAME, WEEK_HISTORY } from '../data/fixtures';
-import { CURRENT_WEEK } from '../data/week';
+import { NAME } from '../data/fixtures';
 import { useStore } from '../state/store';
 import { helpedByThisWeek, helpedThisWeek, pluralTimes } from '../state/selectors';
 import { Avatar } from '../components/Avatar';
@@ -19,12 +18,12 @@ import type { PersonKey } from '../theme/tokens';
 
 export function LedgerOverlay({ topInset, bottomInset }: { topInset: number; bottomInset: number }) {
   const { state, dispatch } = useStore();
-  const history = state.wrapWeek ? WEEK_HISTORY[state.wrapWeek] : null;
+  const history = state.wrapWeek ? (state.history.find((h) => h.n === state.wrapWeek) ?? null) : null;
   const close = () => dispatch({ type: 'CLOSE_WRAP' });
 
   const did = history
     ? history.did
-    : state.myTasks.filter((t) => t.done).map((t) => ({ title: t.title, pts: `+${t.pts}` }));
+    : state.myTasks.filter((t) => t.done).map((t) => ({ title: t.title, points: t.pts }));
 
   const helpedByMap = helpedByThisWeek(state.myTasks);
   const helpedMap = helpedThisWeek(state);
@@ -55,7 +54,7 @@ export function LedgerOverlay({ topInset, bottomInset }: { topInset: number; bot
         }}
       >
         <Bri size={19} weight={800} tracking={-0.3} style={fill}>
-          {history ? history.label : `${CURRENT_WEEK.label}, quietly`}
+          {history ? history.label : `${state.week.label}, quietly`}
         </Bri>
         <Tap onPress={close} accessibilityLabel="Close ledger" style={closeButton}>
           <Icon name="close" size={16} color={color.ink} />
@@ -86,7 +85,7 @@ export function LedgerOverlay({ topInset, bottomInset }: { topInset: number; bot
                 {d.title}
               </Sans>
               <Bri size={13} weight={700} color={color.moss}>
-                {d.pts}
+                +{d.points}
               </Bri>
             </View>
           ))}
@@ -161,7 +160,7 @@ export function LedgerOverlay({ topInset, bottomInset }: { topInset: number; bot
           }}
         >
           <Bri size={16} weight={800}>
-            {history ? 'Back to today' : `Stake Week ${CURRENT_WEEK.number + 1}`}
+            {history ? 'Back to today' : `Stake Week ${state.week.number + 1}`}
           </Bri>
         </Tap>
       </View>

@@ -19,6 +19,7 @@ import { PlanOverlay } from './overlays/PlanOverlay';
 import { LedgerOverlay } from './overlays/LedgerOverlay';
 import { NotificationsOverlay } from './overlays/NotificationsOverlay';
 import { JoinOverlay } from './overlays/JoinOverlay';
+import { RolloverOverlay } from './overlays/RolloverOverlay';
 import { DetailSheet } from './overlays/DetailSheet';
 import { Toast } from './components/Toast';
 
@@ -79,6 +80,11 @@ function Shell() {
       {state.wrapOpen ? <LedgerOverlay topInset={insets.top} bottomInset={insets.bottom} /> : null}
       {state.notifOpen ? <NotificationsOverlay topInset={insets.top} /> : null}
       {state.onboardStep === 'join' ? <JoinOverlay /> : null}
+      {/* Above everything: the week has already turned, so there is nothing
+          behind this worth interacting with until it's answered. */}
+      {state.pendingRollover ? (
+        <RolloverOverlay topInset={insets.top} bottomInset={insets.bottom} />
+      ) : null}
 
       <Toast message={state.toast} seq={state.toastSeq} />
     </View>

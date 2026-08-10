@@ -7,7 +7,7 @@ import React from 'react';
 import { Alert } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { App } from '../App';
-import { CURRENT_WEEK } from '../data/week';
+import { liveWeek } from '../data/week';
 
 /** Join the demo circle, which is what seeds the populated fixtures. */
 function open(options?: { config?: React.ComponentProps<typeof App>['config'] }) {
@@ -30,8 +30,10 @@ const goToGlobal = () => fireEvent.press(screen.getByText('Global'));
 describe('shell', () => {
   it('shows the week from the week context, not a literal', () => {
     open();
-    expect(screen.getByText(CURRENT_WEEK.label)).toBeTruthy();
-    expect(screen.getByText(`${CURRENT_WEEK.dateRange} · ${CURRENT_WEEK.todayName}`)).toBeTruthy();
+    // The app reads the real clock now, so the assertion has to as well.
+    const week = liveWeek();
+    expect(screen.getByText(week.label)).toBeTruthy();
+    expect(screen.getByText(`${week.dateRange} · ${week.todayName}`)).toBeTruthy();
   });
 
   it('lands on your own week after onboarding, and switches scope', () => {
@@ -175,7 +177,7 @@ describe('ledger', () => {
     fireEvent.press(screen.getByLabelText('Me'));
     fireEvent.press(screen.getByText('See this week’s ledger'));
     expect(screen.getByText('Not yet')).toBeTruthy();
-    expect(screen.getByText(`Stake Week ${CURRENT_WEEK.number + 1}`)).toBeTruthy();
+    expect(screen.getByText(`Stake Week ${liveWeek().number + 1}`)).toBeTruthy();
   });
 });
 

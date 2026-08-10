@@ -148,7 +148,7 @@ function PersonalHeader() {
 }
 
 function PersonalFeed() {
-  const { state, dispatch, world } = useStore();
+  const { state, dispatch } = useStore();
   const { done, open } = personalFeed(state);
   const won = allTasksDone(state);
 
@@ -158,7 +158,8 @@ function PersonalFeed() {
         <MineWinCard
           taskCount={state.myTasks.length}
           points={stakedPoints(state)}
-          streak={world.profile.currentStreak + 1}
+          streak={state.profile.currentStreak + 1}
+          weekLabel={state.week.label}
           shared={!!state.acted['mywin:share']}
           onShare={() =>
             dispatch({ type: 'ACT', id: 'mywin', kind: 'share', toast: 'The circle will see this one' })

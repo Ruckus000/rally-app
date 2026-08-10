@@ -25,7 +25,7 @@ const cheeredIds = (state: State) =>
  * a number that is honestly reporting what you did.
  */
 export const cheersGiven = (state: State) =>
-  getWorld(state.account).profile.baseCheersGiven + cheeredIds(state).length;
+  state.profile.baseCheersGiven + cheeredIds(state).length;
 
 /**
  * Only cheers that landed on someone in your circle. The Circle bar says
@@ -33,13 +33,13 @@ export const cheersGiven = (state: State) =>
  * inflate it.
  */
 export const circleCheersGiven = (state: State) =>
-  getWorld(state.account).profile.baseCheersGiven +
+  state.profile.baseCheersGiven +
   cheeredIds(state).filter((id) => state.moments.some((m) => m.id === id)).length;
 
 export const myStats = (state: State): MemberStats => ({
   done: state.myTasks.filter((t) => t.done).length,
   total: state.myTasks.length,
-  streak: getWorld(state.account).profile.currentStreak,
+  streak: state.profile.currentStreak,
   // Circle-scoped: this feeds ranking(), the row chips and the circle total.
   given: circleCheersGiven(state),
 });

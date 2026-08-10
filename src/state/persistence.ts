@@ -11,11 +11,16 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AUDIENCES, CATEGORY_POINTS, Task } from '../data/fixtures';
-import { CURRENT_WEEK, DAY_NAMES } from '../data/week';
+import { DAY_NAMES } from '../data/week';
 import type { State } from './store';
 
 const KEY = 'rally:state:v1';
-const VERSION = 1;
+/**
+ * 2: the week, its history and the running totals became persisted state, and
+ * the envelope's separate `week` field went away. An older payload is missing
+ * required slices, so it's discarded rather than half-restored.
+ */
+const VERSION = 2;
 const DEBOUNCE_MS = 400;
 
 /** The slices worth keeping. Everything else is rebuilt on launch. */
@@ -32,6 +37,11 @@ const PERSISTED_KEYS = [
   'pending',
   'personNotes',
   'globalNotes',
+  'week',
+  'history',
+  'yearLevels',
+  'profile',
+  'pendingRollover',
   'usedSugg',
   'notifRead',
 ] as const;
@@ -67,12 +77,47 @@ function tasksAreSound(value: unknown): value is Task[] {
   );
 }
 
+/** History drives the year grid, Past weeks and the running totals. */
+function historyIsSound(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  return value.every(
+    (h) =>
+      h &&
+      typeof h === 'object' &&
+      Number.isFinite(h.n) &&
+      typeof h.label === 'string' &&
+      Number.isFinite(h.points) &&
+      Number.isFinite(h.done) &&
+      Number.isFinite(h.total) &&
+      Array.isArray(h.did),
+  );
+}
+
+function weekIsSound(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const w = value as Record<string, unknown>;
+  return (
+    Number.isFinite(w.number) &&
+    Number.isInteger(w.today) &&
+    (w.today as number) >= 0 &&
+    (w.today as number) < DAY_NAMES.length &&
+    typeof w.label === 'string'
+  );
+}
+
 function isSound(data: unknown): data is Persisted {
   if (!data || typeof data !== 'object') return false;
   const d = data as Partial<Persisted>;
   if (!tasksAreSound(d.myTasks)) return false;
   if (!Array.isArray(d.moments)) return false;
   if (d.account !== null && d.account !== 'fresh' && d.account !== 'seeded') return false;
+  if (!weekIsSound(d.week)) return false;
+  if (!historyIsSound(d.history)) return false;
+  if (!Array.isArray(d.yearLevels)) return false;
+  if (!d.profile || typeof d.profile !== 'object') return false;
+  // Dying mid-prompt should bring you back to the prompt, so it persists —
+  // which means it also has to survive the trip intact.
+  if (d.pendingRollover && !weekIsSound(d.pendingRollover.to)) return false;
   return true;
 }
 
@@ -82,10 +127,10 @@ export async function load(): Promise<Persisted | null> {
     if (!raw) return null;
 
     const envelope = JSON.parse(raw);
-    // A version bump or a new week discards rather than migrates. The week
-    // guard is where real rollover would eventually hook in.
+    // A version bump discards rather than migrates. A *week* change used to
+    // discard too — that was right only while the week could never move, and
+    // is now exactly the bug that would eat a week's work. Rollover handles it.
     if (envelope?.version !== VERSION) return null;
-    if (envelope?.week !== CURRENT_WEEK.number) return null;
     if (!isSound(envelope.data)) return null;
 
     return envelope.data as Persisted;
@@ -107,7 +152,7 @@ async function write(data: Persisted) {
   try {
     await AsyncStorage.setItem(
       KEY,
-      JSON.stringify({ version: VERSION, week: CURRENT_WEEK.number, data }),
+      JSON.stringify({ version: VERSION, data }),
     );
     lastWritten = data;
   } catch {
