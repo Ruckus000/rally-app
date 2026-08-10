@@ -312,4 +312,17 @@ describe('the global feed', () => {
     fireEvent.press(screen.getByLabelText('Me'));
     expect(screen.getByText('13')).toBeTruthy();
   });
+
+  it('keeps a note left on a stranger’s post, and counts it', () => {
+    open();
+    goToGlobal();
+    fireEvent.press(screen.getByLabelText('@kwon.builds: Day 77 — still going'));
+    fireEvent.changeText(screen.getByLabelText('Say something…'), 'Respect.');
+    fireEvent.press(screen.getByLabelText('Send note'));
+
+    expect(screen.getByText('Respect.')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Close'));
+    // The public count moves the way the cheer count does: 12 -> 13.
+    expect(screen.getByText('13')).toBeTruthy();
+  });
 });

@@ -1,0 +1,55 @@
+/**
+ * A seeded `State` for tests to build on.
+ *
+ * Lives outside `__tests__` so jest doesn't try to run it as a suite. It exists
+ * because three separate suites were each spelling out the full state literal,
+ * so every new field meant three identical edits.
+ */
+import type { State } from '../state/store';
+import { MOMENTS, MY_TASKS } from '../data/fixtures';
+import { CURRENT_WEEK } from '../data/week';
+
+/** The populated demo account, mid-week, with nothing acted on yet. */
+export const baseState: State = {
+  account: 'seeded',
+  tab: 'week',
+  scope: 'friends',
+  day: CURRENT_WEEK.today,
+  myTasks: MY_TASKS,
+  moments: MOMENTS,
+  acted: {},
+  replied: {},
+  pending: {},
+  personNotes: {},
+  globalNotes: {},
+  usedSugg: {},
+  note: '',
+  draft: '',
+  composerVal: '',
+  draftDay: null,
+  draftCat: 'Fitness',
+  draftPair: [],
+  draftAud: null,
+  editingId: null,
+  planOpen: false,
+  wrapOpen: false,
+  wrapWeek: null,
+  notifOpen: false,
+  notifFilter: 'all',
+  notifRead: {},
+  sheet: null,
+  composerOpen: false,
+  onboardStep: null,
+  seenTooltip: false,
+  toast: null,
+  toastSeq: 0,
+};
+
+/** An account that declined the circle: no tasks, no moments, no history. */
+export const freshState: State = {
+  ...baseState,
+  account: 'fresh',
+  myTasks: [],
+  moments: [],
+  scope: 'personal',
+};

@@ -7,41 +7,8 @@
 import { Action, DEFAULT_CONFIG, reducer, State } from '../store';
 import { MY_TASKS, MOMENTS } from '../../data/fixtures';
 import { WORLD, getWorld } from '../../data/seed';
-import { CURRENT_WEEK } from '../../data/week';
+import { baseState as base } from '../../test/baseState';
 
-const base: State = {
-  account: 'seeded',
-  tab: 'week',
-  scope: 'friends',
-  day: CURRENT_WEEK.today,
-  myTasks: MY_TASKS,
-  moments: MOMENTS,
-  acted: {},
-  replied: {},
-  pending: {},
-  personNotes: {},
-  usedSugg: {},
-  note: '',
-  draft: '',
-  composerVal: '',
-  draftDay: null,
-  draftCat: 'Fitness',
-  draftPair: [],
-  draftAud: null,
-  editingId: null,
-  planOpen: false,
-  wrapOpen: false,
-  wrapWeek: null,
-  notifOpen: false,
-  notifFilter: 'all',
-  notifRead: {},
-  sheet: null,
-  composerOpen: false,
-  onboardStep: null,
-  seenTooltip: false,
-  toast: null,
-  toastSeq: 0,
-};
 
 const run = (state: State, ...actions: Action[]) => actions.reduce(reducer, state);
 
@@ -267,6 +234,49 @@ describe('notes', () => {
       { type: 'SEND_NOTE' },
     );
     expect(s.myTasks.find((t) => t.id === 'm4')?.cmts).toEqual([]);
+  });
+});
+
+describe('notes on a public post', () => {
+  const onGlobal = { type: 'OPEN_SHEET', sheet: { type: 'task' as const, id: 'g1' } } as Action;
+
+  it('keeps the note instead of silently dropping it', () => {
+    const s = run(base, onGlobal, { type: 'SET_NOTE', value: 'Respect.' }, { type: 'SEND_NOTE' });
+    expect(s.globalNotes.g1).toEqual([{ w: 'You', k: 'you', t: 'Respect.' }]);
+    expect(s.note).toBe('');
+  });
+
+  it('does not leak into your tasks or the circle feed', () => {
+    const s = run(base, onGlobal, { type: 'SET_NOTE', value: 'Respect.' }, { type: 'SEND_NOTE' });
+    expect(s.myTasks).toEqual(base.myTasks);
+    expect(s.moments).toEqual(base.moments);
+  });
+
+  it('still routes a note on your own task to that task', () => {
+    const s = run(
+      base,
+      { type: 'OPEN_SHEET', sheet: { type: 'task', id: 'm4' } },
+      { type: 'SET_NOTE', value: 'Halfway.' },
+      { type: 'SEND_NOTE' },
+    );
+    expect(s.myTasks.find((t) => t.id === 'm4')?.cmts).toHaveLength(1);
+    expect(s.globalNotes).toEqual({});
+  });
+
+  it('still routes a note on a friend’s moment to that moment', () => {
+    const s = run(
+      base,
+      { type: 'OPEN_SHEET', sheet: { type: 'task', id: 'f2' } },
+      { type: 'SET_NOTE', value: 'On my way.' },
+      { type: 'SEND_NOTE' },
+    );
+    expect(s.moments.find((m) => m.id === 'f2')?.cmts).toHaveLength(1);
+    expect(s.globalNotes).toEqual({});
+  });
+
+  it('ignores an empty note', () => {
+    const s = run(base, onGlobal, { type: 'SET_NOTE', value: '  ' }, { type: 'SEND_NOTE' });
+    expect(s.globalNotes).toEqual({});
   });
 });
 

@@ -61,6 +61,8 @@ export type State = {
   replied: Partial<Record<PersonKey, true>>;
   pending: Partial<Record<PersonKey, true>>;
   personNotes: Partial<Record<PersonKey, Note[]>>;
+  /** Your replies on public posts, which live outside your tasks and moments. */
+  globalNotes: Record<string, Note[]>;
   usedSugg: Record<string, true>;
 
   note: string;
@@ -104,6 +106,7 @@ const initialState: State = {
   replied: {},
   pending: {},
   personNotes: {},
+  globalNotes: {},
   usedSugg: {},
   note: '',
   draft: '',
@@ -251,21 +254,10 @@ export function reducer(state: State, action: Action): State {
     case 'SEND_NOTE': {
       const t = state.note.trim();
       const sh = state.sheet;
-      if (!t || !sh) return state;
+      if (!t || !sh || !sh.id) return state;
       const mine: Note = { w: 'You', k: 'you', t };
-      if (sh.type === 'task') {
-        return {
-          ...state,
-          note: '',
-          myTasks: state.myTasks.map((x) =>
-            x.id === sh.id ? { ...x, cmts: [...x.cmts, mine] } : x,
-          ),
-          moments: state.moments.map((x) =>
-            x.id === sh.id ? { ...x, cmts: [...(x.cmts ?? []), mine] } : x,
-          ),
-        };
-      }
-      if (sh.type === 'person' && sh.id) {
+
+      if (sh.type === 'person') {
         const k = sh.id as PersonKey;
         return withToast(
           {
@@ -276,7 +268,37 @@ export function reducer(state: State, action: Action): State {
           `${k === 'you' ? 'You' : FIRST_NAME(k)} will see that`,
         );
       }
-      return state;
+
+      if (sh.type !== 'task') return state;
+
+      const onTask = state.myTasks.some((x) => x.id === sh.id);
+      const onMoment = state.moments.some((x) => x.id === sh.id);
+
+      // Neither means it's a public post. Without this the note was silently
+      // dropped — the field cleared and nothing landed.
+      if (!onTask && !onMoment) {
+        return {
+          ...state,
+          note: '',
+          globalNotes: {
+            ...state.globalNotes,
+            [sh.id]: [...(state.globalNotes[sh.id] ?? []), mine],
+          },
+        };
+      }
+
+      return {
+        ...state,
+        note: '',
+        myTasks: onTask
+          ? state.myTasks.map((x) => (x.id === sh.id ? { ...x, cmts: [...x.cmts, mine] } : x))
+          : state.myTasks,
+        moments: onMoment
+          ? state.moments.map((x) =>
+              x.id === sh.id ? { ...x, cmts: [...(x.cmts ?? []), mine] } : x,
+            )
+          : state.moments,
+      };
     }
 
     case 'SET_DRAFT':

@@ -7,44 +7,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { __resetForTests, flush, load, pick, save } from '../persistence';
 import { reducer, State } from '../store';
-import { MY_TASKS, MOMENTS } from '../../data/fixtures';
+import { MY_TASKS } from '../../data/fixtures';
 import { CURRENT_WEEK } from '../../data/week';
+import { baseState as base } from '../../test/baseState';
 
 const KEY = 'rally:state:v1';
 
-const base: State = {
-  account: 'seeded',
-  tab: 'week',
-  scope: 'friends',
-  day: CURRENT_WEEK.today,
-  myTasks: MY_TASKS,
-  moments: MOMENTS,
-  acted: {},
-  replied: {},
-  pending: {},
-  personNotes: {},
-  usedSugg: {},
-  note: '',
-  draft: '',
-  composerVal: '',
-  draftDay: null,
-  draftCat: 'Fitness',
-  draftPair: [],
-  draftAud: null,
-  editingId: null,
-  planOpen: false,
-  wrapOpen: false,
-  wrapWeek: null,
-  notifOpen: false,
-  notifFilter: 'all',
-  notifRead: {},
-  sheet: null,
-  composerOpen: false,
-  onboardStep: null,
-  seenTooltip: false,
-  toast: null,
-  toastSeq: 0,
-};
 
 const envelope = (data: unknown, over: Record<string, unknown> = {}) =>
   JSON.stringify({ version: 1, week: CURRENT_WEEK.number, data, ...over });

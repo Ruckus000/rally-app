@@ -317,7 +317,7 @@ function GlobalFeed() {
             statLabel={g.statLabel}
             cheered={cheered}
             cheerCount={g.cheers + (cheered ? 1 : 0)}
-            commentCount={g.comments}
+            commentCount={g.comments + (state.globalNotes[g.id]?.length ?? 0)}
             onOpen={openSheet}
             onCheer={() =>
               dispatch({

@@ -31,6 +31,7 @@ const PERSISTED_KEYS = [
   'replied',
   'pending',
   'personNotes',
+  'globalNotes',
   'usedSugg',
   'notifRead',
 ] as const;

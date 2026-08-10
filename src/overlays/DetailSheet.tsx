@@ -133,7 +133,8 @@ function TaskSheet({ id }: { id: string }) {
   const initials = global?.ini ?? (who ? INITIALS[who] : '?');
   const tintColor = global?.tint ?? (who ? TINT[who] : color.chip);
   const first = global ? global.name.replace('@', '') : who ? FIRST[who] : '';
-  const cmts: Note[] = (mine?.cmts ?? moment?.cmts ?? []) as Note[];
+  // A public post has no thread of its own — what we can show is what you said.
+  const cmts: Note[] = (mine?.cmts ?? moment?.cmts ?? state.globalNotes[id] ?? []) as Note[];
   const pts = mine?.pts ?? moment?.pts;
   const title = 'title' in raw ? (raw.title ?? '') : '';
 

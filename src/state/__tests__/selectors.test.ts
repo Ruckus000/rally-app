@@ -16,43 +16,9 @@ import {
   unreadNeedsCount,
   weekPoints,
 } from '../selectors';
-import { MY_TASKS, MOMENTS } from '../../data/fixtures';
 import { WORLD } from '../../data/seed';
-import { CURRENT_WEEK } from '../../data/week';
+import { baseState as base } from '../../test/baseState';
 
-const base: State = {
-  account: 'seeded',
-  tab: 'week',
-  scope: 'friends',
-  day: CURRENT_WEEK.today,
-  myTasks: MY_TASKS,
-  moments: MOMENTS,
-  acted: {},
-  replied: {},
-  pending: {},
-  personNotes: {},
-  usedSugg: {},
-  note: '',
-  draft: '',
-  composerVal: '',
-  draftDay: null,
-  draftCat: 'Fitness',
-  draftPair: [],
-  draftAud: null,
-  editingId: null,
-  planOpen: false,
-  wrapOpen: false,
-  wrapWeek: null,
-  notifOpen: false,
-  notifFilter: 'all',
-  notifRead: {},
-  sheet: null,
-  composerOpen: false,
-  onboardStep: null,
-  seenTooltip: false,
-  toast: null,
-  toastSeq: 0,
-};
 
 describe('points', () => {
   it('counts only closed stakes toward the week', () => {
