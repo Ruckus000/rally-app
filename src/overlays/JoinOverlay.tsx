@@ -21,7 +21,7 @@ export function JoinOverlay() {
       <GlowBloom size={220} top={-90} right={-70} opacity={0.22} />
 
       <Caps size={12} tracking={1.6} color={onDark.secondary}>
-        You've been invited to
+        You’ve been invited to
       </Caps>
       <Bri size={32} weight={800} tracking={-0.8} color={color.paper} style={{ marginTop: 8, marginBottom: 20 }}>
         {CIRCLE_NAME}

@@ -5,7 +5,7 @@
  * The build keeps the handle, adds a real close button, and wires Escape and
  * hardware back through <Overlay>.
  */
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Animated, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { color, radius, tint as TINT } from '../theme/tokens';
 import {
@@ -35,7 +35,7 @@ export function DetailSheet({ bottomInset }: { bottomInset: number }) {
   const { state, dispatch } = useStore();
   const sheet = state.sheet;
   const reduced = useReducedMotion();
-  const slide = useRef(new Animated.Value(reduced ? 0 : 1)).current;
+  const [slide] = useState(() => new Animated.Value(1));
 
   useEffect(() => {
     if (reduced) {

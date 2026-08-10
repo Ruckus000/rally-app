@@ -115,6 +115,38 @@ describe('staking', () => {
     const twice = reducer(once, { type: 'ADD_SUGGESTION', suggestion });
     expect(twice.myTasks).toHaveLength(base.myTasks.length + 1);
   });
+
+  it('hands a suggestion back when its task is unstaked', () => {
+    const suggestion = { id: 's1', tag: 'X', title: 'Stretch', sub: '', pts: 20, cat: 'Fitness' as const };
+    const staked = reducer(base, { type: 'ADD_SUGGESTION', suggestion });
+    const added = staked.myTasks[staked.myTasks.length - 1];
+    expect(staked.usedSugg.s1).toBe(true);
+
+    const unstaked = reducer(staked, { type: 'REMOVE_TASK', id: added.id });
+    expect(unstaked.usedSugg.s1).toBeUndefined();
+
+    // …and it can be staked again rather than being a dead card.
+    const restaked = reducer(unstaked, { type: 'ADD_SUGGESTION', suggestion });
+    expect(restaked.myTasks).toHaveLength(base.myTasks.length + 1);
+  });
+
+  it('leaves other suggestions alone when one task is unstaked', () => {
+    const a = { id: 's1', tag: 'X', title: 'Stretch', sub: '', pts: 20, cat: 'Fitness' as const };
+    const b = { id: 's3', tag: 'Y', title: 'Read', sub: '', pts: 30, cat: 'Mind' as const };
+    let s = reducer(base, { type: 'ADD_SUGGESTION', suggestion: a });
+    s = reducer(s, { type: 'ADD_SUGGESTION', suggestion: b });
+    const fromA = s.myTasks.find((t) => t.fromSuggestion === 's1')!;
+    s = reducer(s, { type: 'REMOVE_TASK', id: fromA.id });
+    expect(s.usedSugg.s1).toBeUndefined();
+    expect(s.usedSugg.s3).toBe(true);
+  });
+
+  it('does not disturb suggestions when a normal task is unstaked', () => {
+    const suggestion = { id: 's1', tag: 'X', title: 'Stretch', sub: '', pts: 20, cat: 'Fitness' as const };
+    const staked = reducer(base, { type: 'ADD_SUGGESTION', suggestion });
+    const s = reducer(staked, { type: 'REMOVE_TASK', id: 'm1' });
+    expect(s.usedSugg.s1).toBe(true);
+  });
 });
 
 describe('editing a stake', () => {

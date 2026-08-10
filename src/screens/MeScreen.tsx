@@ -325,7 +325,7 @@ export function MeScreen() {
         }}
       >
         <Bri size={15} weight={800} color={color.ink}>
-          See this week's ledger
+          See this week’s ledger
         </Bri>
       </Tap>
     </View>

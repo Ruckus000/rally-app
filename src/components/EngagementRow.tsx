@@ -46,8 +46,10 @@ export function EngagementRow({
   const cheerStyle = engButton(cheered, dark);
   const commentStyle = engButton(false, dark);
 
-  const swallow = (fn: () => void) => (e: GestureResponderEvent) => {
-    e.stopPropagation();
+  // Optional: RN only passes an event for real touches, and stopPropagation is
+  // a no-op outside web anyway — the guard keeps synthetic invocations safe.
+  const swallow = (fn: () => void) => (e?: GestureResponderEvent) => {
+    e?.stopPropagation?.();
     fn();
   };
 

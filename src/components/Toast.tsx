@@ -1,5 +1,5 @@
 /** Single-slot toast, `bPop` in, auto-dismissed by the store. */
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Animated, View } from 'react-native';
 import { color, shadows } from '../theme/tokens';
 import { POP_DURATION, popEasing, useReducedMotion } from '../theme/motion';
@@ -7,7 +7,7 @@ import { Bri } from './primitives';
 
 export function Toast({ message, seq }: { message: string | null; seq: number }) {
   const reduced = useReducedMotion();
-  const anim = useRef(new Animated.Value(1)).current;
+  const [anim] = useState(() => new Animated.Value(1));
 
   useEffect(() => {
     if (!message) return;

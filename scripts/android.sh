@@ -45,6 +45,8 @@ if ! adb devices | grep -q "device$"; then
 fi
 
 say "Installing"
+# Stop any running copy first, or the relaunch just foregrounds the old build.
+adb shell am force-stop "$BUNDLE_ID" >/dev/null 2>&1 || true
 adb install -r "$APK" >/dev/null
 say "Launching"
 adb shell monkey -p "$BUNDLE_ID" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1

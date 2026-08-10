@@ -386,6 +386,7 @@ export function reducer(state: State, action: Action): State {
         pairKind: (s.pair ?? []).length ? 'loose' : null,
         cmts: [],
         source: 'staked',
+        fromSuggestion: s.id,
       };
       return withToast(
         {
@@ -397,17 +398,22 @@ export function reducer(state: State, action: Action): State {
       );
     }
 
-    case 'REMOVE_TASK':
+    case 'REMOVE_TASK': {
+      const removed = state.myTasks.find((t) => t.id === action.id);
+      // If it came off a suggestion card, hand that card back rather than
+      // leaving it stuck on "Staked ✓" with nothing behind it.
+      const usedSugg = { ...state.usedSugg };
+      if (removed?.fromSuggestion) delete usedSugg[removed.fromSuggestion];
       return withToast(
         {
           ...state,
+          usedSugg,
           myTasks: state.myTasks.filter((t) => t.id !== action.id),
-          ...(state.editingId === action.id
-            ? { editingId: null, draft: '', draftPair: [], draftAud: null, draftDay: null }
-            : null),
+          ...(state.editingId === action.id ? ABANDON_EDIT : null),
         },
         'Unstaked — off the line',
       );
+    }
 
     case 'CYCLE_TASK_AUD':
       return {

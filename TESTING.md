@@ -81,14 +81,20 @@ npm test
 npm run typecheck
 ```
 
-38 tests over the reducer and selectors; `tsc` runs in strict mode.
+```bash
+npm run lint
+```
 
-## Fixed by testing on Android
+58 tests in three suites — reducer rules, selector maths, and render tests that drive the real screens (tap a checkbox, assert the count moves). `tsc` runs in strict mode; CI runs all three.
 
-Two defects only showed up on the second platform, both now fixed:
+## Bugs found and fixed after the first pass
 
-- The Plan hero number's glow used a text shadow, which Android clips to the glyph box — it rendered as a lit rectangle behind "190". The glow is now iOS-only.
-- The year grid wrapped to 12 columns instead of 13, because a fractional cell width overflowed the row by a fraction of a pixel. Cell widths are floored now, which is also safer on iOS.
+Driving the app on a second platform and writing render tests each turned up defects the first build hid:
+
+- **Android:** the Plan hero glow used a text shadow, which Android clips to the glyph box — it drew a lit rectangle behind "190". Now iOS-only.
+- **Android:** the year grid wrapped to 12 columns instead of 13; a fractional cell width overflowed the row by a fraction of a pixel. Widths are floored now.
+- **Unstaking a suggestion left it dead.** Staking "Stretch every night" from PICK IT BACK UP and then unstaking it left the card reading "Staked ✓" forever, with no way to stake it again. The card now returns to the rail.
+- **A crash in the engagement buttons** when they were invoked without a touch event. Guarded.
 
 ## Known limits
 

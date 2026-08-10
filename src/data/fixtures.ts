@@ -130,6 +130,8 @@ export type Task = {
   cmts: Note[];
   /** Quick logs and staked tasks are both tasks; this is how the list tells them apart. */
   source: 'staked' | 'quicklog';
+  /** Set when the task came from a "pick it back up" card, so unstaking can offer it again. */
+  fromSuggestion?: string;
 };
 
 export const MY_TASKS: Task[] = [

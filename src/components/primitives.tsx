@@ -11,22 +11,12 @@ import {
   StyleSheet,
   Text,
   TextProps,
-  TextStyle,
   View,
-  ViewProps,
   ViewStyle,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
-import {
-  capsLabel,
-  color,
-  font,
-  gradientAngle,
-  hairlineGradient,
-  HIT_TARGET,
-  shadows,
-} from '../theme/tokens';
+import { capsLabel, color, font, gradientAngle, hairlineGradient, HIT_TARGET } from '../theme/tokens';
 
 type Weight = 400 | 500 | 600 | 700 | 800;
 
@@ -144,22 +134,6 @@ function hitSlopFor(style: StyleProp<ViewStyle> | undefined, minSize: number) {
   return { top: vertical, bottom: vertical, left: horizontal, right: horizontal };
 }
 
-export function Card({
-  style,
-  radius = 19,
-  children,
-  ...rest
-}: ViewProps & { radius?: number; children?: React.ReactNode }) {
-  return (
-    <View
-      {...rest}
-      style={[{ backgroundColor: color.card, borderRadius: radius }, shadows.card, style]}
-    >
-      {children}
-    </View>
-  );
-}
-
 /**
  * The signature treatment: a 1px gradient wrapper around a card one radius
  * step smaller. Used on your own task rows, the perfect-week cards and the
@@ -239,6 +213,3 @@ export const row: ViewStyle = { flexDirection: 'row', alignItems: 'center' };
 export const rowTop: ViewStyle = { flexDirection: 'row', alignItems: 'flex-start' };
 export const fill: ViewStyle = { flex: 1, minWidth: 0 };
 
-export const hairline = (c = color.divider): ViewStyle => ({ height: 1, backgroundColor: c });
-
-export const textStyle = (s: TextStyle) => s;

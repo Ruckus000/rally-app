@@ -35,8 +35,6 @@ export const onDark = {
   secondary: 'rgba(241,242,236,.55)',
   tertiary: 'rgba(241,242,236,.45)',
   hairline: 'rgba(241,242,236,.11)',
-  surface: 'rgba(241,242,236,.05)',
-  surfaceBorder: 'rgba(241,242,236,.08)',
 } as const;
 
 export type PersonKey = 'you' | 'maya' | 'dre' | 'jordan' | 'sofia' | 'nana' | 'tomas';
@@ -77,14 +75,10 @@ export const font = {
 } as const;
 
 export const radius = {
-  pill: 999,
   smallCard: 14,
   chip: 16,
   row: 18,
-  card: 21,
-  bigCard: 23,
   largeCard: 26,
-  composer: 26,
   sheet: 28,
   tabbar: 26,
 } as const;
@@ -124,36 +118,6 @@ export const shadows = {
  */
 export const HIT_TARGET = 44;
 
-export const text = {
-  screenTitle: {
-    fontFamily: font.bri[800],
-    fontSize: 29,
-    letterSpacing: -0.7,
-    lineHeight: 32,
-    color: color.ink,
-  },
-  heroAllTime: {
-    fontFamily: font.bri[800],
-    fontSize: 48,
-    letterSpacing: -2.2,
-    lineHeight: 48 * 0.85,
-  },
-  heroStaked: {
-    fontFamily: font.bri[800],
-    fontSize: 76,
-    letterSpacing: -3.5,
-    lineHeight: 76 * 0.8,
-  },
-  perfectHeadline: { fontFamily: font.bri[800], fontSize: 26, letterSpacing: -0.6 },
-  cardTitleSocial: { fontFamily: font.bri[700], fontSize: 17, letterSpacing: -0.2, lineHeight: 17 * 1.2 },
-  cardTitleBig: { fontFamily: font.bri[800], fontSize: 22, letterSpacing: -0.4, lineHeight: 22 * 1.2 },
-  composerInput: { fontFamily: font.bri[800], fontSize: 23, letterSpacing: -0.6 },
-  sheetTitle: { fontFamily: font.bri[700], fontSize: 21, letterSpacing: -0.3, lineHeight: 21 * 1.2 },
-  body: { fontFamily: font.sans[400], fontSize: 13.5 },
-  bodyStrong: { fontFamily: font.sans[600], fontSize: 14 },
-  secondary: { fontFamily: font.sans[400], fontSize: 12 },
-} satisfies Record<string, TextStyle>;
-
 /** Uppercase tracked section label. 10px floor, only at >= .45 alpha. */
 export const capsLabel = (size = 11, tracking = 1.4): TextStyle => ({
   fontFamily: font.sans[700],
@@ -181,11 +145,6 @@ export const hairlineGradient = {
   composer: ['rgba(195,245,60,.60)', 'rgba(195,245,60,.06)', 'rgba(241,242,236,.05)'],
   composerLocations: [0, 0.42, 0.8],
 } as const;
-
-export const monoDigits: TextStyle = Platform.select({
-  ios: { fontVariant: ['tabular-nums'] },
-  default: {},
-}) as TextStyle;
 
 /**
  * The bloom behind the Plan hero number. Android clips a text shadow to the

@@ -55,6 +55,9 @@ fi
 
 open -a Simulator
 say "Installing"
+# Terminate first: launching an already-running app just foregrounds the old
+# process, so a rebuild would appear not to have taken.
+xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
 xcrun simctl install "$UDID" "$APP"
 say "Launching"
 xcrun simctl launch "$UDID" "$BUNDLE_ID" >/dev/null

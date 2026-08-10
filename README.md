@@ -28,7 +28,11 @@ npm test
 npm run typecheck
 ```
 
-38 jest tests over the reducer and selectors; TypeScript runs in strict mode.
+```bash
+npm run lint
+```
+
+58 jest tests: reducer and selector rules, plus render tests that drive the real screens through the store. TypeScript runs in strict mode and CI runs all three on every push.
 
 ## Layout
 
