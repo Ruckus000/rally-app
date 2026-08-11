@@ -4,14 +4,14 @@
 import React from 'react';
 import { Alert, View } from 'react-native';
 import { color, onDark, radius, shadows, yearLevelColor } from '../theme/tokens';
-import { CIRCLE_NAME, ME, NAME, weekPointsLabel } from '../data/fixtures';
+import { CIRCLE_NAME, ME, weekPointsLabel } from '../data/fixtures';
 import { nextWeekAfter, useStore } from '../state/store';
 import { allTasksDone, cheersGiven, weekPoints } from '../state/selectors';
 import { Avatar } from '../components/Avatar';
 import { Bri, Caps, GlowBloom, Sans, Tap, fill, row } from '../components/primitives';
 
 export function MeScreen() {
-  const { state, dispatch, world } = useStore();
+  const { state, dispatch, world, people } = useStore();
   const { profile, week, history, yearLevels } = state;
   const won = allTasksDone(state);
   const gave = cheersGiven(state);
@@ -52,7 +52,12 @@ export function MeScreen() {
                 borderColor: color.lime,
               }}
             />
-            <Avatar who="you" size={50} label={ME.name} style={{ position: 'absolute', top: 5, left: 5 }} />
+            <Avatar
+              who={state.selfId}
+              size={50}
+              label={ME.name}
+              style={{ position: 'absolute', top: 5, left: 5 }}
+            />
           </View>
           <View style={fill}>
             <Bri size={22} weight={800} tracking={-0.5} color={color.paper}>
@@ -228,7 +233,7 @@ export function MeScreen() {
                 <Avatar who={o.k} size={36} />
                 <View style={fill}>
                   <Sans size={14} weight={600}>
-                    {NAME[o.k]}
+                    {people.name(o.k)}
                   </Sans>
                   <Sans size={11.5} color={color.muted}>
                     {o.reason}
@@ -239,7 +244,7 @@ export function MeScreen() {
                     dispatch({ type: 'REPLY', key: o.k });
                     dispatch({ type: 'OPEN_SHEET', sheet: { type: 'person', id: o.k } });
                   }}
-                  accessibilityLabel={`Say something to ${NAME[o.k]}`}
+                  accessibilityLabel={`Say something to ${people.name(o.k)}`}
                   style={{
                     borderRadius: 999,
                     paddingHorizontal: 13,

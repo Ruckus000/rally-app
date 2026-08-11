@@ -12,18 +12,17 @@ import {
   CATEGORIES,
   CATEGORY_HINT,
   CATEGORY_POINTS,
-  FIRST,
 } from '../data/fixtures';
 import { DAY_NAMES, DayIndex } from '../data/week';
 import { useStore } from '../state/store';
-import { stakedPoints } from '../state/selectors';
+import { circleMembers, stakedPoints } from '../state/selectors';
 import { Avatar, FaceStack } from '../components/Avatar';
 import { Icon } from '../components/Icon';
 import { Bri, Caps, GlowBloom, GradientHairline, Sans, Tap, fill, row } from '../components/primitives';
 import { Overlay } from './Overlay';
 
 export function PlanOverlay({ topInset, bottomInset }: { topInset: number; bottomInset: number }) {
-  const { state, dispatch, effectiveAudience, world } = useStore();
+  const { state, dispatch, effectiveAudience, world, people } = useStore();
   const onboarding = state.onboardStep === 'plan';
 
   const staked = stakedPoints(state);
@@ -33,7 +32,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
   const hasBest = best > 0;
   const over = hasBest && staked >= best;
   const barPct = hasBest ? Math.min(100, (staked / best) * 100) : staked > 0 ? 100 : 0;
-  const pairable = world.members.filter((k) => k !== 'you');
+  const pairable = circleMembers(state).filter((k) => !people.isSelf(k));
   const draftDay = (state.draftDay ?? state.day) as DayIndex;
   const hasDraft = !!state.draft.trim();
   const draftPoints = CATEGORY_POINTS[state.draftCat] ?? 30;
@@ -324,7 +323,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                     onPress={() => dispatch({ type: 'TOGGLE_PAIR', key: k })}
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked: on }}
-                    accessibilityLabel={`In it with ${FIRST[k]}`}
+                    accessibilityLabel={`In it with ${people.first(k)}`}
                     style={{
                       ...row,
                       gap: 7,
@@ -340,7 +339,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                   >
                     <Avatar who={k} size={20} />
                     <Sans size={12.5} weight={700} color={on ? color.lime : 'rgba(241,242,236,.72)'}>
-                      {FIRST[k]}
+                      {people.first(k)}
                     </Sans>
                   </Tap>
                 );
@@ -348,7 +347,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
             </View>
             <Sans size={11.5} lineHeight={16} color={onDark.secondary} style={{ marginTop: 9 }}>
               {state.draftPair.length
-                ? `${state.draftPair.map((k) => FIRST[k]).join(' and ')} will see this land — and notice if it doesn’t.`
+                ? `${state.draftPair.map((k) => people.first(k)).join(' and ')} will see this land — and notice if it doesn’t.`
                 : 'Nobody’s watching this one yet.'}
             </Sans>
               </>

@@ -113,6 +113,24 @@ describe('what gets discarded', () => {
   });
 });
 
+describe('payloads the directory has to keep working with', () => {
+  it('one written before people existed, which hydrate backfills', async () => {
+    const old: Record<string, unknown> = { ...pick(base) };
+    delete old.people;
+    delete old.selfId;
+    await AsyncStorage.setItem(KEY, envelope(old));
+
+    const restored = await load();
+    expect(restored).not.toBeNull();
+    expect(restored?.myTasks).toHaveLength(base.myTasks.length);
+  });
+
+  it('a live account, rather than discarding it on every launch', async () => {
+    await AsyncStorage.setItem(KEY, envelope({ ...pick(base), account: 'live' }));
+    expect(await load()).toMatchObject({ account: 'live' });
+  });
+});
+
 // This behaviour is deliberately inverted from what it used to be. Discarding
 // on a week change was right only while the week could never move; now that it
 // can, discarding would throw away the week's work instead of rolling it over.

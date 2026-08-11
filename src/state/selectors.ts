@@ -5,9 +5,9 @@
  * must be the metric the ranking uses — showing points there would imply a
  * different sort.
  */
-import { FIRST, INITIALS, MemberStats, NAME, STATS, Task } from '../data/fixtures';
+import { Task } from '../data/fixtures';
+import { MemberStats, PersonId, makePeople } from '../data/people';
 import { getWorld } from '../data/seed';
-import type { PersonKey } from '../theme/tokens';
 import type { State } from './store';
 
 /** The ids you've cheered. Cheers only ever land on a moment or a global post. */
@@ -54,7 +54,7 @@ export const allTasksDone = (state: State) =>
 
 export type RankedMember = {
   rank: number;
-  k: PersonKey;
+  k: PersonId;
   ini: string;
   name: string;
   first: string;
@@ -72,17 +72,18 @@ const score = (s: MemberStats) => (s.total ? s.done * (s.done / s.total) : 0);
 
 export function ranking(state: State): RankedMember[] {
   const mine = myStats(state);
-  return getWorld(state.account).members.map((k) => {
-    const s = k === 'you' ? mine : STATS[k as Exclude<PersonKey, 'you'>];
+  const p = makePeople(state.people, state.selfId);
+  return circleMembers(state).map((k) => {
+    const s = p.isSelf(k) ? mine : p.stats(k);
     return { k, s, score: score(s) };
   })
     .sort((a, b) => b.score - a.score)
     .map(({ k, s }, i) => ({
       rank: i + 1,
       k,
-      ini: INITIALS[k],
-      name: NAME[k],
-      first: FIRST[k],
+      ini: p.initials(k),
+      name: p.name(k),
+      first: p.first(k),
       sub:
         `${s.total ? Math.round((100 * s.done) / s.total) : 0}% · ${s.done} of ${s.total}` +
         (s.streak ? ` · 🔥 ${s.streak}w` : ''),
@@ -91,10 +92,18 @@ export function ranking(state: State): RankedMember[] {
     }));
 }
 
-export const myRank = (state: State) => ranking(state).find((r) => r.k === 'you')?.rank ?? 0;
+export const myRank = (state: State) =>
+  ranking(state).find((r) => r.k === state.selfId)?.rank ?? 0;
 
 export const totalCheersExchanged = (state: State) =>
   ranking(state).reduce((a, r) => a + r.given, 0);
+
+/**
+ * Who's on the leaderboard. A live account's circle is whoever is in the
+ * directory; the demo accounts get theirs from the world they were seeded with.
+ */
+export const circleMembers = (state: State): PersonId[] =>
+  state.account === 'live' ? Object.keys(state.people) : getWorld(state.account).members;
 
 /** Unread drives the bell badge, and only the "needs you" tier counts. */
 export const unreadNeedsCount = (state: State) =>
@@ -110,11 +119,11 @@ export function personalFeed(state: State) {
 }
 
 /** Who helped you this week: note authors and anyone paired on a stake. */
-export function helpedByThisWeek(tasks: Task[]) {
-  const map: Partial<Record<PersonKey, number>> = {};
+export function helpedByThisWeek(tasks: Task[], self: PersonId) {
+  const map: Partial<Record<PersonId, number>> = {};
   tasks.forEach((t) =>
     (t.cmts ?? []).forEach((c) => {
-      if (c.k && c.k !== 'you') map[c.k] = (map[c.k] ?? 0) + 1;
+      if (c.k && c.k !== self) map[c.k] = (map[c.k] ?? 0) + 1;
     }),
   );
   tasks
@@ -128,13 +137,13 @@ export function helpedByThisWeek(tasks: Task[]) {
 
 /** Who you helped: anyone whose moment you acted on, plus anyone you replied to. */
 export function helpedThisWeek(state: State) {
-  const map: Partial<Record<PersonKey, number>> = {};
+  const map: Partial<Record<PersonId, number>> = {};
   Object.keys(state.acted).forEach((key) => {
     const id = key.split(':')[0];
     const m = state.moments.find((x) => x.id === id);
     if (m) map[m.who] = (map[m.who] ?? 0) + 1;
   });
-  (Object.keys(state.replied) as PersonKey[]).forEach((k) => {
+  (Object.keys(state.replied) as PersonId[]).forEach((k) => {
     map[k] = (map[k] ?? 0) + 1;
   });
   return map;

@@ -4,7 +4,7 @@
  * closing every stake fires the celebration, and routing never leaves a stale
  * overlay behind. Those are what's tested here.
  */
-import { Action, DEFAULT_CONFIG, reducer, State } from '../store';
+import { Action, DEFAULT_CONFIG, hydrate, reducer, State } from '../store';
 import { MY_TASKS, MOMENTS } from '../../data/fixtures';
 import { WORLD, getWorld, seedProfile } from '../../data/seed';
 import { baseState as base, freshState } from '../../test/baseState';
@@ -367,6 +367,12 @@ describe('accounts', () => {
     expect(
       Object.keys(reducer(base, { type: 'READ_ALL_NOTIFS' }).notifRead),
     ).toHaveLength(WORLD.seeded.notifications.length);
+  });
+});
+
+describe('hydration', () => {
+  it('rebuilds the directory a payload predating it never had', () => {
+    expect(Object.keys(hydrate({ account: 'seeded' }).people)).toHaveLength(7);
   });
 });
 

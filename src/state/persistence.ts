@@ -11,6 +11,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AUDIENCES, CATEGORY_POINTS, Task } from '../data/fixtures';
+import { ACCOUNT_MODES } from '../data/seed';
 import { DAY_NAMES } from '../data/week';
 import type { State } from './store';
 
@@ -19,6 +20,13 @@ const KEY = 'rally:state:v1';
  * 2: the week, its history and the running totals became persisted state, and
  * the envelope's separate `week` field went away. An older payload is missing
  * required slices, so it's discarded rather than half-restored.
+ *
+ * `people` and `selfId` arriving did *not* bump this, on purpose. A bump makes
+ * `load()` return null, which would throw away the staked week, the history,
+ * the year grid, the streak and the totals and drop the user back on the join
+ * screen. Nothing about the on-disk identity encoding changed — demo ids are
+ * still 'maya', you are still 'you' — and both new keys are derivable from
+ * `account`, which was already there. `hydrate()` backfills them.
  */
 const VERSION = 2;
 const DEBOUNCE_MS = 400;
@@ -44,6 +52,8 @@ const PERSISTED_KEYS = [
   'pendingRollover',
   'usedSugg',
   'notifRead',
+  'selfId',
+  'people',
 ] as const;
 
 export type Persisted = Pick<State, (typeof PERSISTED_KEYS)[number]>;
@@ -105,12 +115,33 @@ function weekIsSound(value: unknown): boolean {
   );
 }
 
+/**
+ * Undefined is fine — a payload written before the directory existed backfills
+ * from `account`. What's checked is the shape every avatar and row reads.
+ */
+function peopleAreSound(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== 'object') return false;
+  return Object.values(value as Record<string, unknown>).every(
+    (p) =>
+      p &&
+      typeof p === 'object' &&
+      typeof (p as Record<string, unknown>).id === 'string' &&
+      typeof (p as Record<string, unknown>).name === 'string' &&
+      typeof (p as Record<string, unknown>).first === 'string' &&
+      typeof (p as Record<string, unknown>).initials === 'string',
+  );
+}
+
 function isSound(data: unknown): data is Persisted {
   if (!data || typeof data !== 'object') return false;
   const d = data as Partial<Persisted>;
   if (!tasksAreSound(d.myTasks)) return false;
   if (!Array.isArray(d.moments)) return false;
-  if (d.account !== null && d.account !== 'fresh' && d.account !== 'seeded') return false;
+  // Written against the tuple so a new account mode can never be silently
+  // discarded here — that failure mode is a permanently forgetful app.
+  if (d.account !== null && !(ACCOUNT_MODES as readonly string[]).includes(d.account as string))
+    return false;
   if (!weekIsSound(d.week)) return false;
   if (!historyIsSound(d.history)) return false;
   if (!Array.isArray(d.yearLevels)) return false;
@@ -118,6 +149,8 @@ function isSound(data: unknown): data is Persisted {
   // Dying mid-prompt should bring you back to the prompt, so it persists —
   // which means it also has to survive the trip intact.
   if (d.pendingRollover && !weekIsSound(d.pendingRollover.to)) return false;
+  if (!peopleAreSound(d.people)) return false;
+  if (d.selfId !== undefined && typeof d.selfId !== 'string') return false;
   return true;
 }
 
@@ -144,7 +177,11 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let queued: Persisted | null = null;
 let lastWritten: Persisted | null = null;
 
-/** Every reducer branch updates immutably, so reference equality is reliable. */
+/**
+ * Every reducer branch updates immutably, so reference equality is reliable —
+ * which also means `people` must only ever be *replaced*, never rebuilt per
+ * render, or this skip stops skipping and every render hits the disk.
+ */
 const unchanged = (a: Persisted | null, b: Persisted) =>
   !!a && PERSISTED_KEYS.every((k) => a[k] === b[k]);
 

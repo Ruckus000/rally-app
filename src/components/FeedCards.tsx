@@ -4,16 +4,17 @@
  */
 import React from 'react';
 import { View } from 'react-native';
-import { color, onDark, PersonKey } from '../theme/tokens';
+import { color, onDark } from '../theme/tokens';
 import {
   AUDIENCE_LABEL,
   BIG_CARD_BASE_CHEERS,
   BIG_CARD_STATS,
   GlobalPost,
   Moment,
-  NAME,
   Task,
 } from '../data/fixtures';
+import { PersonId } from '../data/people';
+import { usePeople } from '../state/store';
 import { Avatar, FaceStack } from './Avatar';
 import { Icon } from './Icon';
 import { EngagementRow } from './EngagementRow';
@@ -131,6 +132,9 @@ export function BigCard({
   onComment: () => void;
   onCosign: () => void;
 }) {
+  // The only card in this file that names a person it wasn't handed a name for:
+  // a moment carries an id, and the feed has no display string to pass down.
+  const people = usePeople();
   return (
     <GradientHairline radius={25} variant="dark" style={{ marginBottom: 12 }}>
       <View style={{ backgroundColor: color.ink, borderRadius: 23, padding: 17, overflow: 'hidden' }}>
@@ -140,7 +144,7 @@ export function BigCard({
           <Avatar who={moment.who} size={36} />
           <View style={fill}>
             <Sans size={13.5} weight={600} color={color.paper}>
-              {NAME[moment.who]}
+              {people.name(moment.who)}
             </Sans>
             <Sans size={11} color={onDark.secondary}>
               {moment.time} ago
@@ -221,7 +225,7 @@ export function SocialCard({
   onComment,
   cta,
 }: {
-  who?: PersonKey;
+  who?: PersonId;
   initials?: string;
   tint?: string;
   name: string;

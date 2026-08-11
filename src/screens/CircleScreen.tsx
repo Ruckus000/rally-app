@@ -6,20 +6,19 @@
  */
 import React from 'react';
 import { View } from 'react-native';
-import { color, radius, shadows, tint as TINT } from '../theme/tokens';
+import { color, radius, shadows } from '../theme/tokens';
 import { Avatar, ProgressRing } from '../components/Avatar';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
 import { Icon } from '../components/Icon';
-import { useStore } from '../state/store';
+import { useStore, usePeople } from '../state/store';
 import { RankedMember, ranking, totalCheersExchanged } from '../state/selectors';
-import { TREND } from '../data/fixtures';
 import { EmptyState } from '../components/FeedCards';
 
 const TREND_GLYPH = { up: '▲', down: '▼', same: '–' } as const;
 const TREND_COLOR = { up: color.moss, down: color.faintInk, same: color.dash } as const;
 
 export function CircleScreen() {
-  const { state, dispatch, config } = useStore();
+  const { state, dispatch, config, people } = useStore();
   const ranked = ranking(state);
   const top3 = ranked.slice(0, 3);
   const rest = ranked.slice(3);
@@ -41,7 +40,7 @@ export function CircleScreen() {
   }
 
   const openMember = (k: RankedMember['k']) =>
-    k === 'you'
+    people.isSelf(k)
       ? dispatch({ type: 'SET_TAB', tab: 'me' })
       : dispatch({ type: 'OPEN_SHEET', sheet: { type: 'person', id: k } });
 
@@ -83,7 +82,7 @@ export function CircleScreen() {
               paddingVertical: 11,
               paddingHorizontal: 14,
               minHeight: 58,
-              backgroundColor: r.k === 'you' ? color.askTint : 'transparent',
+              backgroundColor: people.isSelf(r.k) ? color.askTint : 'transparent',
               borderTopWidth: i === 0 ? 0 : 1,
               borderTopColor: 'rgba(25,30,22,.06)',
             }}
@@ -107,8 +106,8 @@ export function CircleScreen() {
               </Sans>
             </View>
 
-            <Sans size={11} color={TREND_COLOR[TREND[r.k]]} style={{ marginRight: 2 }}>
-              {TREND_GLYPH[TREND[r.k]]}
+            <Sans size={11} color={TREND_COLOR[people.trend(r.k)]} style={{ marginRight: 2 }}>
+              {TREND_GLYPH[people.trend(r.k)]}
             </Sans>
 
             <View
@@ -178,6 +177,7 @@ function PodiumMember({
   showRank: boolean;
   onPress: () => void;
 }) {
+  const people = usePeople();
   const isFirst = member.rank === 1;
   const size = isFirst ? 92 : 74;
 
@@ -197,7 +197,7 @@ function PodiumMember({
             right: 8,
             bottom: 8,
             borderRadius: size / 2,
-            backgroundColor: TINT[member.k],
+            backgroundColor: people.tint(member.k),
             alignItems: 'center',
             justifyContent: 'center',
           }}

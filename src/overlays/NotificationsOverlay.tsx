@@ -5,9 +5,9 @@
 import React from 'react';
 import { ScrollView, View } from 'react-native';
 import { color, gutter, radius, shadows } from '../theme/tokens';
-import { FIRST, NOTIF_TIERS, Notification, NotifTier } from '../data/fixtures';
+import { NOTIF_TIERS, Notification, NotifTier } from '../data/fixtures';
 import { EmptyState } from '../components/FeedCards';
-import { useStore } from '../state/store';
+import { useStore, usePeople } from '../state/store';
 import { Icon, IconName } from '../components/Icon';
 import { Avatar } from '../components/Avatar';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
@@ -172,6 +172,7 @@ export function NotificationsOverlay({ topInset }: { topInset: number }) {
 
 function NotificationRow({ item, isNeeds }: { item: Notification; isNeeds: boolean }) {
   const { state, dispatch } = useStore();
+  const people = usePeople();
   const isSystem = !item.who && !item.faces;
   const faces = item.faces ?? (item.who ? [item.who] : []);
   const read = !!state.notifRead[item.id];
@@ -191,7 +192,7 @@ function NotificationRow({ item, isNeeds }: { item: Notification; isNeeds: boole
     }
   };
 
-  const name = item.name ?? (item.who ? FIRST[item.who] : '');
+  const name = item.name ?? (item.who ? people.first(item.who) : '');
 
   return (
     <Tap
