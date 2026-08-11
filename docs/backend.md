@@ -1,14 +1,44 @@
 # Backend design
 
-> **Nothing here is running.** There is no Supabase project, no client code and
-> no dependency on any of this. The migration in `supabase/migrations/` has
-> never been executed, so it is **unverified** — treat it as a reviewed design,
-> not as working software. Adopting it starts with running it against a local
-> stack and checking `supabase db advisors`.
+> **The schema exists; the app does not use it.** The migration has been
+> applied to the Rally project (`zproxpxkxduzgxmzpeqa`, free plan, ca-central-1)
+> and verified — see *Status* below. But there is still no client code, no
+> `@supabase/supabase-js` dependency and no network call anywhere in the app.
+> Everything below the *Status* section is design, not working software.
 
 The app is complete and entirely local. This describes what a server would look
 like and, more importantly, how to add one **without losing what makes the app
 feel good** — every tap lands instantly and it works with no network.
+
+## Status
+
+Applied 2026-08-10 with `supabase db push`, then checked:
+
+| Check | Result |
+|---|---|
+| Tables in `public` | 10 |
+| Tables with RLS enabled | 10 |
+| Policies | 23 |
+| Enums | 5 |
+| `private` helpers | 4, none executable by `anon` or `authenticated` |
+| `supabase db advisors --type all` | no security finding against this schema |
+
+Probed from the `anon` role with the publishable key: `select` on `tasks`
+returns `[]`, `insert` is refused with `42501 new row violates row-level
+security policy`, and `private.can_see_task` is not reachable over REST.
+
+Two advisor WARNs exist but belong to `public.rls_auto_enable()`, a Supabase
+platform event trigger that auto-enables RLS on new tables. It returns
+`event_trigger`, so calling it over REST fails with *"cannot display a value of
+type event_trigger"* before it can do anything. Not ours, and not exploitable.
+
+The performance INFOs are all `unused_index` and `unindexed_foreign_keys` on an
+empty database — meaningless until there is traffic, so nothing has been
+changed in response to them.
+
+**What this does not prove.** Every policy above was exercised as `anon`
+against empty tables. The audience model — friends / everyone / private — is
+only genuinely tested once two real signed-in users exist, which is phase 1.
 
 ## The decision that matters: local-first
 
@@ -116,5 +146,7 @@ Each phase leaves the app working.
   Store once any social login exists.
 - **The global feed.** Genuinely public posts imply moderation, reporting and
   abuse handling. Out of scope here, and not a small annexe.
-- **Cost.** A Supabase project is $10/month in the `ruckus000's projects` org.
-  Nothing has been provisioned.
+- **Cost.** The project sits in a separate Free-plan organisation, so it costs
+  nothing. Free projects pause after 7 days of inactivity and restore within
+  90; that is fine for development and is the thing to revisit before anyone
+  else relies on it.

@@ -1,9 +1,8 @@
 -- Rally — initial schema.
 --
--- DESIGN ONLY. This has never been executed against a database, so it is
--- unverified. Before adopting it, regenerate the filename with
--- `supabase migration new init` (the timestamp here is a placeholder), run it
--- against a local stack, and check `supabase db advisors`.
+-- Applied to the Rally project (zproxpxkxduzgxmzpeqa) on 2026-08-10. It ran
+-- clean, and `supabase db advisors` reports no security finding against
+-- anything defined here. No client code uses it yet.
 --
 -- The shape follows the client's existing state: see docs/backend.md for the
 -- slice-by-slice mapping.
