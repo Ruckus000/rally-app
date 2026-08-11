@@ -439,6 +439,7 @@ class Builder<T = Row[]> implements PromiseLike<Result<T>> {
   private cap: number | null = null;
   private row: 'many' | 'single' | 'maybe' = 'many';
   private onConflict: string[] | null = null;
+  private ignoreDuplicates = false;
   private settled: Promise<Result<T>> | null = null;
 
   constructor(private readonly table: string) {}
@@ -461,12 +462,13 @@ class Builder<T = Row[]> implements PromiseLike<Result<T>> {
     return this;
   }
 
-  upsert(values: Row | Row[], options?: { onConflict?: string }): this {
+  upsert(values: Row | Row[], options?: { onConflict?: string; ignoreDuplicates?: boolean }): this {
     this.op = 'upsert';
     this.payload = Array.isArray(values) ? values : [values];
     this.onConflict = options?.onConflict
       ? options.onConflict.split(',').map((c) => c.trim())
       : null;
+    this.ignoreDuplicates = options?.ignoreDuplicates ?? false;
     return this;
   }
 
@@ -488,6 +490,12 @@ class Builder<T = Row[]> implements PromiseLike<Result<T>> {
 
   in(col: string, values: unknown[]): this {
     this.filters.push({ op: 'in', col, value: values });
+    return this;
+  }
+
+  /** Sugar for a conjunction of `eq`s, which is all PostgREST's own `match` is. */
+  match(query: Row): this {
+    for (const [col, value] of Object.entries(query)) this.eq(col, value);
     return this;
   }
 
@@ -588,6 +596,10 @@ class Builder<T = Row[]> implements PromiseLike<Result<T>> {
           validate(this.table, staged, null);
           rows.push(staged);
           out.push(staged);
+        } else if (this.ignoreDuplicates) {
+          // `ON CONFLICT DO NOTHING`. The existing row is left exactly as it is,
+          // which for a reaction means the first cheer keeps its created_at.
+          out.push(rows[at]);
         } else {
           const merged = { ...rows[at], ...input };
           validate(this.table, merged, at);

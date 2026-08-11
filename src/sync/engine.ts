@@ -16,10 +16,12 @@
  * is identical is a row that was not touched.
  */
 import type { Dispatch } from 'react';
-import type { Task } from '../data/fixtures';
+import type { Note, Task } from '../data/fixtures';
+import type { PersonId } from '../data/people';
 import type { WeekContext } from '../data/week';
 import type { Action, ServerMerge, State } from '../state/store';
 import { mondayOf } from './mappers';
+import { noteKey, syncableNote, type NoteSite, type SyncableNote } from './notes';
 import {
   ackedTaskIds,
   drain,
@@ -29,10 +31,23 @@ import {
   type OutboxOp,
   type QueueTransport,
 } from './outbox';
+import {
+  diffActed,
+  parseActedKey,
+  reactionKey,
+  type ReactionKind,
+  type ReactionRef,
+} from './reactions';
+import { syncRealtime, stopRealtime } from './realtime';
 import { reconcileTasks } from './reconcile';
 import { startScheduler, stopScheduler } from './scheduler';
-import { currentUserId } from './session';
-import { supabaseTransport, type WireOp as WireEntry, type Transport } from './transport';
+import { currentUserId, onSessionChange } from './session';
+import {
+  supabaseTransport,
+  type PulledNote,
+  type WireOp as WireEntry,
+  type Transport,
+} from './transport';
 
 /** How often the queue is offered to the network. Matches scheduler.ts's own default. */
 const PUSH_MS = 5_000;
@@ -73,15 +88,23 @@ export type EngineOptions = {
  * same: a task queued on a Sunday must not drift into next week while it waits.
  */
 function wireEntry(op: OutboxOp, payload: Record<string, unknown>, entry: QueueEntry): WireEntry {
-  return op === 'task.upsert'
-    ? {
-        id: entry.id,
-        at: entry.at,
-        op: 'task.upsert',
+  const head = { id: entry.id, at: entry.at };
+  switch (op) {
+    case 'task.upsert':
+      return {
+        ...head,
+        op,
         task: payload.task as Task,
         weekStart: String(payload.weekStart),
-      }
-    : { id: entry.id, at: entry.at, op: 'task.delete', taskId: String(payload.taskId) };
+      };
+    case 'task.delete':
+      return { ...head, op, taskId: String(payload.taskId) };
+    case 'reaction.add':
+    case 'reaction.remove':
+      return { ...head, op, targetId: String(payload.targetId), kind: payload.kind as ReactionKind };
+    case 'note.add':
+      return { ...head, op, note: payload.note as SyncableNote };
+  }
 }
 
 function queueTransport(wire: Transport): QueueTransport {
@@ -124,11 +147,215 @@ export function dirtyTaskIds(): ReadonlySet<string> {
   return ids;
 }
 
+/** `reaction:<uuid>:<kind>` — the coalescing key `reactionKey` produces. */
+const REACTION_KEY = 'reaction:';
+
+/**
+ * The reactions the queue still owes the server, by coalescing key.
+ *
+ * The reaction half of `dirtyTaskIds`, and it exists for the same reason: a
+ * cheer the user just tapped is in `acted` and is not on the server yet, so a
+ * pull that predates it must not be allowed to say it never happened. Derived
+ * from the queue on demand rather than tracked, so there is no second copy to
+ * disagree with what actually goes out.
+ */
+export function dirtyReactionKeys(): ReadonlySet<string> {
+  const keys = new Set<string>();
+  for (const entry of pending()) {
+    if (entry.key.startsWith(REACTION_KEY)) keys.add(entry.key);
+  }
+  return keys;
+}
+
+/** The `acted` key a reaction is stored under. The reducer's `ACT` format. */
+const actedKeyOf = (ref: ReactionRef): string => `${ref.targetId}:${ref.kind}`;
+
+/**
+ * `acted`, reconciled against the reactions the server holds for this user.
+ *
+ * Unlike notes, this cannot be a union: a cheer withdrawn on another device is
+ * an *absence* on the wire, and a merge that only ever adds would leave it lit
+ * on this phone forever. So the server is authoritative — but only over the
+ * keys it is able to speak for.
+ *
+ * `parseActedKey` draws that line, and it is the same line `diffActed` draws on
+ * the way out, which is what makes the two agree. A key it refuses (`g1:cheer`,
+ * `mywin:share`, a synthetic DetailSheet key) was never sent, so the server's
+ * silence about it is not evidence of anything; those are copied across
+ * untouched. A key it accepts names a row `pullReactions` would have returned
+ * if it existed.
+ *
+ * Pending entries win over the server for the same reason a dirty task does:
+ * the queue is the record of what the server has not been told yet, and a pull
+ * that raced a tap answers for the moment before it.
+ *
+ * Returns `local` by identity when nothing moved, so `SERVER_MERGE` can bail out
+ * of the render — see the note there.
+ */
+export function reconcileActed(
+  local: State['acted'],
+  server: readonly ReactionRef[],
+  dirtyKeys: ReadonlySet<string>,
+): State['acted'] {
+  const next: Record<string, true> = {};
+  /**
+   * Canonical key → the spelling this device already uses for it. `acted` keys
+   * are minted from whatever id the screen was rendering, and `parseActedKey`
+   * lowercases uuids on the way in; re-adding a row under the canonical spelling
+   * when the local one differs only in case would light a second key and leave
+   * the one the UI actually looks up dark.
+   */
+  const spelling = new Map<string, string>();
+
+  for (const key of Object.keys(local)) {
+    if (!local[key]) continue;
+    const ref = parseActedKey(key);
+    // Not a row the server has ever heard of. Stays, permanently.
+    if (!ref) {
+      next[key] = true;
+      continue;
+    }
+    spelling.set(actedKeyOf(ref), key);
+    if (dirtyKeys.has(reactionKey(ref))) next[key] = true;
+  }
+
+  for (const ref of server) {
+    // Queued locally: this device has already spoken about this tuple and the
+    // loop above has already applied its answer. Re-adding it here would undo a
+    // withdrawal that has not reached the server yet.
+    if (dirtyKeys.has(reactionKey(ref))) continue;
+    const canonical = actedKeyOf(ref);
+    next[spelling.get(canonical) ?? canonical] = true;
+  }
+
+  const after = Object.keys(next);
+  const before = Object.keys(local).filter((k) => local[k]);
+  if (after.length === before.length && after.every((k) => local[k])) return local;
+  return next;
+}
+
+/** A `notes` row, as a `Note` the screens can already render. */
+const asNote = (row: PulledNote, nameOf: (id: PersonId) => string): Note => ({
+  w: nameOf(row.authorId as PersonId),
+  k: row.authorId as PersonId,
+  t: row.body,
+  id: row.id,
+});
+
+/** Oldest first, with the id as the tiebreaker so two devices agree on ties. */
+const byTime = (a: PulledNote, b: PulledNote): number =>
+  a.at < b.at ? -1 : a.at > b.at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+
+function group(rows: readonly PulledNote[]): {
+  byTask: Map<string, PulledNote[]>;
+  byPerson: Map<string, PulledNote[]>;
+} {
+  const byTask = new Map<string, PulledNote[]>();
+  const byPerson = new Map<string, PulledNote[]>();
+  for (const row of [...rows].sort(byTime)) {
+    const into = 'taskId' in row.target ? byTask : byPerson;
+    const key = 'taskId' in row.target ? row.target.taskId : row.target.recipientId;
+    const list = into.get(key);
+    if (list) list.push(row);
+    else into.set(key, [row]);
+  }
+  return { byTask, byPerson };
+}
+
+/** The ids already on a thread. Notes written before `id` existed have none. */
+const idsOf = (notes: readonly Note[]): Set<string> => {
+  const ids = new Set<string>();
+  for (const note of notes) if (note.id) ids.add(note.id);
+  return ids;
+};
+
+/**
+ * Server notes, folded into the two places the reducer puts local ones.
+ *
+ * Append-only, and deduplicated by id — which is exactly why `Note` grew one.
+ * A note is never edited and never deleted, so the server's copy of one this
+ * device already has says nothing new, and the local object is kept rather than
+ * replaced so the reference diff in `observe` stays quiet.
+ *
+ * A local note with no id is never dropped: it predates the id field, it can
+ * never have been sent, and there is nothing on the wire it could be matched
+ * against. A row whose target is not on this device — a note on a task from
+ * another week — simply lands nowhere, and the pull that finds it again next
+ * minute is what places it once the task arrives.
+ *
+ * Both slices come back by identity when nothing was added.
+ */
+export function mergeNotes(
+  local: { myTasks: Task[]; personNotes: State['personNotes'] },
+  rows: readonly PulledNote[],
+  nameOf: (id: PersonId) => string,
+): { myTasks: Task[]; personNotes: State['personNotes'] } {
+  const { byTask, byPerson } = group(rows);
+
+  let myTasks = local.myTasks;
+  if (byTask.size > 0) {
+    let moved = false;
+    const next = local.myTasks.map((task) => {
+      const incoming = byTask.get(task.id);
+      if (!incoming) return task;
+      const have = idsOf(task.cmts);
+      const fresh = incoming.filter((row) => !have.has(row.id));
+      if (fresh.length === 0) return task;
+      moved = true;
+      return { ...task, cmts: [...task.cmts, ...fresh.map((row) => asNote(row, nameOf))] };
+    });
+    if (moved) myTasks = next;
+  }
+
+  let personNotes = local.personNotes;
+  if (byPerson.size > 0) {
+    let draft: State['personNotes'] | null = null;
+    for (const [who, incoming] of byPerson) {
+      const thread = personNotes[who as PersonId] ?? [];
+      const have = idsOf(thread);
+      const fresh = incoming.filter((row) => !have.has(row.id));
+      if (fresh.length === 0) continue;
+      if (!draft) {
+        draft = { ...personNotes };
+        personNotes = draft;
+      }
+      draft[who as PersonId] = [...thread, ...fresh.map((row) => asNote(row, nameOf))];
+    }
+  }
+
+  return { myTasks, personNotes };
+}
+
 const index = (tasks: Task[]): Map<string, Task> => {
   const byId = new Map<string, Task>();
   for (const t of tasks) byId.set(t.id, t);
   return byId;
 };
+
+/** A note the reducer stored, and what it was stored against. */
+type PlacedNote = { note: Note; site: NoteSite; targetId: string };
+
+/**
+ * Every note this device could be asked to send, with the branch it took.
+ *
+ * `globalNotes` is deliberately absent rather than collected and rejected: a
+ * public post has no table, permanently, so walking it would be work done every
+ * observation to reach the same `null` — and `syncableNote` already answers
+ * `globalPost` that way if a caller ever does hand it one.
+ */
+function placedNotes(state: State): PlacedNote[] {
+  const out: PlacedNote[] = [];
+  for (const [who, notes] of Object.entries(state.personNotes) as [PersonId, Note[] | undefined][]) {
+    for (const note of notes ?? []) out.push({ note, site: 'person', targetId: who });
+  }
+  for (const task of state.myTasks) {
+    for (const note of task.cmts) out.push({ note, site: 'ownTask', targetId: task.id });
+  }
+  for (const moment of state.moments) {
+    for (const note of moment.cmts ?? []) out.push({ note, site: 'moment', targetId: moment.id });
+  }
+  return out;
+}
 
 export function createEngine(
   dispatch: Dispatch<Action>,
@@ -146,6 +373,17 @@ export function createEngine(
    */
   let seen: Map<string, Task> | null = null;
   let lastTasks: Task[] | null = null;
+  /** `acted` as the last observation saw it. Diffed by `diffActed`, not by key. */
+  let lastActed: State['acted'] = {};
+  /**
+   * Every note id this device has already accounted for — sent, or judged
+   * unsendable. A note is append-only and never edited, so an id that has been
+   * seen once can never become news again, and this is the whole diff.
+   */
+  let seenNotes: Set<string> = new Set();
+  /** The two note-bearing slices `myTasks` does not cover. Reference-compared. */
+  let lastPersonNotes: State['personNotes'] | null = null;
+  let lastMoments: State['moments'] | null = null;
   /**
    * The week the last observation was showing. A pull has to name a week, and
    * the only week it may name is the one on screen: rows for any other week,
@@ -158,18 +396,48 @@ export function createEngine(
    * See `observe`.
    */
   let merging: Set<string> | null = null;
+  /**
+   * The `acted` keys a merge just spoke for, and the note ids it just
+   * delivered. The reaction and note halves of `merging`, and they exist for
+   * exactly the same reason: `observe` diffs those slices too, so a cheer or a
+   * note that arrived from the server would otherwise read as one made here and
+   * be enqueued straight back — two devices cheering each other forever.
+   *
+   * Adopted by key and by id rather than by suppressing the whole observation,
+   * for the reason `merging` gives: a tap batched into the same React commit as
+   * the merge still has to be sent.
+   */
+  let mergingActed: Set<string> | null = null;
+  let mergingNotes: Set<string> | null = null;
   let pullTimer: ReturnType<typeof setInterval> | null = null;
   let pulling = false;
+  let unsubscribeSession: (() => void) | null = null;
 
   function observe(state: State): void {
     const tasks = state.myTasks;
     const merged = merging;
+    const mergedActed = mergingActed;
+    const mergedNotes = mergingNotes;
     merging = null;
+    mergingActed = null;
+    mergingNotes = null;
+    // A rollover empties `acted`, and that is a week ending rather than the user
+    // taking back every cheer they ever gave. Diffing across it would delete the
+    // rows on the server — visibly, on other people's phones — so the new week's
+    // `acted` is adopted instead. Compared by week number, because
+    // `COMMIT_ROLLOVER` is the only thing that both moves the week and clears it.
+    const rolled = lastWeek !== null && lastWeek.number !== state.week.number;
     lastWeek = state.week;
 
     if (seen === null) {
       seen = index(tasks);
       lastTasks = tasks;
+      lastActed = state.acted;
+      lastPersonNotes = state.personNotes;
+      lastMoments = state.moments;
+      for (const placed of placedNotes(state)) {
+        if (placed.note.id) seenNotes.add(placed.note.id);
+      }
       return;
     }
 
@@ -197,25 +465,94 @@ export function createEngine(
       }
     }
 
-    if (tasks === lastTasks) return;
+    const tasksMoved = tasks !== lastTasks;
 
-    const weekStart = mondayOf(state.week);
-    const next = index(tasks);
+    // Tasks first, and not only for tidiness: a note names a task by foreign
+    // key, and the queue is strictly ordered, so an insert that arrives before
+    // the row it points at is a permanent 23503.
+    if (tasksMoved) {
+      const weekStart = mondayOf(state.week);
+      const next = index(tasks);
 
-    for (const task of tasks) {
-      // Identity, not equality: the reducer copies only the row it changed.
-      if (seen.get(task.id) === task) continue;
-      enqueue('task.upsert', `task:${task.id}`, { task, weekStart });
+      for (const task of tasks) {
+        // Identity, not equality: the reducer copies only the row it changed.
+        if (seen.get(task.id) === task) continue;
+        enqueue('task.upsert', `task:${task.id}`, { task, weekStart });
+      }
+      for (const id of seen.keys()) {
+        if (!next.has(id)) enqueue('task.delete', `task:${id}`, { taskId: id });
+      }
+
+      seen = next;
     }
-    for (const id of seen.keys()) {
-      if (!next.has(id)) enqueue('task.delete', `task:${id}`, { taskId: id });
+
+    // The same reference diff, one slice over. `acted` is replaced wholesale by
+    // `ACT` and by nothing else, so an unchanged reference is proof no cheer
+    // moved — and `diffActed` drops every key that does not name a real row,
+    // which is most of them while the feed is still fixtures.
+    if (state.acted !== lastActed) {
+      // Adoption, one slice over from `merging`. The baseline is moved to the
+      // merge's answer for the keys the merge was authoritative for, so the
+      // diff below reports nothing for them — and still reports a cheer tapped
+      // on any other key in the same commit.
+      if (mergedActed) {
+        const adjusted: Record<string, true> = {};
+        for (const key of Object.keys(lastActed)) if (lastActed[key]) adjusted[key] = true;
+        for (const key of mergedActed) {
+          if (state.acted[key]) adjusted[key] = true;
+          else delete adjusted[key];
+        }
+        lastActed = adjusted;
+      }
+      if (!rolled) {
+        const { added, removed } = diffActed(lastActed, state.acted);
+        for (const ref of added) {
+          enqueue('reaction.add', reactionKey(ref), { targetId: ref.targetId, kind: ref.kind });
+        }
+        for (const ref of removed) {
+          enqueue('reaction.remove', reactionKey(ref), { targetId: ref.targetId, kind: ref.kind });
+        }
+      }
+      lastActed = state.acted;
     }
 
-    seen = next;
+    // Notes are append-only, so this is a set difference rather than a diff. The
+    // walk is guarded by the three references that can carry one: a keystroke in
+    // the composer moves `note`, not these, and must not cost a walk of every
+    // thread on the device.
+    if (tasksMoved || state.personNotes !== lastPersonNotes || state.moments !== lastMoments) {
+      for (const { note, site, targetId } of placedNotes(state)) {
+        // No id: a fixture, or a note restored from a payload written before the
+        // id existed. It stays on screen and never becomes a row.
+        if (!note.id || seenNotes.has(note.id)) continue;
+        seenNotes.add(note.id);
+        // A note the merge just delivered. Recorded above and dropped here:
+        // enqueuing it would write the server's own row back to it, and the
+        // next pull would hand it to us again.
+        if (mergedNotes?.has(note.id)) continue;
+        // Rejected here means rejected forever — a fixture target, a moment id
+        // that is not yet a uuid, a public post. Recording the id above is what
+        // stops that judgement from being made again on every observation.
+        const row = syncableNote({ id: note.id, site, targetId, body: note.t });
+        if (row) enqueue('note.add', noteKey(row), { note: row });
+      }
+      lastPersonNotes = state.personNotes;
+      lastMoments = state.moments;
+    }
+
     lastTasks = tasks;
   }
 
+  /**
+   * The socket is opened here rather than at `start`, because `start` runs
+   * before there is a session to open it for. Idempotent, so calling it on
+   * every tick and every kick is how a session that arrives late — or a
+   * sign-out — is noticed without another listener to keep in step.
+   */
+  const attach = (): void => syncRealtime(currentUserId(), () => void pull());
+
   async function pull(): Promise<void> {
+    attach();
     const userId = currentUserId();
     if (!userId || pulling) return;
     pulling = true;
@@ -223,9 +560,11 @@ export function createEngine(
       // The week is whatever the last observation saw. Without one there is no
       // week to ask for, and guessing is worse than waiting a cycle.
       const week = lastWeek;
-      const [people, rows] = await Promise.all([
+      const [people, rows, reactions, notes] = await Promise.all([
         wire.pullCircle(userId),
         week ? wire.pullTasks(userId, mondayOf(week)) : Promise.resolve(null),
+        wire.pullReactions(userId),
+        wire.pullNotes(userId),
       ]);
 
       const merge: ServerMerge = {};
@@ -247,11 +586,51 @@ export function createEngine(
         if (reconcileTasks(local, rows, dirtyTaskIds(), ackedTaskIds()) !== local) merge.tasks = rows;
       }
 
-      if (!merge.people && !merge.tasks) return;
-      // Only the ids this merge actually carries. A merge the reducer then
+      // Asked against `lastActed`, which is `state.acted` as of the last
+      // observation: if reconciling would leave it untouched there is nothing
+      // for the reducer to do, and the same reasoning as `merge.tasks` applies —
+      // a dispatch that changes nothing still runs the reducer for every screen.
+      const dirtyReactions = dirtyReactionKeys();
+      if (reconcileActed(lastActed, reactions, dirtyReactions) !== lastActed) {
+        merge.reactions = reactions;
+      }
+
+      // A note this device has already accounted for is not news: `seenNotes`
+      // holds every id it has placed, so anything in it is already on screen.
+      // Notes it could not place — a note on a task from another week — stay
+      // out of the ledger and are offered again next cycle, once the row they
+      // point at has arrived.
+      const freshNotes = notes.filter((n) => !seenNotes.has(n.id));
+      if (freshNotes.length > 0) merge.notes = freshNotes;
+
+      if (!merge.people && !merge.tasks && !merge.reactions && !merge.notes) return;
+
+      // Only the rows this merge actually carries. A merge the reducer then
       // bails out of by identity commits nothing and produces no observation,
-      // so the set would otherwise sit armed and swallow the next real tap.
-      if (merge.tasks) merging = new Set(merge.tasks.map((t) => t.id));
+      // so the sets would otherwise sit armed and swallow the next real tap.
+      const touched = new Set<string>(merge.tasks?.map((t) => t.id) ?? []);
+      // A note lands in its task's `cmts`, which makes a new task object — and
+      // a new task object is indistinguishable from an edit to the reference
+      // diff. So the tasks a merged note touches are adopted too.
+      for (const note of merge.notes ?? []) {
+        if ('taskId' in note.target) touched.add(note.target.taskId);
+      }
+      if (touched.size > 0) merging = touched;
+
+      if (merge.reactions) {
+        // Every key the reconciliation is allowed to move: the ones the server
+        // named, and every syncable key already held — any of which it may
+        // withdraw. Nothing else, so a tap on a fresh target in the same commit
+        // is still diffed and still queued.
+        const keys = new Set<string>();
+        for (const ref of merge.reactions) keys.add(`${ref.targetId}:${ref.kind}`);
+        for (const key of Object.keys(lastActed)) {
+          if (lastActed[key] && parseActedKey(key)) keys.add(key);
+        }
+        mergingActed = keys;
+      }
+      if (merge.notes) mergingNotes = new Set(merge.notes.map((n) => n.id));
+
       dispatch({ type: 'SERVER_MERGE', merge });
     } catch {
       // Offline, or a server that will be there next minute. A pull has no
@@ -267,6 +646,11 @@ export function createEngine(
     start(): void {
       startScheduler(queue, pushEveryMs);
       if (pullTimer) return;
+      // Sign-in usually lands after `start`, and the channel is subscribed for
+      // whoever the session says you are. Without this the socket would not open
+      // until the poll a minute later noticed — which is a minute of the app
+      // being exactly as live as it was before any of this existed.
+      unsubscribeSession = onSessionChange(() => attach());
       pullTimer = setInterval(() => void pull(), pullEveryMs);
       void pull();
     },
@@ -275,6 +659,11 @@ export function createEngine(
       stopScheduler();
       if (pullTimer) clearInterval(pullTimer);
       pullTimer = null;
+      unsubscribeSession?.();
+      unsubscribeSession = null;
+      // Unmount, or sync switching off. The channel outliving the engine would
+      // be a socket firing refetches at a `pull` nothing is listening to.
+      stopRealtime();
     },
 
     kick(): void {

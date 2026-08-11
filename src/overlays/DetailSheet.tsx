@@ -333,7 +333,7 @@ function PersonSheet({ who }: { who: PersonId }) {
       <View style={{ gap: 8 }}>
         {tasks.map((t, i) => {
           const actKey = `${who}${i}`;
-          const acted = !!state.acted[`${actKey}:a`];
+          const acted = !!state.acted[`${actKey}:nod`];
           return (
             <View
               key={t.t}
@@ -390,7 +390,7 @@ function PersonSheet({ who }: { who: PersonId }) {
               </Tap>
               <Tap
                 onPress={() =>
-                  dispatch({ type: 'ACT', id: actKey, kind: 'a', toast: `${people.first(who)} saw it` })
+                  dispatch({ type: 'ACT', id: actKey, kind: 'nod', toast: `${people.first(who)} saw it` })
                 }
                 accessibilityLabel={t.done ? `Cheer ${t.t}` : `Back ${t.t}`}
                 style={{

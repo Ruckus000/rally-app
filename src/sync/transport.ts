@@ -18,6 +18,8 @@ import type { Task } from '../data/fixtures';
 import type { Person } from '../data/people';
 import { getSupabase } from '../lib/supabase';
 import { rowToPerson, rowToTask, taskToRow } from './mappers';
+import type { NoteTarget, SyncableNote } from './notes';
+import { REACTION_KINDS, type ReactionKind, type ReactionRef } from './reactions';
 
 /**
  * One pending mutation. Defined here, with the code that puts it on the wire,
@@ -25,13 +27,26 @@ import { rowToPerson, rowToTask, taskToRow } from './mappers';
  * last-write-wins compares, and `weekStart` is resolved at enqueue time so a
  * queued task cannot drift into a different week while it waits offline.
  *
- * `owner_id` is conspicuously absent. It is stamped from the session at push
- * time — see `push` — and a payload that could name its own owner is a payload
- * that can write to someone else's account.
+ * `owner_id` is conspicuously absent, and so are `actor_id` and `author_id`.
+ * They are stamped from the session at push time — see `push` — and a payload
+ * that could name its own owner is a payload that can write to someone else's
+ * account, or cheer as them.
  */
 export type WireOp =
   | { id: string; at: number; op: 'task.upsert'; task: Task; weekStart: string }
-  | { id: string; at: number; op: 'task.delete'; taskId: string };
+  | { id: string; at: number; op: 'task.delete'; taskId: string }
+  | { id: string; at: number; op: 'reaction.add'; targetId: string; kind: ReactionKind }
+  | { id: string; at: number; op: 'reaction.remove'; targetId: string; kind: ReactionKind }
+  | { id: string; at: number; op: 'note.add'; note: SyncableNote };
+
+/** A `notes` row on the way back, narrowed into the shape the client can place. */
+export type PulledNote = {
+  id: string;
+  authorId: string;
+  body: string;
+  target: NoteTarget;
+  at: string;
+};
 
 export type PushResult =
   | { ok: true }
@@ -42,7 +57,17 @@ export type Transport = {
   push(entry: WireOp, userId: string): Promise<PushResult>;
   pullTasks(userId: string, weekStart: string): Promise<Task[]>;
   pullCircle(userId: string): Promise<Person[]>;
+  pullReactions(userId: string): Promise<ReactionRef[]>;
+  pullNotes(userId: string): Promise<PulledNote[]>;
 };
+
+/**
+ * Every reaction this client writes or reads is on a task. The only other member
+ * of the enum is `post`, and the global feed has no backing table — so a `post`
+ * row coming back is from a future build and is filtered out rather than shown
+ * against whatever task happens to share its id.
+ */
+const TARGET_TYPE = 'task';
 
 /** The PostgREST envelope, plus the fields a thrown fetch failure carries. */
 type WireError = {
@@ -114,6 +139,27 @@ function classify(err: unknown): PushResult {
  */
 const isAlreadyDone = (err: unknown): boolean => asWireError(err).code === '23505';
 
+/** A delete cannot collide, so a 23505 back from one is not the same good news. */
+const writes = (op: WireOp['op']): boolean => op !== 'task.delete' && op !== 'reaction.remove';
+
+const isKind = (v: string): v is ReactionKind => (REACTION_KINDS as readonly string[]).includes(v);
+
+/**
+ * `notes_exactly_one_target` is a CHECK over both columns, so the one that is
+ * not the target is written as an explicit null rather than omitted: an upsert
+ * that leaves a column out leaves whatever was there before, which on a replay
+ * against an edited row is how you get two targets and a permanent 23514.
+ */
+function noteToRow(note: SyncableNote): Record<string, unknown> {
+  const target = note.target;
+  return {
+    id: note.id,
+    body: note.body,
+    task_id: 'taskId' in target ? target.taskId : null,
+    recipient_id: 'recipientId' in target ? target.recipientId : null,
+  };
+}
+
 /**
  * We could not even build the request. No network will ever fix that, and it
  * must not be mistaken for one: a plain TypeError out of the mappers looks
@@ -183,10 +229,57 @@ export function supabaseTransport(): Transport {
       return;
     }
 
-    // Deleting a row that isn't there is a no-op that answers 200. That is what
-    // makes a retry after a timeout harmless: the first attempt may well have
-    // landed, and the second must not be able to fail because of it.
-    const { error } = await supabase.from('tasks').delete().eq('id', entry.taskId);
+    if (entry.op === 'task.delete') {
+      // Deleting a row that isn't there is a no-op that answers 200. That is what
+      // makes a retry after a timeout harmless: the first attempt may well have
+      // landed, and the second must not be able to fail because of it.
+      const { error } = await supabase.from('tasks').delete().eq('id', entry.taskId);
+      if (error) throw error;
+      return;
+    }
+
+    if (entry.op === 'reaction.add') {
+      // `ignoreDuplicates` because the unique tuple IS the toggle: a replay that
+      // collides has already achieved its intent, and there is nothing on the row
+      // worth updating — `created_at` should stay the moment of the first cheer.
+      const { error } = await supabase.from('reactions').upsert(
+        {
+          actor_id: userId,
+          target_type: TARGET_TYPE,
+          target_id: entry.targetId,
+          kind: entry.kind,
+        },
+        { onConflict: 'actor_id,target_type,target_id,kind', ignoreDuplicates: true },
+      );
+      if (error) throw error;
+      return;
+    }
+
+    if (entry.op === 'reaction.remove') {
+      // Matched on the natural key, never on `reactions.id`: the id is server-
+      // generated and the client is never told its own. The unique tuple names
+      // the row exactly as precisely, and it is the only name this device has.
+      const { error } = await supabase.from('reactions').delete().match({
+        actor_id: userId,
+        target_type: TARGET_TYPE,
+        target_id: entry.targetId,
+        kind: entry.kind,
+      });
+      if (error) throw error;
+      return;
+    }
+
+    // Built before the request, for the same reason task.upsert's row is.
+    let row: Record<string, unknown>;
+    try {
+      row = { ...noteToRow(entry.note), author_id: userId };
+    } catch (err) {
+      throw new Malformed(err instanceof Error ? err.message : String(err));
+    }
+    // The client-minted pk is what makes an append-only table replayable: a
+    // second delivery collides with itself instead of saying the same thing
+    // twice on someone's screen.
+    const { error } = await supabase.from('notes').upsert(row, { onConflict: 'id' });
     if (error) throw error;
   };
 
@@ -195,7 +288,7 @@ export function supabaseTransport(): Transport {
       await send(entry, userId);
       return { ok: true };
     } catch (err) {
-      if (entry.op === 'task.upsert' && isAlreadyDone(err)) return { ok: true };
+      if (writes(entry.op) && isAlreadyDone(err)) return { ok: true };
       if (!isAuthExpired(asWireError(err))) return classify(err);
 
       await forceRefresh();
@@ -203,7 +296,7 @@ export function supabaseTransport(): Transport {
         await send(entry, userId);
         return { ok: true };
       } catch (again) {
-        if (entry.op === 'task.upsert' && isAlreadyDone(again)) return { ok: true };
+        if (writes(entry.op) && isAlreadyDone(again)) return { ok: true };
         // Still 401 with a fresh token means the token was never the problem —
         // retrying it further is a loop, so it stops being retryable here.
         const e = asWireError(again);
@@ -251,5 +344,78 @@ export function supabaseTransport(): Transport {
     return (profiles.data ?? []).map((row) => rowToPerson(row as Record<string, unknown>));
   };
 
-  return { push, pullTasks, pullCircle };
+  /**
+   * Your own reactions, which is all `acted` can hold: it is a set of taps *this*
+   * user made, with no room for whose they were. Other people's cheers arrive as
+   * counts on a moment, which is a different read.
+   */
+  const pullReactions = async (userId: string): Promise<ReactionRef[]> => {
+    const { data, error } = await getSupabase()
+      .from('reactions')
+      .select('target_id,kind')
+      .eq('actor_id', userId)
+      .eq('target_type', TARGET_TYPE);
+    if (error) fail(error);
+
+    return (data ?? []).flatMap((r) => {
+      const row = r as { target_id: unknown; kind: unknown };
+      const kind = String(row.kind);
+      // A kind a newer build invented. Dropping it beats rendering it as
+      // whichever kind this build would fall back to.
+      return isKind(kind) ? [{ targetId: String(row.target_id), kind }] : [];
+    });
+  };
+
+  /**
+   * Notes on your tasks, and notes addressed to you — the two the client has
+   * somewhere to put. Notes you wrote on someone else's task are deliberately
+   * not here: this device already has them, and a second device would need the
+   * feed's task ids to place them, which it does not have yet.
+   *
+   * Three round trips and no `or()`, for the reason `pullCircle` gives: the shape
+   * has to be one a test double can honestly reproduce. `notes_exactly_one_target`
+   * makes the two sets disjoint, so there is nothing to deduplicate.
+   */
+  const pullNotes = async (userId: string): Promise<PulledNote[]> => {
+    const supabase = getSupabase();
+
+    const mine = await supabase.from('tasks').select('id').eq('owner_id', userId);
+    if (mine.error) fail(mine.error);
+    const taskIds = (mine.data ?? []).map((r) => (r as { id: unknown }).id);
+
+    const toMe = await supabase.from('notes').select('*').eq('recipient_id', userId);
+    if (toMe.error) fail(toMe.error);
+
+    let onMine: unknown[] = [];
+    if (taskIds.length > 0) {
+      const res = await supabase.from('notes').select('*').in('task_id', taskIds);
+      if (res.error) fail(res.error);
+      onMine = res.data ?? [];
+    }
+
+    return [...(toMe.data ?? []), ...onMine].flatMap((r) => {
+      const row = r as Record<string, unknown>;
+      // The CHECK guarantees exactly one target, but a row is untrusted input
+      // like any other: one that somehow names neither is dropped rather than
+      // given a target the client invents for it.
+      const target: NoteTarget | null =
+        typeof row.task_id === 'string'
+          ? { taskId: row.task_id }
+          : typeof row.recipient_id === 'string'
+            ? { recipientId: row.recipient_id }
+            : null;
+      if (!target) return [];
+      return [
+        {
+          id: String(row.id),
+          authorId: String(row.author_id),
+          body: String(row.body ?? ''),
+          target,
+          at: String(row.created_at ?? ''),
+        },
+      ];
+    });
+  };
+
+  return { push, pullTasks, pullCircle, pullReactions, pullNotes };
 }

@@ -151,15 +151,40 @@ describe('a note addressed to a person', () => {
     expect(await canSee('jordan', note)).toBe(false);
   });
 
-  it('a note can be addressed to someone you share no circle with', async () => {
-    // Nothing in notes_insert consults circle membership, so reaching a
-    // stranger is possible today. Pinned as the current shape, not endorsed:
-    // if addressing is ever restricted to friends, this test states the change.
+  it('cannot be addressed to someone you share no circle with', async () => {
+    // notes_insert used to check authorship and nothing else, so any of the
+    // anonymous accounts anyone can mint could write to any profile id. In an
+    // app whose whole premise is a small closed circle, that is unsolicited
+    // messaging from strangers.
     const { error } = await asUser('maya')
       .from('notes')
       .insert({ author_id: idOf('maya'), recipient_id: idOf('jordan'), body: 'hello' });
 
+    expect(error?.code).toBe('42501');
+  });
+
+  it('can still be addressed to someone you do share a circle with', async () => {
+    const { error } = await asUser('maya')
+      .from('notes')
+      .insert({ author_id: idOf('maya'), recipient_id: idOf('dre'), body: 'hello' });
+
     expect(error).toBeNull();
+  });
+
+  it('can always be addressed to yourself', async () => {
+    const { error } = await asUser('jordan')
+      .from('notes')
+      .insert({ author_id: idOf('jordan'), recipient_id: idOf('jordan'), body: 'note to self' });
+
+    expect(error).toBeNull();
+  });
+
+  it('is bounded in length', async () => {
+    const { error } = await asUser('maya')
+      .from('notes')
+      .insert({ author_id: idOf('maya'), recipient_id: idOf('dre'), body: 'a'.repeat(2001) });
+
+    expect(error?.code).toBe('23514');
   });
 });
 
@@ -169,7 +194,10 @@ describe('exactly one target', () => {
       .from('notes')
       .insert({ author_id: idOf('maya'), body: 'floating in space' });
 
-    expect(error?.code).toBe('23514');
+    // The exactly-one-target CHECK would also refuse this, but the insert
+    // policy now gets there first: a note with no target is addressed to
+    // nobody, so there is nothing for it to be allowed against.
+    expect(error?.code).toBe('42501');
   });
 
   it('rejects a note that names both a task and a recipient', async () => {
@@ -330,6 +358,9 @@ describe('a note cannot outlive what it hangs off', () => {
       body: 'into the void',
     });
 
-    expect(error?.code).toBe('23503');
+    // The foreign key would catch this too, but can_see_task answers first —
+    // a task that does not exist is one you cannot see. Either way it never
+    // lands; the code says which layer refused.
+    expect(error?.code).toBe('42501');
   });
 });

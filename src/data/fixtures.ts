@@ -63,7 +63,16 @@ export const AUDIENCE_WORD: Record<Audience, string> = {
 
 export const QUICK_LOG_POINTS = 20;
 
-export type Note = { w: string; k: PersonId; t: string };
+/**
+ * `id` is the row's primary key in `notes`, minted where the note is written.
+ *
+ * Optional, and deliberately so: every fixture note, every note already on disk
+ * and every note off the wire predates it, and an id-less note is simply one the
+ * sync layer never offers to the server. Required would invalidate all of them
+ * at once for no gain — the id exists to make an insert replayable, and a note
+ * this device did not write has nothing to replay.
+ */
+export type Note = { w: string; k: PersonId; t: string; id?: string };
 
 export type Task = {
   id: string;

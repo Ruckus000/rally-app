@@ -19,7 +19,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { randomUUID } from 'expo-crypto';
 import { backoffMs } from './backoff';
 
-export type OutboxOp = 'task.upsert' | 'task.delete';
+export type OutboxOp =
+  | 'task.upsert'
+  | 'task.delete'
+  | 'reaction.add'
+  | 'reaction.remove'
+  | 'note.add';
 
 export type OutboxEntry = {
   /** Client-minted, and the idempotency key the transport should send. */
@@ -77,7 +82,13 @@ const DEBOUNCE_MS = 400;
 /** Only ever read by a debug screen, so a bounded tail is all it needs to be. */
 const DEAD_MAX = 50;
 
-const OPS: readonly OutboxOp[] = ['task.upsert', 'task.delete'];
+const OPS: readonly OutboxOp[] = [
+  'task.upsert',
+  'task.delete',
+  'reaction.add',
+  'reaction.remove',
+  'note.add',
+];
 
 // ─── module state ─────────────────────────────────────────────────────────
 
@@ -233,12 +244,36 @@ export function enqueue(op: OutboxOp, key: string, payload: Record<string, unkno
     }
   }
 
+  if (op === 'reaction.remove') {
+    const pendingAdd = queue.some((e) => e.key === key && e.op === 'reaction.add');
+    const busy = queue.some((e) => e.key === key && !isFree(e));
+    queue = queue.filter((e) => !(e.key === key && e.op === 'reaction.add' && isFree(e)));
+
+    // Cheered and un-cheered before either left the device. Both entries go:
+    // the delete would otherwise match on a tuple no row has, and — worse — an
+    // add that outlives its own cancellation puts a cheer on someone's phone
+    // that this device is no longer showing.
+    //
+    // No `acked` check, unlike task.delete: the unique tuple is the row's whole
+    // identity, so a pending add is proof the server has not been told. An
+    // in-flight one is not, and the delete has to follow it.
+    if (pendingAdd && !busy) {
+      schedule();
+      return;
+    }
+  }
+
   // Same row, same op, not yet on the wire: the newer payload is the whole
   // truth about that row, so it replaces the older one. The seq stays, because
   // moving it to the back would let a later edit overtake a create it depends
   // on. `tries`/`nextAt` stay too — coalescing must not be a way to dodge a
   // backoff the server just asked for.
-  const open = queue.find((e) => e.key === key && e.op === op && isFree(e));
+  //
+  // Notes are exempt. The key is the note's own primary key, so two entries
+  // sharing one are the same insert rather than two versions of a row, and a
+  // note is never edited — saying the same thing twice is a second note.
+  const open =
+    op === 'note.add' ? undefined : queue.find((e) => e.key === key && e.op === op && isFree(e));
   if (open) {
     open.payload = payload;
     open.at = at;
@@ -381,8 +416,11 @@ async function run(transport: QueueTransport, now: number): Promise<OutboxStats>
         continue;
       }
 
+      // Only tasks. `acked` answers one question — has this row ever left the
+      // device? — and only `task.delete` asks it. A reaction's tuple is its own
+      // answer, and a note is never deleted at all.
       if (head.op === 'task.upsert') acked.add(head.key);
-      else acked.delete(head.key);
+      else if (head.op === 'task.delete') acked.delete(head.key);
       stats.sent += 1;
     }
   } finally {

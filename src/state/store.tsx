@@ -61,7 +61,13 @@ import { ackedTaskIds, clearOutbox, flushOutbox } from '../sync/outbox';
 import { reconcileTasks } from '../sync/reconcile';
 // The queue's key format is the engine's business, not the reducer's; it hands
 // back the ids, and the type-only edge means this adds no import cycle.
-import { dirtyTaskIds } from '../sync/engine';
+// `reconcileActed` and `mergeNotes` live there for the same reason
+// `reconcileTasks` lives in reconcile.ts: folding a pull is sync's judgement,
+// and the reducer only has to apply the answer.
+import { dirtyReactionKeys, dirtyTaskIds, mergeNotes, reconcileActed } from '../sync/engine';
+import type { PulledNote } from '../sync/transport';
+import type { ReactionRef } from '../sync/reactions';
+import { pauseRealtime, resumeRealtime, teardownRealtime } from '../sync/realtime';
 import { kickSync, useSyncEngine } from '../sync/useSyncEngine';
 
 export type Tab = 'week' | 'circle' | 'me';
@@ -118,7 +124,7 @@ export type State = {
   day: DayIndex;
   myTasks: Task[];
   moments: Moment[];
-  /** `${id}:${kind}` → true. kind: cheer | in | cosign | nod | back | share */
+  /** `${id}:${kind}` → true. kind: cheer | in | cosign | nod | share */
   acted: Record<string, true>;
   replied: Partial<Record<PersonId, true>>;
   pending: Partial<Record<PersonId, true>>;
@@ -264,6 +270,15 @@ export type ServerMerge = {
    * they answer for is still the week on screen.
    */
   tasks?: Task[];
+  /**
+   * Every reaction the server holds *for this user* — which is all `acted` can
+   * mean. Authoritative rather than additive: a cheer taken back on another
+   * phone is an absence here, and a union would leave it lit forever. What that
+   * authority extends to is `reconcileActed`'s business, not this type's.
+   */
+  reactions?: ReactionRef[];
+  /** Notes on your tasks and notes addressed to you. Append-only, keyed by id. */
+  notes?: PulledNote[];
 };
 
 export type PlanSeed = {
@@ -367,7 +382,12 @@ export function reducer(state: State, action: Action): State {
       const sh = state.sheet;
       if (!t || !sh || !sh.id) return state;
       const people = makePeople(state.people, state.selfId);
-      const mine: Note = { w: people.name(state.selfId), k: state.selfId, t };
+      // Client-minted, for the reason `nextTaskId` is: `notes` has no unique
+      // constraint that could dedupe a replay, and cannot have one — saying the
+      // same thing twice is a second note, not a mistake. The pk is the only
+      // thing that makes a re-sent insert collide with itself instead of
+      // appearing twice on someone's screen.
+      const mine: Note = { w: people.name(state.selfId), k: state.selfId, t, id: randomUUID() };
 
       if (sh.type === 'person') {
         const k = sh.id;
@@ -823,17 +843,45 @@ export function reducer(state: State, action: Action): State {
       // The dirty set is derived here, from the queue, and deliberately not kept
       // in state: it would be a second record of what the server still owes us,
       // and the one that decides what actually goes out is the outbox.
-      const myTasks = action.merge.tasks
+      let myTasks = action.merge.tasks
         ? reconcileTasks(state.myTasks, action.merge.tasks, dirtyTaskIds(), ackedTaskIds())
         : state.myTasks;
+
+      // The same shape one slice over, and the same reason for asking the queue
+      // rather than state: a cheer tapped a second ago is in `acted` and is not
+      // on the server yet, so the pull that raced it answers for the moment
+      // before it and must not be allowed to take it back.
+      const acted = action.merge.reactions
+        ? reconcileActed(state.acted, action.merge.reactions, dirtyReactionKeys())
+        : state.acted;
+
+      // Notes land where the reducer's own put them — a task's `cmts` for a
+      // task note, `personNotes` for one addressed to someone — and are folded
+      // into the *reconciled* tasks, not the old ones, so a row that just
+      // arrived can carry its own thread in the same commit.
+      let personNotes = state.personNotes;
+      if (action.merge.notes?.length) {
+        const directory = makePeople(people, state.selfId);
+        const merged = mergeNotes({ myTasks, personNotes }, action.merge.notes, directory.name);
+        myTasks = merged.myTasks;
+        personNotes = merged.personNotes;
+      }
 
       // A merge carries rows, not an identity. Whoever you are was settled by
       // the session; letting a server payload move `selfId` would reintroduce
       // exactly the substitution the SESSION branch just closed off.
       // Identity, so `useReducer` bails out of the render entirely. A poll that
-      // found nothing new is the common case and must cost nothing.
-      if (people === state.people && myTasks === state.myTasks) return state;
-      return { ...state, people, myTasks };
+      // found nothing new is the common case and must cost nothing — which is
+      // why every fold above answers by identity when it changed nothing.
+      if (
+        people === state.people &&
+        myTasks === state.myTasks &&
+        acted === state.acted &&
+        personNotes === state.personNotes
+      ) {
+        return state;
+      }
+      return { ...state, people, myTasks, acted, personNotes };
     }
 
     default:
@@ -988,6 +1036,12 @@ export function StoreProvider({
     if (lastAccount.current === state.account) return;
     lastAccount.current = state.account;
     void clearOutbox();
+    // …and the socket, which is subscribed for an account that no longer exists.
+    // `removeAllChannels` rather than an unsubscribe: this is the sign-out path,
+    // so anything still open belongs to the account being left. It cannot build
+    // a client to do it — see `teardownRealtime` — so a demo account that has
+    // never opened a channel stays genuinely offline through this line.
+    teardownRealtime();
   }, [state.account]);
 
   // the access token needs refreshing again before the first write 401s.
@@ -1000,11 +1054,17 @@ export function StoreProvider({
           // The queue is the record of what the server still owes us, so it has
           // to survive a force-quit exactly as the state does.
           void flushOutbox();
+          // A websocket held open behind the app is a radio kept awake for
+          // events nobody is on screen to see. The poll on foreground catches up
+          // on all of them in one round trip, which is what makes this safe.
+          pauseRealtime();
         }
         return;
       }
       if (syncOn) {
         startAutoRefresh();
+        // Cleared before the kick below, which is what actually resubscribes.
+        resumeRealtime();
         // Whatever was staked on the train goes now, rather than up to five
         // seconds after the user is already looking at the screen.
         kickSync();
