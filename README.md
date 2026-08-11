@@ -32,7 +32,7 @@ npm run typecheck
 npm run lint
 ```
 
-58 jest tests: reducer and selector rules, plus render tests that drive the real screens through the store. TypeScript runs in strict mode and CI runs all three on every push.
+`npm test` is the unit suite — four files covering reducer rules, selector maths, persistence round-trips, and render tests that drive the real screens through the store. It runs in a few seconds and needs nothing installed beyond `npm install`. There is a second suite, `npm run test:integration`, which talks to a real local Postgres and needs Docker; it is deliberately kept out of `npm test` so a contributor without Docker is never blocked. See [TESTING.md](TESTING.md) for both. TypeScript runs in strict mode, and CI runs typecheck, lint and the unit suite on every push — not the integration suite, which would need a database stood up in the runner.
 
 ## Layout
 
@@ -42,7 +42,9 @@ npm run lint
 | `src/theme/motion.ts` | The four keyframes as RN easings, plus the `prefers-reduced-motion` hook every animated component checks. |
 | `src/data/week.ts` | Week context and ISO week maths. `liveWeek()` for the real clock, `FIXTURE_WEEK` for tests. |
 | `src/data/seed.ts` | Which fixtures an account gets: the demo, or nothing. |
-| `supabase/`, `docs/backend.md` | Schema and sync design. Not wired to anything — see the note at the top of the doc. |
+| `supabase/`, `docs/backend.md` | Schema, migrations, seed data and sync design. Applied and verified, but not wired to anything — see the note at the top of the doc. |
+| `integration/` | Tests that run against a real local Postgres — `rls/` covers every policy and write path. Needs Docker, so it is a separate suite. |
+| `jest.config.js` | Two Jest projects, `unit` and `integration`, because they need different presets and only one of them can run without Docker. |
 | `src/data/fixtures.ts` | Mock people, tasks, moments, history, notifications. Explicitly not spec. |
 | `src/state/store.tsx` | One reducer for the whole app; routes between overlays are explicit actions. |
 | `src/state/selectors.ts` | Ranking, points, feed ordering, the ledger's helped/helped-by rollups. |
@@ -97,6 +99,10 @@ iOS data protection is deliberately left at its default. Raising it needs the `c
 
 **Reset app data** at the bottom of Me offers *Fresh start* (empty account) or *Reload demo*, so both states are reachable without reinstalling.
 
-## No backend
+## A schema, but no backend in the app
 
-State lives on device only. The reducer's shape maps onto what a backend would need: week-scoped task CRUD with audience and pairing, a cheer ledger keyed by actor, threaded notes per task and per person, a per-week rollup, a ranked circle, and a tiered notification service with batching.
+State lives on device only. Nothing in `src/` makes a network call, and the app runs exactly as it did before — offline, instantly, with AsyncStorage as its only store.
+
+What now exists alongside it is a Supabase schema: ten tables with row-level security on every one of them, the policies that decide who can see whose tasks, and a local development stack you can bring up with `npm run db:start`. It has been applied to a real project and checked (`docs/backend.md` records what was verified), and `integration/` tests the policies against a live database. None of that is reachable from the app: there is no client, no session, no sync layer.
+
+The reducer's shape is what the schema was drawn from — week-scoped task CRUD with audience and pairing, a cheer ledger keyed by actor, threaded notes per task and per person, a per-week rollup, a ranked circle, and a tiered notification service with batching. Getting the storage right first is the cheap half; the wiring is the half that can spoil how the app feels, and it has not been started.

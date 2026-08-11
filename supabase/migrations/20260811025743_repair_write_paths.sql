@@ -30,7 +30,14 @@
 -- no policy targets it, so it would see nothing regardless, and saying so
 -- explicitly is better than relying on that.
 
-grant usage on schema public to anon, authenticated;
+grant usage on schema public to anon, authenticated, service_role;
+
+-- service_role carries `bypassrls`, which is worthless on its own: bypassing
+-- row security still requires permission to reach the table. Without this it
+-- gets "permission denied for table tasks" on everything, which would break
+-- every server-side path — the future rollover job, any edge function, and
+-- admin tooling — the moment auto-exposure of new tables goes away.
+grant all on all tables in schema public to service_role;
 
 grant select, update          on public.profiles       to authenticated;
 grant select, insert          on public.circles        to authenticated;
@@ -154,6 +161,17 @@ $$;
 revoke execute on function public.join_circle_by_code(text) from public, anon;
 grant execute on function public.join_circle_by_code(text) to authenticated;
 
+-- `db advisors` flags this as "authenticated can execute a SECURITY DEFINER
+-- function", and it is right that it cannot verify the body. The warning is
+-- expected and accepted: the function is scoped to auth.uid(), returns only
+-- the circle the caller just joined, and being callable by signed-in users is
+-- the whole point.
+--
+-- The real residual risk is not the definer rights, it is invite-code entropy.
+-- `basement-9x2` is guessable, and this function is an oracle for testing
+-- guesses. Whatever generates invite_code should produce something with real
+-- entropy before anyone outside a test uses it.
+
 -- ─── 4. Pairing ───────────────────────────────────────────────────────────
 --
 -- You may pair someone on a task you own, and you may remove yourself from
@@ -183,6 +201,21 @@ create policy task_pairs_delete on public.task_pairs for delete to authenticated
 create policy invites_update on public.invites for update to authenticated
   using (invitee_id = (select auth.uid()))
   with check (invitee_id = (select auth.uid()));
+
+-- ─── 5b. "Not blank" has to mean not blank ────────────────────────────────
+--
+-- `length(trim(body)) > 0` reads as a blank-note guard but isn't one: bare
+-- `trim()` strips spaces and nothing else, so a body of tabs and newlines
+-- sails through. Same for task titles. btrim with an explicit character set
+-- is what the constraint was always meant to say.
+
+alter table public.notes drop constraint notes_body_check;
+alter table public.notes add constraint notes_body_check
+  check (length(btrim(body, E' \t\n\r')) > 0);
+
+alter table public.tasks drop constraint tasks_title_check;
+alter table public.tasks add constraint tasks_title_check
+  check (length(btrim(title, E' \t\n\r')) > 0);
 
 -- ─── 6. A clock for last-write-wins ───────────────────────────────────────
 --

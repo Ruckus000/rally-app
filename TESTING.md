@@ -108,7 +108,29 @@ npm run typecheck
 npm run lint
 ```
 
-58 tests in three suites — reducer rules, selector maths, and render tests that drive the real screens (tap a checkbox, assert the count moves). `tsc` runs in strict mode; CI runs all three.
+`npm test` is the unit suite and takes about six seconds: reducer rules, selector maths, persistence round-trips, and render tests that drive the real screens (tap a checkbox, assert the count moves). Supabase is mocked there, so it needs no Docker and no database. `tsc` runs in strict mode; CI runs typecheck, lint and this suite.
+
+The database tests are separate:
+
+```bash
+npm run test:integration
+```
+
+That needs Docker running. It starts a local Supabase stack for you if one isn't up, and **reuses one that already is** — which also means it won't stop a stack it didn't start, so a second run begins in seconds rather than a minute. Then it resets the database once, and each test truncates the mutable tables rather than paying for another reset. Everything currently lives in `integration/rls/`, which walks the policies person by person — what maya can see of dre, of sofia, of a stranger — and covers the write paths alongside them: joining a circle by code, pairing on a task, reacting, accepting an invite. `integration/sync/` is empty; it's where the outbox and realtime tests will go once there is a client to test. They run serially on purpose: `aud = 'everyone'` rows are visible to everyone by definition, so parallel workers sharing one database would leak into each other's negative assertions.
+
+To drive the stack yourself:
+
+```bash
+npm run db:start
+```
+
+```bash
+npm run db:reset
+```
+
+`db:start` brings the containers up; `db:reset` reapplies both migrations and `supabase/seed.sql`, which is how you get back to a known world after poking at rows by hand.
+
+Rally's local stack uses ports in the **553xx** range rather than Supabase's default 543xx — 55321 for the API, 55322 for Postgres, 55323 for Studio. That's so it can run at the same time as another local Supabase project on the same machine without either of them refusing to start. Nothing reads those numbers from a hardcoded constant; the test harness asks `supabase status` for the real URLs, so changing `supabase/config.toml` is enough.
 
 ## Bugs found and fixed after the first pass
 

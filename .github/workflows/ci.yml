@@ -5,9 +5,16 @@ on:
     branches: [main]
   pull_request:
 
+# A second push to the same branch makes the first run's answer irrelevant, and
+# the integration job holds a Docker-heavy runner for minutes. Cancel it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -26,3 +33,62 @@ jobs:
 
       - name: Test
         run: npm test -- --ci
+
+  # Expect 4-7 minutes, almost all of it the first-time Docker image pull for
+  # postgres/gotrue/postgrest/realtime/storage. No secrets are required: every
+  # step here runs against the local stack on the runner, nothing touches the
+  # hosted Supabase project.
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Deliberately NO supabase/setup-cli action. `@supabase/cli-linux-x64` is
+      # an optionalDependency in package-lock.json, so `npm ci` already installs
+      # the CLI at exactly the version that wrote and verified these migrations.
+      # Adding setup-cli would silently install a *different*, floating version
+      # and reintroduce the local/CI skew the lockfile exists to prevent.
+      - run: npm ci
+
+      # Shared GitHub runner IPs regularly hit anonymous Docker Hub pull limits,
+      # which is by far the likeliest cause of an intermittent red build here.
+      # One stop-and-retry turns that transient 429 into a slow pass rather than
+      # a false failure. A second failure is real and should stay red.
+      - name: Start Supabase
+        run: |
+          npx supabase start -x studio,imgproxy,logflare,vector,edge-runtime,supavisor,mailpit \
+            || {
+              echo "::warning::supabase start failed once — retrying (usually a Docker Hub pull limit)"
+              npx supabase stop --no-backup || true
+              npx supabase start -x studio,imgproxy,logflare,vector,edge-runtime,supavisor,mailpit
+            }
+
+      # Its own step so a broken migration or seed reads as a migration failure
+      # in the job summary instead of hiding inside the test step's output.
+      - name: Apply migrations and seed
+        run: npx supabase db reset --local
+
+      # Not a gate yet: the advisor's exit-code behaviour on WARN-only findings
+      # is unconfirmed, and a job that fails for an unread reason trains people
+      # to ignore it. Read the output of one real run, then drop
+      # continue-on-error so security advisories become a hard gate.
+      - name: Security advisors
+        continue-on-error: true
+        run: npx supabase db advisors --local --type security
+
+      - name: Integration tests
+        run: npm run test:integration -- --ci
+
+      - name: Container state on failure
+        if: failure()
+        run: docker ps -a
+
+      - name: Stop Supabase
+        if: always()
+        run: npx supabase stop --no-backup
