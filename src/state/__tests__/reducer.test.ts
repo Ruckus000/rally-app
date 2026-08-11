@@ -530,11 +530,38 @@ describe('merging rows from the server', () => {
     expect(s.notifOpen).toBe(true);
   });
 
-  it('adopts the real self id when the server supplies it', () => {
+  it('carries rows, never an identity', () => {
+    // A merge must not be able to say who you are. Identity is settled by the
+    // session that authenticated; letting a server payload move selfId would
+    // reopen the substitution the SESSION branch exists to close.
     const uid = '00000000-0000-4000-8000-00000000000b';
     const live: State = { ...base, account: 'live', selfId: 'you' };
-    const s = reducer(live, { type: 'SERVER_MERGE', merge: { selfId: uid } });
+    const s = reducer(live, {
+      type: 'SERVER_MERGE',
+      merge: { selfId: uid } as never,
+    });
+    expect(s.selfId).toBe('you');
+  });
+});
+
+describe('who you are comes from the session', () => {
+  const uid = '00000000-0000-4000-8000-00000000000b';
+
+  it('adopts the authenticated user id when the session becomes ready', () => {
+    const live: State = { ...base, account: 'live', selfId: 'you' };
+    const s = reducer(live, {
+      type: 'SESSION',
+      session: { status: 'ready', userId: uid },
+    });
     expect(s.selfId).toBe(uid);
+  });
+
+  it('leaves selfId alone while the session is still resolving', () => {
+    const live: State = { ...base, account: 'live', selfId: uid };
+    const s = reducer(live, { type: 'SESSION', session: { status: 'signing-in' } });
+    expect(s.selfId).toBe(uid);
+    const off = reducer(live, { type: 'SESSION', session: { status: 'offline' } });
+    expect(off.selfId).toBe(uid);
   });
 });
 

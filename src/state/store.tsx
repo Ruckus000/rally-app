@@ -778,7 +778,15 @@ export function reducer(state: State, action: Action): State {
         cur.status === next.status &&
         (cur as { userId?: string }).userId === (next as { userId?: string }).userId &&
         (cur as { message?: string }).message === (next as { message?: string }).message;
-      return same ? state : { ...state, session: next };
+      if (same) return state;
+
+      // Identity comes from the session that just authenticated, never from
+      // the payload on disk. `selfId` is persisted and `isSound` can only
+      // check that it is a string, so an edited file could otherwise name
+      // anyone as you — and every write would then go out under an id this
+      // device never proved it owned.
+      const selfId = next.status === 'ready' ? next.userId : state.selfId;
+      return { ...state, session: next, selfId };
     }
 
     case 'SERVER_MERGE': {
@@ -800,11 +808,13 @@ export function reducer(state: State, action: Action): State {
         draft[p.id] = p;
       }
 
-      const selfId = action.merge.selfId ?? state.selfId;
+      // A merge carries rows, not an identity. Whoever you are was settled by
+      // the session; letting a server payload move `selfId` would reintroduce
+      // exactly the substitution the SESSION branch just closed off.
       // Identity, so `useReducer` bails out of the render entirely. A poll that
       // found nothing new is the common case and must cost nothing.
-      if (people === state.people && selfId === state.selfId) return state;
-      return { ...state, people, selfId };
+      if (people === state.people) return state;
+      return { ...state, people };
     }
 
     default:
@@ -945,7 +955,14 @@ export function StoreProvider({
         if (syncOn) stopAutoRefresh();
         return;
       }
-      if (syncOn) startAutoRefresh();
+      if (syncOn) {
+        startAutoRefresh();
+        // A launch with no network leaves the session `offline`, and the sign-in
+        // effect only runs when `syncOn` flips. Without this, sync would stay
+        // silently dead until the process was restarted — the one failure mode
+        // a user would never think to report.
+        void ensureSession().then((session) => dispatch({ type: 'SESSION', session }));
+      }
       dispatch({ type: 'ROLLOVER_DETECTED', to: liveWeek() });
     });
     return () => sub.remove();

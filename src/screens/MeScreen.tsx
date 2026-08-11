@@ -338,7 +338,13 @@ export function MeScreen() {
         </Bri>
       </Tap>
 
-      <DevControls />
+      {/*
+        Development only. "Go live" signs in anonymously, so shipping it would
+        put unbounded account creation one tap from every user's profile screen
+        — and it exists solely because the designed way into live mode has not
+        been built yet.
+      */}
+      {__DEV__ ? <DevControls /> : null}
     </View>
   );
 }

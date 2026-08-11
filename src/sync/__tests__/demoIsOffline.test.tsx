@@ -8,6 +8,12 @@
  * client is expensive and stateful the moment it is constructed — a websocket,
  * a refresh timer and a gotrue instance — so "was it built at all" is the
  * honest question, not "did a request go out".
+ *
+ * Every case renders with `persist sync` deliberately. The obvious
+ * `persist={false}` makes all of this pass for the wrong reason: the gate is
+ * `persist && sync && account === 'live' && hasSupabaseConfig()`, so a false
+ * `persist` short-circuits before the account is ever consulted, and the suite
+ * stays green even with the account check deleted outright.
  */
 import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
@@ -36,7 +42,7 @@ describe('the demo accounts are genuinely offline', () => {
   });
 
   it('never builds a client while joining the seeded circle', () => {
-    render(<App persist={false} />);
+    render(<App persist sync />);
     fireEvent.press(screen.getByText('Join The Basement'));
     fireEvent.press(screen.getByText('Start my week'));
 
@@ -44,14 +50,14 @@ describe('the demo accounts are genuinely offline', () => {
   });
 
   it('never builds a client on the empty account either', () => {
-    render(<App persist={false} />);
+    render(<App persist sync />);
     fireEvent.press(screen.getByText('Skip for now'));
 
     expect(getSupabase).not.toHaveBeenCalled();
   });
 
   it('never builds a client while the app is walked end to end', () => {
-    render(<App persist={false} />);
+    render(<App persist sync />);
     fireEvent.press(screen.getByText('Join The Basement'));
     fireEvent.press(screen.getByText('Start my week'));
 

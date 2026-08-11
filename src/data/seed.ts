@@ -34,6 +34,7 @@ import {
   PeopleIndex,
   SELF_DEMO_ID,
   SELF_ONLY_INDEX,
+  indexPeople,
   type PersonId,
 } from './people';
 
@@ -103,7 +104,10 @@ export const getWorld = (mode: AccountMode | null): World => WORLD[mode ?? 'fres
  */
 export const seedPeople = (mode: AccountMode | null): PeopleIndex => {
   if (mode === 'seeded') return DEMO_INDEX;
-  if (mode === 'live') return {};
+  // A live circle arrives from the server. Null prototype like every other
+  // directory in the app, so a lookup for an id like `toString` still misses
+  // instead of returning an inherited function.
+  if (mode === 'live') return indexPeople([]);
   return SELF_ONLY_INDEX;
 };
 
