@@ -95,56 +95,71 @@ describe('circles are visible to their members only', () => {
 });
 
 describe('creating a circle', () => {
-  it('succeeds when created_by is the caller', async () => {
-    const id = randomUUID();
+  it('is no longer a direct insert — the table is not client-writable', async () => {
+    // Creation moved into create_circle() so that a circle can never exist
+    // without its creator in it, and so the invite code is generated rather
+    // than chosen. INSERT is revoked outright, which is why this is a grant
+    // failure and not an RLS no-op.
     const { error } = await asUser('jordan')
       .from('circles')
-      .insert({ id, name: 'Jordans Circle', invite_code: newCode(), created_by: idOf('jordan') });
+      .insert({ name: 'Jordans Circle', invite_code: newCode(), created_by: idOf('jordan') });
+
+    expect(error?.code).toBe('42501');
+  });
+
+  it('create_circle returns the new id and a generated code, and joins the creator', async () => {
+    const { data, error } = await asUser('jordan').rpc('create_circle', {
+      circle_name: 'Jordans Circle',
+    });
 
     expect(error).toBeNull();
+    const row = (data as { id: string; invite_code: string }[])[0];
+    expect(row.id).toBeTruthy();
 
-    const { data } = await asService().from('circles').select('created_by').eq('id', id);
-    expect(data?.[0]?.created_by).toBe(idOf('jordan'));
+    // Creating is joining now: the old two-step left a window where a circle
+    // existed with no members.
+    const { data: roster } = await asUser('jordan')
+      .from('circle_members')
+      .select('profile_id')
+      .eq('circle_id', row.id);
+    expect(roster).toHaveLength(1);
+    expect(roster?.[0]?.profile_id).toBe(idOf('jordan'));
   });
 
-  it('cannot be attributed to someone else', async () => {
-    const { error } = await asUser('maya')
-      .from('circles')
-      .insert({ name: 'Not Mine', invite_code: newCode(), created_by: idOf('dre') });
+  it('generates a code with real entropy behind a readable slug', async () => {
+    const { data } = await asUser('jordan').rpc('create_circle', { circle_name: 'The Basement' });
+    const code = (data as { invite_code: string }[])[0].invite_code;
 
+    // `the-basement-` + 16 hex chars. The slug carries no secrecy; the 64 bits
+    // after it are what stop join_circle_by_code being a guessing oracle.
+    expect(code).toMatch(/^the-basement-[0-9a-f]{16}$/);
+  });
+
+  it('gives two circles of the same name different codes', async () => {
+    const a = await asUser('jordan').rpc('create_circle', { circle_name: 'Gym' });
+    const b = await asUser('tomas').rpc('create_circle', { circle_name: 'Gym' });
+
+    const codeA = (a.data as { invite_code: string }[])[0].invite_code;
+    const codeB = (b.data as { invite_code: string }[])[0].invite_code;
+    expect(codeA).not.toBe(codeB);
+  });
+
+  it('refuses a blank name', async () => {
+    const { error } = await asUser('jordan').rpc('create_circle', { circle_name: '   ' });
+    expect(error?.code).toBe('23514');
+  });
+
+  it('refuses a client with no JWT', async () => {
+    const { error } = await asAnon().rpc('create_circle', { circle_name: 'Nope' });
     expect(error?.code).toBe('42501');
   });
 
-  it('cannot omit created_by, even though the column is nullable', async () => {
-    // The repair migration dropped NOT NULL so an anonymous creator can be
-    // garbage-collected without taking the circle with them. The WITH CHECK
-    // still evaluates to NULL — not true — so the insert is refused.
-    const { error } = await asUser('maya')
-      .from('circles')
-      .insert({ name: 'Ownerless', invite_code: newCode() });
+  it('attributes the circle to the caller, with no say in the matter', async () => {
+    const { data } = await asUser('tomas').rpc('create_circle', { circle_name: 'Tomas Circle' });
+    const id = (data as { id: string }[])[0].id;
 
-    expect(error?.code).toBe('42501');
-  });
-
-  it('cannot read back the row it just created, because creating is not joining', async () => {
-    // circles_insert lets you create; circles_select still demands membership,
-    // and a RETURNING clause is checked against the SELECT policy. So the
-    // client must insert without representation, then add itself to
-    // circle_members, then read. Creating a circle does not join it.
-    const { error } = await asUser('jordan')
-      .from('circles')
-      .insert({ name: 'Returned?', invite_code: newCode(), created_by: idOf('jordan') })
-      .select();
-
-    expect(error?.code).toBe('42501');
-  });
-
-  it('cannot reuse an existing invite code', async () => {
-    const { error } = await asUser('jordan')
-      .from('circles')
-      .insert({ name: 'Impostor', invite_code: 'basement-9x2', created_by: idOf('jordan') });
-
-    expect(error?.code).toBe('23505');
+    const { data: row } = await asService().from('circles').select('created_by').eq('id', id);
+    expect(row?.[0]?.created_by).toBe(idOf('tomas'));
   });
 });
 
@@ -156,7 +171,7 @@ describe('an invite code cannot be resolved by selecting circles', () => {
       .eq('id', CIRCLE_IDS.basement);
 
     expect(error).toBeNull();
-    expect(data?.[0]?.invite_code).toBe('basement-9x2');
+    expect(data?.[0]?.invite_code).toBe('the-basement-1111111111111111');
   });
 
   it('guessing a code you are not a member of returns nothing', async () => {
@@ -166,14 +181,14 @@ describe('an invite code cannot be resolved by selecting circles', () => {
     const { data, error } = await asUser('jordan')
       .from('circles')
       .select('id,name')
-      .eq('invite_code', 'basement-9x2');
+      .eq('invite_code', 'the-basement-1111111111111111');
 
     expect(error).toBeNull();
     expect(data).toEqual([]);
   });
 
   it('is not a lookup oracle either — a real code and a bogus one look identical', async () => {
-    const real = await asUser('jordan').from('circles').select('id').eq('invite_code', 'gym-4k7');
+    const real = await asUser('jordan').from('circles').select('id').eq('invite_code', 'gym-2222222222222222');
     const fake = await asUser('jordan').from('circles').select('id').eq('invite_code', 'no-such-code');
 
     expect(real.data).toEqual([]);
@@ -298,7 +313,7 @@ describe('circle_members writes are limited to your own row', () => {
 describe('join_circle_by_code', () => {
   it('returns the circle uuid to a brand-new anonymous user', async () => {
     const { client } = await signInAnonymously();
-    const { data, error } = await client.rpc('join_circle_by_code', { code: 'basement-9x2' });
+    const { data, error } = await client.rpc('join_circle_by_code', { code: 'the-basement-1111111111111111' });
 
     expect(error).toBeNull();
     expect(data).toBe(CIRCLE_IDS.basement);
@@ -306,7 +321,7 @@ describe('join_circle_by_code', () => {
 
   it('makes the circle itself visible afterwards', async () => {
     const { client } = await signInAnonymously();
-    await client.rpc('join_circle_by_code', { code: 'basement-9x2' });
+    await client.rpc('join_circle_by_code', { code: 'the-basement-1111111111111111' });
 
     const { data, error } = await client.from('circles').select('name').eq('id', CIRCLE_IDS.basement);
     expect(error).toBeNull();
@@ -315,7 +330,7 @@ describe('join_circle_by_code', () => {
 
   it('makes the roster visible afterwards, joiner included', async () => {
     const { client, id } = await signInAnonymously();
-    await client.rpc('join_circle_by_code', { code: 'basement-9x2' });
+    await client.rpc('join_circle_by_code', { code: 'the-basement-1111111111111111' });
 
     const { data } = await client
       .from('circle_members')
@@ -346,8 +361,8 @@ describe('join_circle_by_code', () => {
 
   it('is idempotent — calling it twice joins once and returns the same uuid', async () => {
     const { client, id } = await signInAnonymously();
-    const first = await client.rpc('join_circle_by_code', { code: 'basement-9x2' });
-    const second = await client.rpc('join_circle_by_code', { code: 'basement-9x2' });
+    const first = await client.rpc('join_circle_by_code', { code: 'the-basement-1111111111111111' });
+    const second = await client.rpc('join_circle_by_code', { code: 'the-basement-1111111111111111' });
 
     expect(second.error).toBeNull();
     expect(second.data).toBe(first.data);
@@ -361,7 +376,7 @@ describe('join_circle_by_code', () => {
   });
 
   it('lets an existing member re-run it without disturbing their membership', async () => {
-    const { error } = await asUser('dre').rpc('join_circle_by_code', { code: 'basement-9x2' });
+    const { error } = await asUser('dre').rpc('join_circle_by_code', { code: 'the-basement-1111111111111111' });
 
     expect(error).toBeNull();
 
@@ -374,7 +389,7 @@ describe('join_circle_by_code', () => {
   });
 
   it('refuses a client with no JWT at all', async () => {
-    const { error } = await asAnon().rpc('join_circle_by_code', { code: 'basement-9x2' });
+    const { error } = await asAnon().rpc('join_circle_by_code', { code: 'the-basement-1111111111111111' });
 
     // EXECUTE is revoked from `anon`, so this is refused at the grant, before
     // the function's own `auth.uid() is null` guard is ever reached.
@@ -382,7 +397,7 @@ describe('join_circle_by_code', () => {
   });
 
   it('does not join anybody when it refuses', async () => {
-    await asAnon().rpc('join_circle_by_code', { code: 'basement-9x2' });
+    await asAnon().rpc('join_circle_by_code', { code: 'the-basement-1111111111111111' });
 
     const { data } = await asService()
       .from('circle_members')
@@ -392,53 +407,98 @@ describe('join_circle_by_code', () => {
   });
 });
 
-describe('FINDING: an invite code is not required to join a circle', () => {
-  it('lets anyone who learns a circle_id add themselves to it directly', async () => {
-    // This is a genuine hole, recorded here as behaviour rather than papered
-    // over. circle_members_insert checks only `profile_id = auth.uid()` — that
-    // you are adding yourself and not someone else. It never checks that you
-    // hold an invite, so join_circle_by_code is a convenience, not a gate: a
-    // circle_id leaked in a screenshot, a URL or a shared device is as good as
-    // the invite code. Closing it means requiring an accepted `invites` row (or
-    // routing all joins through the SECURITY DEFINER function and revoking
-    // INSERT on circle_members) — a product decision, not a test bug.
+describe('an invite code IS now required to join a circle', () => {
+  it('refuses someone who knows a circle_id but holds no code', async () => {
+    // This was a genuine hole: circle_members_insert checked only that you
+    // were adding yourself, never that you had been invited, so a circle_id
+    // leaked in a screenshot or a URL was as good as the code. INSERT on the
+    // table is now revoked and join_circle_by_code is the only way in.
     const { error } = await asUser('sofia')
       .from('circle_members')
       .insert({ circle_id: CIRCLE_IDS.basement, profile_id: idOf('sofia') });
 
-    expect(error).toBeNull();
-
-    const { data } = await asUser('sofia')
-      .from('circles')
-      .select('name,invite_code')
-      .eq('id', CIRCLE_IDS.basement);
-    expect(data?.[0]?.name).toBe('The Basement');
-    // And the invite code she never had is now readable to her.
-    expect(data?.[0]?.invite_code).toBe('basement-9x2');
+    expect(error?.code).toBe('42501');
   });
 
-  it('exposes the full roster of a circle she was never invited to', async () => {
+  it('leaves the roster and the code out of reach', async () => {
     await asUser('sofia')
       .from('circle_members')
       .insert({ circle_id: CIRCLE_IDS.basement, profile_id: idOf('sofia') });
+
+    const { data: roster } = await asUser('sofia')
+      .from('circle_members')
+      .select('profile_id')
+      .eq('circle_id', CIRCLE_IDS.basement);
+    expect(roster).toEqual([]);
+
+    // The leak used to be self-propagating: join once and the invite_code was
+    // yours to pass on.
+    const { data: circle } = await asUser('sofia')
+      .from('circles')
+      .select('invite_code')
+      .eq('id', CIRCLE_IDS.basement);
+    expect(circle).toEqual([]);
+  });
+
+  it('still lets the code holder in', async () => {
+    const { error } = await asUser('sofia').rpc('join_circle_by_code', { code: 'the-basement-1111111111111111' });
+    expect(error).toBeNull();
 
     const { data } = await asUser('sofia')
       .from('circle_members')
       .select('profile_id')
       .eq('circle_id', CIRCLE_IDS.basement);
-
     expect(data).toHaveLength(4);
   });
 
-  it('but still cannot bring a friend along', async () => {
-    await asUser('sofia')
+  it('still lets a member leave under their own steam', async () => {
+    // Revoking INSERT must not trap anyone: DELETE is untouched.
+    const { data } = await asUser('nana')
       .from('circle_members')
-      .insert({ circle_id: CIRCLE_IDS.basement, profile_id: idOf('sofia') });
+      .delete()
+      .eq('circle_id', CIRCLE_IDS.basement)
+      .eq('profile_id', idOf('nana'))
+      .select();
 
-    const { error } = await asUser('sofia')
-      .from('circle_members')
-      .insert({ circle_id: CIRCLE_IDS.basement, profile_id: idOf('jordan') });
+    expect(data).toHaveLength(1);
+  });
+});
 
-    expect(error?.code).toBe('42501');
+describe('the invariants, not just the error codes', () => {
+  it('no circle anywhere carries a weak invite code', async () => {
+    // The entropy test above only inspects codes it just minted. This is the
+    // one that would have caught the seeded circles being grandfathered in.
+    const rows = await sql<{ invite_code: string }>('select invite_code from public.circles');
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) expect(r.invite_code).toMatch(/-[0-9a-f]{16}$/);
+  });
+
+  it('authenticated holds no INSERT on either circle table', async () => {
+    // Asserted at the grant rather than through a request, so it cannot be
+    // satisfied by an RLS policy that merely happens to refuse today.
+    const rows = await sql<{ t: string; ins: boolean }>(`
+      select c.relname as t, has_table_privilege('authenticated', c.oid, 'INSERT') as ins
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relname in ('circles','circle_members')`);
+    for (const r of rows) expect(r.ins).toBe(false);
+  });
+
+  it('neither anon nor authenticated can TRUNCATE, which would ignore RLS', async () => {
+    const rows = await sql<{ t: string; role: string; trunc: boolean }>(`
+      select c.relname as t, r.rolname as role,
+             has_table_privilege(r.rolname, c.oid, 'TRUNCATE') as trunc
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      cross join (select rolname from pg_roles where rolname in ('anon','authenticated')) r
+      where n.nspname = 'public' and c.relkind = 'r'`);
+    expect(rows.length).toBe(20);
+    for (const r of rows) expect(r.trunc).toBe(false);
+  });
+
+  it('refuses a circle name long enough to be a payload', async () => {
+    const { error } = await asUser('jordan').rpc('create_circle', {
+      circle_name: 'a'.repeat(200),
+    });
+    expect(error?.code).toBe('23514');
   });
 });
