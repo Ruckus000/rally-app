@@ -116,11 +116,19 @@ export const DEMO_PEOPLE: Person[] = [
   },
 ];
 
+/**
+ * Null-prototype on purpose. Ids are arbitrary strings and will soon come from
+ * a server, and on a normal object literal `index['toString']` returns the
+ * inherited function rather than undefined — so the `?? stranger(id)` fallback
+ * never fires and the resolver hands back a Function with no initials. The
+ * same object also refuses to store `__proto__` as an ordinary key, which
+ * would silently drop that person. Both disappear with a null prototype.
+ */
 export const indexPeople = (list: Person[]): PeopleIndex =>
   list.reduce<Record<PersonId, Person>>((acc, p) => {
     acc[p.id] = p;
     return acc;
-  }, {});
+  }, Object.create(null) as Record<PersonId, Person>);
 
 export const DEMO_INDEX: PeopleIndex = indexPeople(DEMO_PEOPLE);
 

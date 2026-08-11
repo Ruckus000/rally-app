@@ -40,8 +40,10 @@ import {
 import {
   People,
   PeopleIndex,
+  Person,
   PersonId,
   SELF_DEMO_ID,
+  indexPeople,
   makePeople,
 } from '../data/people';
 import { flush, load, save } from './persistence';
@@ -729,8 +731,20 @@ export function hydrate(restored?: Partial<State> | null): State {
   const s = restored ? { ...initialState, ...restored } : initialState;
   return {
     ...s,
-    selfId: restored?.selfId ?? SELF_DEMO_ID,
-    people: restored?.people ?? seedPeople(s.account),
+    // In a demo account there is exactly one legitimate self, so `selfId` is
+    // not restored — it is asserted. Honouring whatever was on disk would let
+    // an edited payload point self at Maya, which hands her your live week in
+    // the ranking, highlights her row as you, and authors your notes under her
+    // name. Only a live account has an identity worth restoring, and that one
+    // will come from the session rather than from disk.
+    selfId: s.account === 'live' ? (restored?.selfId ?? SELF_DEMO_ID) : SELF_DEMO_ID,
+    // Rebuilt rather than taken as-is: a directory off disk came through
+    // JSON.parse and so carries Object.prototype, where a lookup for an id
+    // like `toString` returns the inherited function instead of missing.
+    // indexPeople gives it a null prototype again.
+    people: restored?.people
+      ? indexPeople(Object.values(restored.people).filter((p): p is Person => !!p))
+      : seedPeople(s.account),
   };
 }
 

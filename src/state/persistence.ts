@@ -119,18 +119,30 @@ function weekIsSound(value: unknown): boolean {
  * Undefined is fine — a payload written before the directory existed backfills
  * from `account`. What's checked is the shape every avatar and row reads.
  */
+/**
+ * A display name is the one string an outsider controls that reaches every
+ * screen and every accessibility label, so it is bounded here rather than
+ * trusted and truncated at each of the dozens of render sites. 80 is far more
+ * than any real name and far less than enough to break a layout.
+ */
+const NAME_MAX = 80;
+
+const isBoundedString = (v: unknown, max = NAME_MAX): boolean =>
+  typeof v === 'string' && v.length <= max;
+
 function peopleAreSound(value: unknown): boolean {
   if (value === undefined) return true;
   if (!value || typeof value !== 'object') return false;
-  return Object.values(value as Record<string, unknown>).every(
-    (p) =>
-      p &&
-      typeof p === 'object' &&
-      typeof (p as Record<string, unknown>).id === 'string' &&
-      typeof (p as Record<string, unknown>).name === 'string' &&
-      typeof (p as Record<string, unknown>).first === 'string' &&
-      typeof (p as Record<string, unknown>).initials === 'string',
-  );
+  return Object.values(value as Record<string, unknown>).every((p) => {
+    if (!p || typeof p !== 'object') return false;
+    const r = p as Record<string, unknown>;
+    return (
+      isBoundedString(r.id, 128) &&
+      isBoundedString(r.name) &&
+      isBoundedString(r.first) &&
+      isBoundedString(r.initials, 8)
+    );
+  });
 }
 
 function isSound(data: unknown): data is Persisted {

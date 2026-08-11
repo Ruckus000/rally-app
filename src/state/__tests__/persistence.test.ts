@@ -213,3 +213,22 @@ describe('write economy', () => {
     expect(setItem).toHaveBeenCalled();
   });
 });
+
+describe('a hostile directory', () => {
+  it('discards a person whose display name is unbounded', async () => {
+    // A name reaches every screen and every accessibility label, so the bound
+    // lives at the trust boundary rather than at each of the render sites.
+    const bad = {
+      ...pick(base),
+      people: { x: { id: 'x', name: 'a'.repeat(500), first: 'a', initials: 'A' } },
+    };
+    await AsyncStorage.setItem(KEY, envelope(bad));
+    expect(await load()).toBeNull();
+  });
+
+  it('discards a person missing the fields a render dereferences', async () => {
+    const bad = { ...pick(base), people: { x: { id: 'x', name: 'X' } } };
+    await AsyncStorage.setItem(KEY, envelope(bad));
+    expect(await load()).toBeNull();
+  });
+});

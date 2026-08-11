@@ -374,6 +374,30 @@ describe('hydration', () => {
   it('rebuilds the directory a payload predating it never had', () => {
     expect(Object.keys(hydrate({ account: 'seeded' }).people)).toHaveLength(7);
   });
+
+  it('refuses a stored selfId on a demo account', () => {
+    // An edited payload pointing self at Maya would otherwise hand her your
+    // live week in the ranking and author your notes under her name.
+    expect(hydrate({ account: 'seeded', selfId: 'maya' }).selfId).toBe('you');
+    expect(hydrate({ account: 'fresh', selfId: 'dre' }).selfId).toBe('you');
+  });
+
+  it('keeps a stored selfId on a live account, where identity is real', () => {
+    const uid = '00000000-0000-4000-8000-00000000000b';
+    expect(hydrate({ account: 'live', selfId: uid }).selfId).toBe(uid);
+  });
+
+  it('gives the restored directory a null prototype', () => {
+    // Off disk it came through JSON.parse and carries Object.prototype, where
+    // a lookup for `toString` returns the inherited function rather than
+    // missing — so the resolver's stranger fallback would never fire.
+    const restored = hydrate({
+      account: 'seeded',
+      people: JSON.parse('{"maya":{"id":"maya","name":"Maya Chen","first":"Maya","initials":"MC"}}'),
+    });
+    expect(Object.getPrototypeOf(restored.people)).toBeNull();
+    expect((restored.people as Record<string, unknown>).toString).toBeUndefined();
+  });
 });
 
 describe('config', () => {
