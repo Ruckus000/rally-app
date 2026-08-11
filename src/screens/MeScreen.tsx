@@ -338,7 +338,13 @@ export function MeScreen() {
         </Bri>
       </Tap>
 
-      <DevControls />
+      {/*
+        Development only. "Go live" signs in anonymously, so shipping it would
+        put unbounded account creation one tap from every user's profile screen
+        — and it exists solely because the designed way into live mode has not
+        been built yet.
+      */}
+      {__DEV__ ? <DevControls /> : null}
     </View>
   );
 }
@@ -370,6 +376,27 @@ function DevControls() {
       { cancelable: true },
     );
 
+  /**
+   * Live mode has no designed way in yet — onboarding is its own piece of work.
+   * Until it lands the sync layer is otherwise untestable on a device, so the
+   * door sits here, next to the other explicit testing affordances, rather than
+   * hidden behind a gesture nobody would find by accident.
+   */
+  const goLive = () =>
+    Alert.alert(
+      'Switch to live mode',
+      'Signs in anonymously and starts syncing to the server. This clears the demo data.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Go live',
+          style: 'destructive',
+          onPress: () => dispatch({ type: 'RESET', mode: 'live' }),
+        },
+      ],
+      { cancelable: true },
+    );
+
   return (
     <View style={[row, { justifyContent: 'center', gap: 18, marginTop: 14 }]}>
       <Tap
@@ -389,6 +416,15 @@ function DevControls() {
       >
         <Sans size={12} weight={600} color={color.faintInk}>
           Simulate next week
+        </Sans>
+      </Tap>
+      <Tap
+        onPress={goLive}
+        accessibilityLabel="Switch to live mode"
+        style={{ minHeight: 44, justifyContent: 'center' }}
+      >
+        <Sans size={12} weight={600} color={color.faintInk}>
+          {state.account === 'live' ? 'Live' : 'Go live'}
         </Sans>
       </Tap>
     </View>

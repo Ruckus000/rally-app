@@ -1,0 +1,69 @@
+/**
+ * The Supabase client, built on first use and never before.
+ *
+ * Nothing here runs at import time. `createClient` starts a gotrue instance and
+ * a realtime socket the moment it is called, so constructing one at module
+ * scope would put both inside every jest suite that transitively imports this
+ * file, and would open a client in `fresh`/`seeded` mode — the two account
+ * modes that must make zero network calls, ever. The `require` below is lazy
+ * for the same reason: a top-level `import` of supabase-js would load the
+ * package even if `getSupabase()` were never called.
+ *
+ * No `react-native-url-polyfill/auto` import. The Supabase reference docs still
+ * show it, but React Native 0.86 polyfills both `URL` and `URLSearchParams`
+ * onto global itself (Libraries/Core/setUpXHR.js), and that `URL` is a real
+ * implementation — `hostname`, `protocol` and `searchParams` all work, which
+ * was the actual gap the polyfill existed to close. The package is not a
+ * dependency of this app and adding it would be dead weight. Every `new URL`
+ * inside auth-js sits on a browser-only path (`window.location`, OAuth/PKCE,
+ * `detectSessionInUrl`) that anonymous sign-in never reaches.
+ */
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+const url = () => process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+const anonKey = () => process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+
+let client: SupabaseClient | null = null;
+
+/** Both env vars present and non-empty. Read live so tests can set them late. */
+export function hasSupabaseConfig(): boolean {
+  return url().length > 0 && anonKey().length > 0;
+}
+
+/**
+ * The one client. Callers are responsible for checking `hasSupabaseConfig()`
+ * and the account mode first — this throws rather than handing back a client
+ * pointed at nothing.
+ */
+export function getSupabase(): SupabaseClient {
+  if (client) return client;
+  if (!hasSupabaseConfig()) {
+    throw new Error(
+      'Supabase is not configured. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in .env.',
+    );
+  }
+
+  // Deliberately a require, and the one place in the app that uses one. A
+  // top-level import would pull gotrue and realtime into every jest suite that
+  // transitively touches this module, and would load them on launch in demo
+  // mode — which is required to make no network machinery at all.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { createClient } = require('@supabase/supabase-js') as typeof import('@supabase/supabase-js');
+
+  client = createClient(url(), anonKey(), {
+    auth: {
+      storage: AsyncStorage,
+      autoRefreshToken: true,
+      persistSession: true,
+      // On native there is no URL fragment to read a session out of, and
+      // leaving this on makes gotrue reach for `window.location` on startup.
+      detectSessionInUrl: false,
+    },
+  });
+  return client;
+}
+
+export function __resetSupabaseForTests(): void {
+  client = null;
+}

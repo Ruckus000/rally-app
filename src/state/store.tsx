@@ -8,6 +8,7 @@
  */
 import React, { createContext, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
 import { AppState } from 'react-native';
+import { randomUUID } from 'expo-crypto';
 import {
   AUDIENCES,
   Audience,
@@ -38,6 +39,7 @@ import {
   seedYearLevels,
 } from '../data/seed';
 import {
+  MemberStats,
   People,
   PeopleIndex,
   Person,
@@ -47,6 +49,14 @@ import {
   makePeople,
 } from '../data/people';
 import { flush, load, save } from './persistence';
+import { hasSupabaseConfig } from '../lib/supabase';
+import {
+  SessionState,
+  ensureSession,
+  onSessionChange,
+  startAutoRefresh,
+  stopAutoRefresh,
+} from '../sync/session';
 
 export type Tab = 'week' | 'circle' | 'me';
 export type Scope = 'personal' | 'friends' | 'global';
@@ -74,6 +84,13 @@ export type State = {
   account: AccountMode | null;
   /** Which of `people` is you. 'you' in demo mode, a profile id once live. */
   selfId: PersonId;
+  /**
+   * The Supabase session, as the UI sees it. Never persisted: it is derived on
+   * every launch from the session the auth client stores itself, so writing it
+   * to our own payload would let an edited file claim a user id we never
+   * signed in as. `off` in every demo mode.
+   */
+  session: SessionState;
   /** Everyone this account can name, by id. Lookups go through `makePeople`. */
   people: PeopleIndex;
   /** The week this state belongs to. Compared against the clock to spot rollover. */
@@ -137,6 +154,7 @@ export type State = {
 const initialState: State = {
   account: null,
   selfId: SELF_DEMO_ID,
+  session: { status: 'off' },
   people: seedPeople(null),
   week: liveWeek(),
   history: [],
@@ -220,7 +238,21 @@ export type Action =
   | { type: 'COMMIT_ROLLOVER'; carryIds: string[] }
   | { type: 'SKIP_ONBOARD' }
   | { type: 'FINISH_ONBOARD' }
-  | { type: 'DISMISS_TOOLTIP' };
+  | { type: 'DISMISS_TOOLTIP' }
+  | { type: 'SESSION'; session: SessionState }
+  | { type: 'SERVER_MERGE'; merge: ServerMerge };
+
+/**
+ * What a pull hands the reducer, already narrowed to the rows it knows how to
+ * fold in. Deliberately not `sync/types`' `ServerMerge<T>`, which is one
+ * table's rows plus its cursor — that is the transport shape, this is the
+ * batch as the reducer sees it. Tasks join it with the outbox.
+ */
+export type ServerMerge = {
+  people?: Person[];
+  /** Your own id, once the session and your profile row have both resolved. */
+  selfId?: PersonId;
+};
 
 export type PlanSeed = {
   title?: string;
@@ -252,8 +284,27 @@ const ABANDON_EDIT = {
   draftDay: null,
 } satisfies Partial<State>;
 
-let taskSeq = 0;
-const nextTaskId = () => `m${Date.now()}-${taskSeq++}`;
+/**
+ * Client-minted, so a mutation is a safe replay. A row whose id the server
+ * chose can only be created once; a row whose id we chose can be sent again
+ * after a timeout we never saw the answer to, and the second insert collides
+ * with the first instead of duplicating it.
+ */
+const nextTaskId = (): string => randomUUID();
+
+const sameStats = (a?: MemberStats, b?: MemberStats): boolean =>
+  a === b ||
+  (!!a && !!b && a.done === b.done && a.total === b.total && a.streak === b.streak && a.given === b.given);
+
+/** Field-wise, because a row off the wire is always a fresh object. */
+const samePerson = (a: Person, b: Person): boolean =>
+  a === b ||
+  (a.name === b.name &&
+    a.first === b.first &&
+    a.initials === b.initials &&
+    a.tint === b.tint &&
+    a.trend === b.trend &&
+    sameStats(a.stats, b.stats));
 
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -622,6 +673,9 @@ export function reducer(state: State, action: Action): State {
     }
 
     case 'RESET': {
+      // 'live' seeds nothing, and needs no branch to do it: every seed function
+      // already answers empty for anything that isn't 'seeded'. `selfId` stays
+      // the sentinel until the session resolves — see `hydrate`.
       const week = liveWeek();
       return {
         ...initialState,
@@ -714,6 +768,55 @@ export function reducer(state: State, action: Action): State {
     case 'DISMISS_TOOLTIP':
       return { ...state, seenTooltip: true };
 
+    case 'SESSION': {
+      const cur = state.session;
+      const next = action.session;
+      // `ensureSession()` both resolves *and* broadcasts, so a cold start
+      // delivers the same session twice. Every dispatch re-renders every
+      // screen, so an equal session is worth comparing rather than storing.
+      const same =
+        cur.status === next.status &&
+        (cur as { userId?: string }).userId === (next as { userId?: string }).userId &&
+        (cur as { message?: string }).message === (next as { message?: string }).message;
+      if (same) return state;
+
+      // Identity comes from the session that just authenticated, never from
+      // the payload on disk. `selfId` is persisted and `isSound` can only
+      // check that it is a string, so an edited file could otherwise name
+      // anyone as you — and every write would then go out under an id this
+      // device never proved it owned.
+      const selfId = next.status === 'ready' ? next.userId : state.selfId;
+      return { ...state, session: next, selfId };
+    }
+
+    case 'SERVER_MERGE': {
+      // A merge, never an assignment: rows arriving from someone else's phone
+      // must not clobber what is only local yet, and must not close whatever
+      // the user has open — which is why this is not routed through GO_PLACE.
+      let people = state.people;
+      let draft: Record<PersonId, Person> | null = null;
+
+      for (const p of action.merge.people ?? []) {
+        const known = people[p.id];
+        if (known && samePerson(known, p)) continue;
+        // Copied once, on the first row that actually differs, and with a null
+        // prototype so a lookup for an id like `toString` still misses.
+        if (!draft) {
+          draft = Object.assign(Object.create(null) as Record<PersonId, Person>, people);
+          people = draft;
+        }
+        draft[p.id] = p;
+      }
+
+      // A merge carries rows, not an identity. Whoever you are was settled by
+      // the session; letting a server payload move `selfId` would reintroduce
+      // exactly the substitution the SESSION branch just closed off.
+      // Identity, so `useReducer` bails out of the render entirely. A poll that
+      // found nothing new is the common case and must cost nothing.
+      if (people === state.people) return state;
+      return { ...state, people };
+    }
+
     default:
       return state;
   }
@@ -731,12 +834,23 @@ export function hydrate(restored?: Partial<State> | null): State {
   const s = restored ? { ...initialState, ...restored } : initialState;
   return {
     ...s,
+    // Never off disk. It is re-derived from the auth client on every launch,
+    // and a stored one would be an unauthenticated claim to a user id.
+    session: { status: 'off' },
     // In a demo account there is exactly one legitimate self, so `selfId` is
     // not restored — it is asserted. Honouring whatever was on disk would let
     // an edited payload point self at Maya, which hands her your live week in
     // the ranking, highlights her row as you, and authors your notes under her
     // name. Only a live account has an identity worth restoring, and that one
     // will come from the session rather than from disk.
+    // A live account with no stored selfId keeps the demo sentinel rather than
+    // getting a null or an empty string, because `PersonId` is total and every
+    // caller would otherwise need a new branch. It is safe as a placeholder for
+    // exactly one reason: 'you' is not in the id space the server hands out —
+    // profile ids are uuids — and `seedPeople('live')` is empty, so nothing in
+    // the directory can match it. Until `SERVER_MERGE` supplies the real id,
+    // `isSelf` answers false for every real person and `people.get('you')`
+    // resolves to the visible "Someone" stranger. Nobody else is rendered as you.
     selfId: s.account === 'live' ? (restored?.selfId ?? SELF_DEMO_ID) : SELF_DEMO_ID,
     // Rebuilt rather than taken as-is: a directory off disk came through
     // JSON.parse and so carries Object.prototype, where a lookup for an id
@@ -767,6 +881,7 @@ export function StoreProvider({
   config = DEFAULT_CONFIG,
   restored,
   persist = true,
+  sync = true,
 }: {
   children: React.ReactNode;
   config?: Config;
@@ -774,9 +889,20 @@ export function StoreProvider({
   restored?: Partial<State> | null;
   /** Tests turn this off so no debounced writes outlive the suite. */
   persist?: boolean;
+  /** Mirrors `persist`: tests turn this off so no session work outlives the suite. */
+  sync?: boolean;
 }) {
   const [state, dispatch] = useReducer(reducer, hydrate(restored));
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * The one gate on every piece of network machinery below. `fresh` and
+   * `seeded` are demo modes that must make zero network calls ever, so the
+   * account check comes before anything that could touch the client — and
+   * `hasSupabaseConfig()` reads env rather than constructing anything, so an
+   * unconfigured build never gets as far as `getSupabase()`.
+   */
+  const syncOn = persist && sync && state.account === 'live' && hasSupabaseConfig();
 
   // Single-slot toast: each new message restarts the dismissal clock.
   useEffect(() => {
@@ -793,18 +919,54 @@ export function StoreProvider({
     if (persist) save(state);
   }, [state, persist]);
 
+  /**
+   * Sign in, and keep the session slice current. Nothing here is on the path
+   * between a tap and a render: it resolves whenever it resolves, and the
+   * reducer has already been answering taps since the first frame.
+   */
+  useEffect(() => {
+    if (!syncOn) return;
+
+    // Subscribed before the call, or the transition it broadcasts on the way to
+    // `ready` would land before anyone was listening.
+    const unsubscribe = onSessionChange((session) => dispatch({ type: 'SESSION', session }));
+    let live = true;
+    void ensureSession().then((session) => {
+      if (live) dispatch({ type: 'SESSION', session });
+    });
+    // The provider mounts with the app in front, and supabase-js only refreshes
+    // while it has been told so — see startAutoRefresh's note.
+    startAutoRefresh();
+
+    return () => {
+      live = false;
+      unsubscribe();
+      stopAutoRefresh();
+    };
+  }, [syncOn]);
+
   // Backgrounding is the last reliable moment before a force-quit. Coming back
-  // is when the calendar may have moved on without us.
+  // is when the calendar may have moved on without us — and, in live mode, when
+  // the access token needs refreshing again before the first write 401s.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
       if (next !== 'active') {
         if (persist) flush();
+        if (syncOn) stopAutoRefresh();
         return;
+      }
+      if (syncOn) {
+        startAutoRefresh();
+        // A launch with no network leaves the session `offline`, and the sign-in
+        // effect only runs when `syncOn` flips. Without this, sync would stay
+        // silently dead until the process was restarted — the one failure mode
+        // a user would never think to report.
+        void ensureSession().then((session) => dispatch({ type: 'SESSION', session }));
       }
       dispatch({ type: 'ROLLOVER_DETECTED', to: liveWeek() });
     });
     return () => sub.remove();
-  }, [persist]);
+  }, [persist, syncOn]);
 
   // …and on launch, for the much more common case of reopening days later.
   useEffect(() => {

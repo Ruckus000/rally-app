@@ -27,16 +27,19 @@ export function App({
   config,
   restored,
   persist,
+  sync,
 }: {
   config?: Config;
   /** State loaded from disk before first paint. */
   restored?: Partial<State> | null;
   /** Tests turn this off so no debounced writes outlive the suite. */
   persist?: boolean;
+  /** Mirrors `persist`: tests turn this off so no session work outlives the suite. */
+  sync?: boolean;
 }) {
   return (
     <SafeAreaProvider>
-      <StoreProvider config={config} restored={restored} persist={persist}>
+      <StoreProvider config={config} restored={restored} persist={persist} sync={sync}>
         <Shell />
       </StoreProvider>
     </SafeAreaProvider>
