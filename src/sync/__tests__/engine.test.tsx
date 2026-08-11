@@ -13,6 +13,7 @@ import { AppState, Text } from 'react-native';
 import { act, render, screen } from '@testing-library/react-native';
 
 import { fakeSupabase } from '../../__mocks__/@supabase/supabase-js';
+import { getSupabase } from '../../lib/supabase';
 import { liveWeek, weekAfter } from '../../data/week';
 import { Action, StoreProvider, useStore } from '../../state/store';
 import { mondayOf } from '../mappers';
@@ -28,6 +29,8 @@ const OTHER = '22222222-2222-4222-8222-222222222222';
 const CIRCLE = '33333333-3333-4333-8333-333333333333';
 const TARGET = '55555555-5555-4555-8555-555555555555';
 const SERVER_TASK = '66666666-6666-4666-8666-666666666666';
+const NOTE_ON_TASK = '77777777-7777-4777-8777-777777777777';
+const NOTE_TO_ME = '88888888-8888-4888-8888-888888888888';
 
 /**
  * A channel that records rather than connects.
@@ -114,6 +117,16 @@ function Probe() {
       {/* The week the pull has to name. Read off state so the assertion below
           cannot drift from what the engine actually asked for. */}
       <Text testID="week">{mondayOf(store.state.week)}</Text>
+      {/* The two slices a pull now has to be able to move. Rendered rather than
+          reached for through the store, so what is asserted is what a screen
+          would draw. */}
+      <Text testID="acted">{Object.keys(store.state.acted).sort().join(',')}</Text>
+      <Text testID="cmts">{store.state.myTasks.flatMap((t) => t.cmts.map((c) => c.t)).join(',')}</Text>
+      <Text testID="said">
+        {Object.entries(store.state.personNotes)
+          .flatMap(([who, notes]) => (notes ?? []).map((n) => `${who}:${n.t}`))
+          .join(',')}
+      </Text>
     </>
   );
 }
@@ -153,6 +166,20 @@ const taskIds = (): string[] => {
 };
 
 const ops = () => pending().map((e) => e.op);
+
+/**
+ * Writes only. A pull reads `reactions` and `notes` on every cycle now, so
+ * "nothing was sent" has to be asked of the mutations rather than of the whole
+ * call log — which would otherwise be satisfied by the poll that is meant to be
+ * running.
+ */
+const writesTo = (table: string) =>
+  fakeSupabase.calls.filter((c) => c.table === table && c.method !== 'select');
+
+const actedKeys = (): string[] => {
+  const text = screen.getByTestId('acted').props.children as string;
+  return text ? text.split(',') : [];
+};
 
 const say = (id: string, note: string) => {
   act(() => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'task', id } }));
@@ -371,7 +398,7 @@ it('cancels a cheer taken back before it left the device', async () => {
   // Not an insert followed by a delete — nothing at all. An add that outlives
   // its own cancellation puts a cheer on someone's phone this device is not
   // showing, and the delete behind it would race the row it is meant to remove.
-  expect(fakeSupabase.calls.filter((c) => c.table === 'reactions')).toHaveLength(0);
+  expect(writesTo('reactions')).toHaveLength(0);
   expect(fakeSupabase.rows('reactions')).toHaveLength(0);
 });
 
@@ -385,7 +412,7 @@ it('enqueues nothing for a cheer on a public post', async () => {
   await settle(10_000);
 
   expect(pending()).toHaveLength(0);
-  expect(fakeSupabase.calls.filter((c) => c.table === 'reactions')).toHaveLength(0);
+  expect(writesTo('reactions')).toHaveLength(0);
 });
 
 it('enqueues nothing for sharing your own win', async () => {
@@ -396,7 +423,7 @@ it('enqueues nothing for sharing your own win', async () => {
   await settle(10_000);
 
   expect(pending()).toHaveLength(0);
-  expect(fakeSupabase.calls.filter((c) => c.table === 'reactions')).toHaveLength(0);
+  expect(writesTo('reactions')).toHaveLength(0);
 });
 
 it('keeps the cheers a week produced when that week rolls over', async () => {
@@ -419,6 +446,66 @@ it('keeps the cheers a week produced when that week rolls over', async () => {
   // ending, not the user taking every cheer back, and diffing across it would
   // delete rows other people can see.
   expect(fakeSupabase.rows('reactions')).toHaveLength(1);
+  expect(pending()).toHaveLength(0);
+});
+
+it('lights a cheer another device made, and does not send it back', async () => {
+  mount();
+  await settle();
+  const me = currentUserId() as string;
+
+  // A tap that is not a row, made before the pull. It has to survive one.
+  act(() => dispatch({ type: 'ACT', id: 'g1', kind: 'cheer' }));
+
+  // Your own cheer, as your other phone left it.
+  fakeSupabase.seed({
+    reactions: [{ actor_id: me, target_type: 'task', target_id: TARGET, kind: 'cheer' }],
+  });
+
+  await settle(60_000);
+  expect(actedKeys()).toContain(`${TARGET}:cheer`);
+  expect(actedKeys()).toContain('g1:cheer');
+
+  // …and went no further. `observe` diffs `acted` and enqueues from it, so only
+  // adoption stops the merged cheer from reading as a tap made here.
+  await settle(30_000);
+  expect(writesTo('reactions')).toHaveLength(0);
+  expect(pending()).toHaveLength(0);
+
+  // Spent, not stuck: the tap after a merge still reaches the server.
+  act(() => dispatch({ type: 'ACT', id: SERVER_TASK, kind: 'cheer' }));
+  await settle(10_000);
+  expect(fakeSupabase.rows('reactions')).toHaveLength(2);
+});
+
+it('puts out a cheer another device took back, without deleting it twice', async () => {
+  mount();
+  await settle();
+  const me = currentUserId() as string;
+
+  act(() => dispatch({ type: 'ACT', id: TARGET, kind: 'cheer' }));
+  await settle(10_000);
+  expect(fakeSupabase.rows('reactions')).toHaveLength(1);
+
+  // The other phone, taking it back. Through the same client the transport
+  // uses, so the row goes exactly the way a real withdrawal would.
+  await act(async () => {
+    await getSupabase().from('reactions').delete().match({
+      actor_id: me,
+      target_type: 'task',
+      target_id: TARGET,
+      kind: 'cheer',
+    });
+  });
+  const deletes = writesTo('reactions').length;
+
+  await settle(60_000);
+  expect(actedKeys()).not.toContain(`${TARGET}:cheer`);
+
+  // The absence is the server's own answer. Sending a delete back for it would
+  // be this device arguing with a row that is already gone.
+  await settle(30_000);
+  expect(writesTo('reactions')).toHaveLength(deletes);
   expect(pending()).toHaveLength(0);
 });
 
@@ -452,7 +539,47 @@ it('enqueues nothing for a note on a public post', async () => {
   await settle(10_000);
 
   expect(pending()).toHaveLength(0);
-  expect(fakeSupabase.calls.filter((c) => c.table === 'notes')).toHaveLength(0);
+  expect(writesTo('notes')).toHaveLength(0);
+});
+
+it('shows a note from another device, on the task and on the person', async () => {
+  mount();
+  await settle();
+  const me = currentUserId() as string;
+
+  // The task has to be on the server before a note can name it: `notes.task_id`
+  // is a foreign key, and the fake enforces it exactly as Postgres does.
+  stake('ride to the bridge');
+  const [taskId] = taskIds();
+  await settle(10_000);
+
+  fakeSupabase.seed({
+    profiles: [{ id: OTHER, handle: 'maya', name: 'Maya' }],
+    notes: [
+      { id: NOTE_ON_TASK, author_id: OTHER, task_id: taskId, body: 'Strong.' },
+      { id: NOTE_TO_ME, author_id: OTHER, recipient_id: me, body: 'Proud of you.' },
+    ],
+  });
+
+  await settle(60_000);
+  expect(screen.getByTestId('cmts')).toHaveTextContent('Strong.');
+  expect(screen.getByTestId('said')).toHaveTextContent(`${me}:Proud of you.`);
+
+  // A note landing in a task's `cmts` builds a new task object, which is
+  // indistinguishable from an edit to the reference diff — so the merge has to
+  // be adopted on both slices, or the row and the note both go straight back.
+  const writes = writesTo('tasks').length;
+  await settle(30_000);
+  expect(writesTo('notes')).toHaveLength(0);
+  expect(writesTo('tasks')).toHaveLength(writes);
+  expect(pending()).toHaveLength(0);
+
+  // Spent, not stuck.
+  say(taskId, 'Halfway.');
+  await settle(10_000);
+  expect(fakeSupabase.rows('notes').map((r) => r.body)).toEqual(
+    expect.arrayContaining(['Strong.', 'Proud of you.', 'Halfway.']),
+  );
 });
 
 // ─── realtime ─────────────────────────────────────────────────────────────

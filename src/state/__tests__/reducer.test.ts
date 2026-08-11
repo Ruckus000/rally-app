@@ -8,6 +8,8 @@ import { Action, DEFAULT_CONFIG, hydrate, reducer, State } from '../store';
 import { pick } from '../persistence';
 import { MY_TASKS, MOMENTS, Task } from '../../data/fixtures';
 import { __resetOutboxForTests, enqueue } from '../../sync/outbox';
+import type { ReactionRef } from '../../sync/reactions';
+import type { PulledNote } from '../../sync/transport';
 import { WORLD, getWorld, seedProfile } from '../../data/seed';
 import { personOf } from '../../data/people';
 import { baseState as base, freshState } from '../../test/baseState';
@@ -592,6 +594,157 @@ describe('merging rows from the server', () => {
         merge: { people: [base.people.maya!], tasks: base.myTasks.map((t) => asRow(t)) },
       });
       expect(s).toBe(base);
+    });
+  });
+
+  describe('reactions', () => {
+    // Two real rows, and the keys the app writes for things that are not rows.
+    const TARGET = '55555555-5555-4555-8555-555555555555';
+    const OTHER_TARGET = '66666666-6666-4666-8666-666666666666';
+    const cheer = (targetId: string): ReactionRef => ({ targetId, kind: 'cheer' });
+
+    beforeEach(__resetOutboxForTests);
+    afterEach(__resetOutboxForTests);
+
+    it('lights a cheer made on another device', () => {
+      const s = reducer(base, { type: 'SERVER_MERGE', merge: { reactions: [cheer(TARGET)] } });
+      expect(s.acted[`${TARGET}:cheer`]).toBe(true);
+    });
+
+    it('puts out a cheer taken back on another device', () => {
+      // The absence is the whole message. A union merge could never express it,
+      // and the cheer would stay lit on this phone for the life of the install.
+      const lit: State = { ...base, acted: { [`${TARGET}:cheer`]: true } };
+      const s = reducer(lit, { type: 'SERVER_MERGE', merge: { reactions: [] } });
+      expect(s.acted[`${TARGET}:cheer`]).toBeUndefined();
+    });
+
+    it('never touches a key the server cannot speak for', () => {
+      // A fixture moment, a public post, and your own win. None of them is a row
+      // in `reactions`, so the server's silence about them says nothing — and
+      // treating it as authority would put out three taps the user can see.
+      const local: State = {
+        ...base,
+        acted: { 'g1:cheer': true, 'mywin:share': true, 'f1:cheer': true, 'maya0:nod': true },
+      };
+      const s = reducer(local, { type: 'SERVER_MERGE', merge: { reactions: [] } });
+      expect(s).toBe(local);
+      expect(s.acted).toEqual(local.acted);
+    });
+
+    it('keeps a cheer that is still sitting in the queue', () => {
+      // Tapped a second ago; the pull that is answering here was issued before
+      // it. The queue is the record of what the server has not been told, and it
+      // outranks a reply that predates the tap.
+      const local: State = { ...base, acted: { [`${TARGET}:cheer`]: true } };
+      enqueue('reaction.add', `reaction:${TARGET}:cheer`, { targetId: TARGET, kind: 'cheer' });
+
+      const s = reducer(local, { type: 'SERVER_MERGE', merge: { reactions: [] } });
+      expect(s.acted[`${TARGET}:cheer`]).toBe(true);
+    });
+
+    it('does not re-light a cheer whose withdrawal is still queued', () => {
+      // The mirror image, and the reason the queue wins in both directions: the
+      // row is still on the server because the delete has not gone out yet.
+      enqueue('reaction.remove', `reaction:${TARGET}:cheer`, { targetId: TARGET, kind: 'cheer' });
+
+      const s = reducer(base, { type: 'SERVER_MERGE', merge: { reactions: [cheer(TARGET)] } });
+      expect(s.acted[`${TARGET}:cheer`]).toBeUndefined();
+    });
+
+    it('returns the same state object when the reactions change nothing', () => {
+      const local: State = {
+        ...base,
+        acted: { [`${TARGET}:cheer`]: true, [`${OTHER_TARGET}:cheer`]: true, 'g1:cheer': true },
+      };
+      const s = reducer(local, {
+        type: 'SERVER_MERGE',
+        merge: { reactions: [cheer(OTHER_TARGET), cheer(TARGET)] },
+      });
+      expect(s).toBe(local);
+    });
+  });
+
+  describe('notes', () => {
+    const NOTE = '77777777-7777-4777-8777-777777777777';
+    const author = '88888888-8888-4888-8888-888888888888';
+    const pulled = (over: Partial<PulledNote> & Pick<PulledNote, 'target'>): PulledNote => ({
+      id: NOTE,
+      authorId: author,
+      body: 'Strong week.',
+      at: '2026-08-10T09:00:00Z',
+      ...over,
+    });
+
+    it('puts a note from another device on the task it names', () => {
+      const [task] = base.myTasks;
+      const s = reducer(base, {
+        type: 'SERVER_MERGE',
+        merge: { notes: [pulled({ target: { taskId: task.id } })] },
+      });
+
+      const merged = s.myTasks.find((t) => t.id === task.id)!;
+      expect(merged.cmts.map((c) => c.t)).toEqual([...task.cmts.map((c) => c.t), 'Strong week.']);
+      // Append-only: the note that was already there is the same object.
+      expect(merged.cmts[0]).toBe(task.cmts[0]);
+      // …and no other thread was rebuilt.
+      expect(s.myTasks[1]).toBe(base.myTasks[1]);
+    });
+
+    it('puts a note addressed to someone in their thread', () => {
+      const s = reducer(base, {
+        type: 'SERVER_MERGE',
+        merge: { notes: [pulled({ target: { recipientId: 'maya' }, body: 'Proud of you.' })] },
+      });
+      expect(s.personNotes.maya?.map((n) => n.t)).toEqual(['Proud of you.']);
+      expect(s.personNotes.maya?.[0].k).toBe(author);
+      expect(s.myTasks).toBe(base.myTasks);
+    });
+
+    it('never says the same note twice', () => {
+      const [task] = base.myTasks;
+      const row = pulled({ target: { taskId: task.id } });
+      const once = reducer(base, { type: 'SERVER_MERGE', merge: { notes: [row] } });
+      // The same row again, which is what every pull after the first delivers.
+      const twice = reducer(once, { type: 'SERVER_MERGE', merge: { notes: [row] } });
+      expect(twice).toBe(once);
+    });
+
+    it('keeps a local note that has no id', () => {
+      // It predates the id field, so it can never have been sent and there is
+      // nothing on the wire it could be matched against. Dropping it would
+      // delete something the user is looking at.
+      const [task] = base.myTasks;
+      const s = reducer(base, {
+        type: 'SERVER_MERGE',
+        merge: { notes: [pulled({ target: { taskId: task.id } })] },
+      });
+      const merged = s.myTasks.find((t) => t.id === task.id)!;
+      expect(merged.cmts.filter((c) => !c.id)).toHaveLength(task.cmts.length);
+    });
+
+    it('lands on a task that arrived in the same merge', () => {
+      // A row and its thread come back from the same pull. Folding the notes
+      // into the reconciled tasks rather than the old ones is what lets one
+      // commit carry both.
+      const row: Task = {
+        id: '99999999-9999-4999-8999-999999999999',
+        day: 2,
+        title: 'staked on the other phone',
+        cat: 'Fitness',
+        pts: 40,
+        done: false,
+        aud: 'friends',
+        pair: [],
+        pairKind: null,
+        cmts: [],
+        source: 'staked',
+      };
+      const s = reducer(base, {
+        type: 'SERVER_MERGE',
+        merge: { tasks: [...base.myTasks, row], notes: [pulled({ target: { taskId: row.id } })] },
+      });
+      expect(s.myTasks.find((t) => t.id === row.id)?.cmts.map((c) => c.t)).toEqual(['Strong week.']);
     });
   });
 
