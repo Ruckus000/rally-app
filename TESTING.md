@@ -32,11 +32,11 @@ Same deal — boots an emulator, installs a release APK with the bundle baked in
 
 ## What to walk through
 
-The app opens on the **Join** screen the first time only. After that your state is restored — including which tab and scope you were on. **Reset app data** at the bottom of Me gets you back.
+The app opens on **onboarding** the first time only. After that your state is restored — including which tab and scope you were on. **Reset app data** at the bottom of Me gets you back.
 
-**The two accounts.** "Join The Basement" seeds the demo you've been testing. **"Skip for now" now gives a genuinely empty account** — no circle, no tasks, no history, no notifications, a zeroed profile — which is the first-run state the handoff left undesigned. Both are one tap apart, and the reset control switches between them.
+**Onboarding** is seven screens: welcome, what you're here to move, your name, your first stake, a circle, notifications, and the STAKED celebration. Back steps one screen at a time — including hardware back on Android — and only leaves from the welcome screen. Skip appears on intents, circle and notifications, and moves you forward rather than out. What you tick on the stake screen becomes real tasks on today when you hit "Enter your week".
 
-**Onboarding.** Join The Basement → the Plan overlay opens in first-run mode: eyebrow reads "ONE THING TO START", and a lime tooltip explains the SEEN BY control. Dismiss it with "Got it", then "Start my week" drops you on the Personal feed. "Skip for now" on either screen goes straight to the app.
+**The three accounts.** "Get started" goes **live**: an anonymous sign-in and real syncing (circles aren't wired to the server yet, so that step says so). "Look around first" grants the **demo** — the circle, the history and the week you've been testing. **"Ride solo for now"** on the circle screen drops the demo circle for a genuinely empty account — no circle, no tasks, no history, no notifications, a zeroed profile — as does closing the welcome screen without choosing. The reset control at the bottom of Me switches between all three.
 
 **Week / Personal.** Quick-log composer at the top (tap the pill, type, hit the lime check — lands as 20 pts, category "Quick log", today). Points bar shows the running total and routes to Plan. Task rows: tap the checkbox to close one, tap the row to open its sheet. Close all six and the perfect-week card appears at the top with "Post it to the circle".
 

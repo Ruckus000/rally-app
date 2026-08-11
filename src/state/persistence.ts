@@ -35,7 +35,6 @@ const DEBOUNCE_MS = 400;
 const PERSISTED_KEYS = [
   'account',
   'onboardStep',
-  'seenTooltip',
   'tab',
   'scope',
   'myTasks',

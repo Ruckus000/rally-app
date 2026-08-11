@@ -18,7 +18,7 @@ import { MeScreen } from './screens/MeScreen';
 import { PlanOverlay } from './overlays/PlanOverlay';
 import { LedgerOverlay } from './overlays/LedgerOverlay';
 import { NotificationsOverlay } from './overlays/NotificationsOverlay';
-import { JoinOverlay } from './overlays/JoinOverlay';
+import { OnboardOverlay } from './overlays/OnboardOverlay';
 import { RolloverOverlay } from './overlays/RolloverOverlay';
 import { DetailSheet } from './overlays/DetailSheet';
 import { Toast } from './components/Toast';
@@ -56,11 +56,11 @@ function Shell() {
     scroll.current?.scrollTo({ y: 0, animated: false });
   }, [state.tab]);
 
-  const planOpen = state.planOpen || state.onboardStep === 'plan';
-
   return (
     <View style={{ flex: 1, backgroundColor: color.paper }}>
-      <StatusBar barStyle={planOpen || state.onboardStep === 'join' ? 'light-content' : 'dark-content'} />
+      {/* Onboarding sets its own: four of its seven screens are paper, so it
+          can't be answered from out here. */}
+      <StatusBar barStyle={state.planOpen ? 'light-content' : 'dark-content'} />
 
       <Header topInset={insets.top} />
 
@@ -78,11 +78,13 @@ function Shell() {
 
       <TabBar bottomInset={insets.bottom} />
 
-      {planOpen ? <PlanOverlay topInset={insets.top} bottomInset={insets.bottom} /> : null}
+      {state.planOpen ? <PlanOverlay topInset={insets.top} bottomInset={insets.bottom} /> : null}
       {state.sheet ? <DetailSheet bottomInset={insets.bottom} /> : null}
       {state.wrapOpen ? <LedgerOverlay topInset={insets.top} bottomInset={insets.bottom} /> : null}
       {state.notifOpen ? <NotificationsOverlay topInset={insets.top} /> : null}
-      {state.onboardStep === 'join' ? <JoinOverlay /> : null}
+      {state.onboardStep ? (
+        <OnboardOverlay topInset={insets.top} bottomInset={insets.bottom} />
+      ) : null}
       {/* Above everything: the week has already turned, so there is nothing
           behind this worth interacting with until it's answered. */}
       {state.pendingRollover ? (

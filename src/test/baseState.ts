@@ -52,7 +52,6 @@ export const baseState: State = {
   sheet: null,
   composerOpen: false,
   onboardStep: null,
-  seenTooltip: false,
   toast: null,
   toastSeq: 0,
 };

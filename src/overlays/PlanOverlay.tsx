@@ -23,7 +23,6 @@ import { Overlay } from './Overlay';
 
 export function PlanOverlay({ topInset, bottomInset }: { topInset: number; bottomInset: number }) {
   const { state, dispatch, effectiveAudience, world, people } = useStore();
-  const onboarding = state.onboardStep === 'plan';
 
   const staked = stakedPoints(state);
   const best = state.profile.bestWeekPoints;
@@ -44,8 +43,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
         : { type: 'ADD_TASK', aud: effectiveAudience },
     );
 
-  const close = () =>
-    onboarding ? dispatch({ type: 'SKIP_ONBOARD' }) : dispatch({ type: 'CLOSE_PLAN' });
+  const close = () => dispatch({ type: 'CLOSE_PLAN' });
 
   return (
     <Overlay zIndex={45} background={color.planBg} onRequestClose={close}>
@@ -77,12 +75,10 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
         </Tap>
         <View style={fill}>
           <Caps size={10} tracking={1.9} color={onDark.secondary}>
-            {onboarding
-              ? 'One thing to start'
-              : `Week ${state.week.number} · ${state.week.daysLeft} days left`}
+            {`Week ${state.week.number} · ${state.week.daysLeft} days left`}
           </Caps>
           <Bri size={20} weight={800} tracking={-0.5} color={color.paper} style={{ marginTop: 2 }}>
-            {onboarding ? 'Add your first task' : 'Plan your week'}
+            Plan your week
           </Bri>
         </View>
       </View>
@@ -281,7 +277,6 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                 option stays visible rather than cycling through one chip. */}
             <SectionRule label="Seen by">
               <View style={{ flexDirection: 'row', gap: 6 }}>
-                {onboarding && !state.seenTooltip ? <AudienceTooltip /> : null}
                 {AUDIENCES.map((a) => {
                   const on = effectiveAudience === a;
                   return (
@@ -577,10 +572,6 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
       >
         <Tap
           onPress={() => {
-            if (onboarding) {
-              dispatch({ type: 'FINISH_ONBOARD' });
-              return;
-            }
             dispatch({ type: 'GO_PLACE', patch: { tab: 'week', scope: 'personal' } });
             dispatch({ type: 'TOAST', message: `${staked} pts on the line` });
           }}
@@ -596,7 +587,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
           }}
         >
           <Bri size={16} weight={800} color={color.ink}>
-            {onboarding ? 'Start my week' : 'Done — into the week'}
+            Done — into the week
           </Bri>
           <Sans size={12.5} weight={700} color={color.ink} style={{ opacity: 0.55 }}>
             {staked} pts at stake
@@ -619,51 +610,3 @@ function SectionRule({ label, children }: { label: string; children?: React.Reac
   );
 }
 
-/** First-run explanation of the privacy control. */
-function AudienceTooltip() {
-  const { dispatch } = useStore();
-  return (
-    <View
-      style={[
-        {
-          position: 'absolute',
-          top: 42,
-          right: 0,
-          width: 248,
-          zIndex: 5,
-          backgroundColor: color.lime,
-          borderRadius: 14,
-          paddingVertical: 12,
-          paddingHorizontal: 13,
-        },
-        shadows.tooltip,
-      ]}
-    >
-      <View
-        style={{
-          position: 'absolute',
-          top: -6,
-          right: 26,
-          width: 12,
-          height: 12,
-          backgroundColor: color.lime,
-          transform: [{ rotate: '45deg' }],
-        }}
-      />
-      <Sans size={12.5} lineHeight={17.5} color={color.ink}>
-        <Sans size={12.5} weight={700} color={color.ink}>
-          Friends
-        </Sans>
-        {' means your circle can cheer you on. Switch it any time — it counts toward your week either way.'}
-      </Sans>
-      <Tap
-        onPress={() => dispatch({ type: 'DISMISS_TOOLTIP' })}
-        style={{ alignSelf: 'flex-end', marginTop: 8, padding: 2, minHeight: 32, justifyContent: 'center' }}
-      >
-        <Sans size={12} weight={700} color={color.avatarText}>
-          Got it
-        </Sans>
-      </Tap>
-    </View>
-  );
-}

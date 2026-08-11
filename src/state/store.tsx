@@ -73,7 +73,13 @@ import { kickSync, useSyncEngine } from '../sync/useSyncEngine';
 export type Tab = 'week' | 'circle' | 'me';
 export type Scope = 'personal' | 'friends' | 'global';
 export type SheetRef = { type: 'task' | 'person' | 'invite'; id: string | null } | null;
-export type OnboardStep = 'join' | 'plan' | null;
+/**
+ * Deliberately coarse. Onboarding is seven screens now, and all seven of them
+ * are transient: which chips are lit, what you've typed, which suggestions you
+ * ticked. None of that belongs in a persisted reducer, so the store knows only
+ * that the flow is up and `OnboardOverlay` holds the step.
+ */
+export type OnboardStep = 'onboarding' | null;
 
 /** Configuration, already modelled as props in the reference. */
 export type Config = {
@@ -156,7 +162,6 @@ export type State = {
   composerOpen: boolean;
 
   onboardStep: OnboardStep;
-  seenTooltip: boolean;
   toast: string | null;
   /** Bumped on every toast so an identical message still re-animates. */
   toastSeq: number;
@@ -200,8 +205,7 @@ const initialState: State = {
   notifRead: {},
   sheet: null,
   composerOpen: false,
-  onboardStep: 'join',
-  seenTooltip: false,
+  onboardStep: 'onboarding',
   toast: null,
   toastSeq: 0,
 };
@@ -244,13 +248,12 @@ export type Action =
   | { type: 'READ_ALL_NOTIFS' }
   | { type: 'REPLY'; key: PersonId }
   | { type: 'INVITE'; key: PersonId }
-  | { type: 'JOIN_CIRCLE' }
+  | { type: 'SET_ACCOUNT'; mode: AccountMode }
   | { type: 'RESET'; mode: AccountMode }
   | { type: 'ROLLOVER_DETECTED'; to: WeekContext }
   | { type: 'COMMIT_ROLLOVER'; carryIds: string[] }
   | { type: 'SKIP_ONBOARD' }
-  | { type: 'FINISH_ONBOARD' }
-  | { type: 'DISMISS_TOOLTIP' }
+  | { type: 'FINISH_ONBOARD'; stakes: OnboardStake[]; aud: Audience }
   | { type: 'SESSION'; session: SessionState }
   | { type: 'SERVER_MERGE'; merge: ServerMerge };
 
@@ -280,6 +283,14 @@ export type ServerMerge = {
   /** Notes on your tasks and notes addressed to you. Append-only, keyed by id. */
   notes?: PulledNote[];
 };
+
+/**
+ * One commitment carried out of onboarding. The flow's own suggestions have a
+ * title, a frequency and a point value but no category and no day, so the
+ * category is decided by the screen that knows which intent the suggestion came
+ * from and the day is decided here — see `FINISH_ONBOARD`.
+ */
+export type OnboardStake = { title: string; cat: Category; pts: number };
 
 export type PlanSeed = {
   title?: string;
@@ -318,6 +329,26 @@ const ABANDON_EDIT = {
  * with the first instead of duplicating it.
  */
 const nextTaskId = (): string => randomUUID();
+
+/**
+ * Everything an account *mode* decides, in one place. `SET_ACCOUNT` and `RESET`
+ * both apply it, so the two can never drift into seeding different things —
+ * which is exactly what would happen the next time a slice was added.
+ *
+ * `selfId` stays the demo sentinel even for 'live': the real id arrives with
+ * the session, and `hydrate` explains why the placeholder is safe.
+ */
+const seedFor = (mode: AccountMode, week: WeekContext) =>
+  ({
+    account: mode,
+    selfId: SELF_DEMO_ID,
+    people: seedPeople(mode),
+    myTasks: seedTasks(mode),
+    moments: seedMoments(mode),
+    history: seedHistory(mode, week),
+    yearLevels: seedYearLevels(mode),
+    profile: seedProfile(mode),
+  }) satisfies Partial<State>;
 
 const sameStats = (a?: MemberStats, b?: MemberStats): boolean =>
   a === b ||
@@ -678,49 +709,50 @@ export function reducer(state: State, action: Action): State {
         `Invited ${makePeople(state.people, state.selfId).first(action.key)}`,
       );
 
-    case 'JOIN_CIRCLE':
-      // Joining is what grants you the circle, its history and the demo week.
+    case 'SET_ACCOUNT':
+      // Which world you get, said on its own. This used to be welded to
+      // "joining the circle", which was fine while there were two answers; now
+      // that going live is a third, the flow has to be able to say "the demo",
+      // "empty" or "live" without also claiming a membership.
+      //
+      // Deliberately re-appliable: the front door is one back-press away from
+      // every step, so choosing again has to reseed rather than leave the
+      // previous choice's fixtures lying underneath the new one. That includes
+      // what you'd already acted on — those ids belong to the world being left.
       return {
         ...state,
-        account: 'seeded',
-        selfId: SELF_DEMO_ID,
-        people: seedPeople('seeded'),
-        myTasks: seedTasks('seeded'),
-        moments: seedMoments('seeded'),
-        history: seedHistory('seeded', state.week),
-        yearLevels: seedYearLevels('seeded'),
-        profile: seedProfile('seeded'),
-        onboardStep: 'plan',
+        ...seedFor(action.mode, state.week),
+        acted: {},
+        replied: {},
+        pending: {},
+        notifRead: {},
+        usedSugg: {},
       };
 
     case 'SKIP_ONBOARD': {
-      // Declining the invite leaves you with a genuinely empty account.
+      // Leaving the flow early keeps whatever account you'd already chosen —
+      // and grants an empty one if you never chose. Either way you land on your
+      // own week, the same place finishing properly puts you.
       const mode = state.account ?? 'fresh';
       return {
         ...state,
         account: mode,
         profile: state.account ? state.profile : seedProfile(mode),
         onboardStep: null,
+        tab: 'week',
+        scope: 'personal',
       };
     }
 
     case 'RESET': {
       // 'live' seeds nothing, and needs no branch to do it: every seed function
-      // already answers empty for anything that isn't 'seeded'. `selfId` stays
-      // the sentinel until the session resolves — see `hydrate`.
+      // already answers empty for anything that isn't 'seeded'.
       const week = liveWeek();
       return {
         ...initialState,
         week,
         day: week.today,
-        account: action.mode,
-        selfId: SELF_DEMO_ID,
-        people: seedPeople(action.mode),
-        myTasks: seedTasks(action.mode),
-        moments: seedMoments(action.mode),
-        history: seedHistory(action.mode, week),
-        yearLevels: seedYearLevels(action.mode),
-        profile: seedProfile(action.mode),
+        ...seedFor(action.mode, week),
         onboardStep: null,
         tab: 'week',
         scope: action.mode === 'seeded' ? 'friends' : 'personal',
@@ -794,11 +826,38 @@ export function reducer(state: State, action: Action): State {
       };
     }
 
-    case 'FINISH_ONBOARD':
-      return { ...state, onboardStep: null, tab: 'week', scope: 'personal' };
-
-    case 'DISMISS_TOOLTIP':
-      return { ...state, seenTooltip: true };
+    case 'FINISH_ONBOARD': {
+      /**
+       * What you staked on screen 3 becomes ordinary tasks — the same shape
+       * `ADD_TASK` mints, so nothing downstream can tell where they came from.
+       *
+       * They all land on today. The flow never asks for a day (see
+       * `StakeScreen` on why it doesn't), and its frequencies — 'every day',
+       * '×3 this week' — don't name one either; today is the only answer that
+       * lets a first week start the moment it's staked rather than sitting in
+       * the future being notional.
+       */
+      const staked: Task[] = action.stakes.map((s) => ({
+        id: nextTaskId(),
+        day: state.day,
+        title: s.title,
+        cat: s.cat,
+        pts: s.pts,
+        done: false,
+        aud: action.aud,
+        pair: [],
+        pairKind: null,
+        cmts: [],
+        source: 'staked',
+      }));
+      return {
+        ...state,
+        onboardStep: null,
+        tab: 'week',
+        scope: 'personal',
+        myTasks: [...state.myTasks, ...staked],
+      };
+    }
 
     case 'SESSION': {
       const cur = state.session;

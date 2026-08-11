@@ -320,7 +320,7 @@ describe('accounts', () => {
     history: [],
     yearLevels: [],
     profile: seedProfile(null),
-    onboardStep: 'join',
+    onboardStep: 'onboarding',
   };
 
   it('starts empty before you have chosen', () => {
@@ -328,13 +328,41 @@ describe('accounts', () => {
     expect(undecided.myTasks).toHaveLength(0);
   });
 
-  it('joining is what seeds the circle and the demo week', () => {
-    const s = reducer(undecided, { type: 'JOIN_CIRCLE' });
+  it('choosing the demo is what seeds the circle and the demo week', () => {
+    const s = reducer(undecided, { type: 'SET_ACCOUNT', mode: 'seeded' });
     expect(s.account).toBe('seeded');
     expect(s.myTasks).toHaveLength(MY_TASKS.length);
     expect(s.moments).toHaveLength(MOMENTS.length);
-    expect(s.onboardStep).toBe('plan');
     expect(getWorld(s.account).members.length).toBeGreaterThan(1);
+    // The account is a separate question from where onboarding is: the flow
+    // holds the step itself, and picking a world must not close it.
+    expect(s.onboardStep).toBe('onboarding');
+  });
+
+  it('re-seeds when the account is chosen again, leaving nothing of the last one', () => {
+    // The front door is one back-press from every step of the flow, so this is
+    // a route a user really has.
+    const demo = reducer(undecided, { type: 'SET_ACCOUNT', mode: 'seeded' });
+    const acted = reducer(demo, { type: 'ACT', id: 'f1', kind: 'cheer' });
+    const live = reducer(acted, { type: 'SET_ACCOUNT', mode: 'live' });
+
+    expect(live.account).toBe('live');
+    expect(live.myTasks).toHaveLength(0);
+    expect(live.moments).toHaveLength(0);
+    expect(live.history).toHaveLength(0);
+    expect(Object.keys(live.people)).toHaveLength(0);
+    expect(live.profile.allTimePoints).toBe(0);
+    // Acted-on ids belonged to the world being left.
+    expect(live.acted).toEqual({});
+  });
+
+  it('going solo in the demo drops the circle it had granted', () => {
+    const demo = reducer(undecided, { type: 'SET_ACCOUNT', mode: 'seeded' });
+    const solo = reducer(demo, { type: 'SET_ACCOUNT', mode: 'fresh' });
+
+    expect(solo.account).toBe('fresh');
+    expect(solo.myTasks).toHaveLength(0);
+    expect(getWorld(solo.account).members).toEqual(['you']);
   });
 
   it('skipping leaves a genuinely empty account', () => {
@@ -352,11 +380,47 @@ describe('accounts', () => {
     expect(s.yearLevels).toHaveLength(0);
     expect(s.profile.allTimePoints).toBe(0);
     expect(s.profile.currentStreak).toBe(0);
+    // Leaving early lands where finishing does: your own week.
+    expect(s.tab).toBe('week');
+    expect(s.scope).toBe('personal');
   });
 
-  it('does not downgrade an account that already joined', () => {
-    const joined = reducer(undecided, { type: 'JOIN_CIRCLE' });
+  it('does not downgrade an account that already chose the demo', () => {
+    const joined = reducer(undecided, { type: 'SET_ACCOUNT', mode: 'seeded' });
     expect(reducer(joined, { type: 'SKIP_ONBOARD' }).account).toBe('seeded');
+  });
+
+  it('turns what you staked in onboarding into real tasks', () => {
+    const chosen = reducer(undecided, { type: 'SET_ACCOUNT', mode: 'fresh' });
+    const s = reducer(chosen, {
+      type: 'FINISH_ONBOARD',
+      stakes: [
+        { title: 'Run 5k', cat: 'Fitness', pts: 40 },
+        { title: 'In bed by 11', cat: 'Mind', pts: 40 },
+      ],
+      aud: 'friends',
+    });
+
+    expect(s.onboardStep).toBeNull();
+    expect(s.myTasks).toHaveLength(2);
+    expect(s.myTasks.map((t) => t.title)).toEqual(['Run 5k', 'In bed by 11']);
+    // The same shape ADD_TASK mints, so nothing downstream can tell them apart.
+    expect(s.myTasks.every((t) => t.source === 'staked')).toBe(true);
+    expect(s.myTasks.every((t) => t.aud === 'friends')).toBe(true);
+    expect(s.myTasks.every((t) => !t.done && t.pair.length === 0)).toBe(true);
+    expect(s.myTasks.every((t) => UUID.test(t.id))).toBe(true);
+    // The flow never asks for a day, so they start today rather than later.
+    expect(s.myTasks.every((t) => t.day === chosen.day)).toBe(true);
+  });
+
+  it('keeps the demo week when the demo is what you staked on top of', () => {
+    const demo = reducer(undecided, { type: 'SET_ACCOUNT', mode: 'seeded' });
+    const s = reducer(demo, {
+      type: 'FINISH_ONBOARD',
+      stakes: [{ title: 'Write 500 words', cat: 'Work', pts: 50 }],
+      aud: 'friends',
+    });
+    expect(s.myTasks).toHaveLength(MY_TASKS.length + 1);
   });
 
   it('resets to a fresh account, clearing your work', () => {
@@ -806,7 +870,7 @@ describe('week rollover', () => {
   });
 
   it('does not interrupt onboarding', () => {
-    const onboarding: State = { ...base, onboardStep: 'join' };
+    const onboarding: State = { ...base, onboardStep: 'onboarding' };
     expect(reducer(onboarding, detected).pendingRollover).toBeNull();
   });
 
