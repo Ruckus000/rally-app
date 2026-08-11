@@ -57,7 +57,11 @@ import {
   startAutoRefresh,
   stopAutoRefresh,
 } from '../sync/session';
-import { clearOutbox, flushOutbox } from '../sync/outbox';
+import { ackedTaskIds, clearOutbox, flushOutbox } from '../sync/outbox';
+import { reconcileTasks } from '../sync/reconcile';
+// The queue's key format is the engine's business, not the reducer's; it hands
+// back the ids, and the type-only edge means this adds no import cycle.
+import { dirtyTaskIds } from '../sync/engine';
 import { kickSync, useSyncEngine } from '../sync/useSyncEngine';
 
 export type Tab = 'week' | 'circle' | 'me';
@@ -254,6 +258,12 @@ export type ServerMerge = {
   people?: Person[];
   /** Your own id, once the session and your profile row have both resolved. */
   selfId?: PersonId;
+  /**
+   * One week of your own rows, as the server has them. Folded by
+   * `reconcileTasks`, never assigned: the engine only sends these when the week
+   * they answer for is still the week on screen.
+   */
+  tasks?: Task[];
 };
 
 export type PlanSeed = {
@@ -810,13 +820,20 @@ export function reducer(state: State, action: Action): State {
         draft[p.id] = p;
       }
 
+      // The dirty set is derived here, from the queue, and deliberately not kept
+      // in state: it would be a second record of what the server still owes us,
+      // and the one that decides what actually goes out is the outbox.
+      const myTasks = action.merge.tasks
+        ? reconcileTasks(state.myTasks, action.merge.tasks, dirtyTaskIds(), ackedTaskIds())
+        : state.myTasks;
+
       // A merge carries rows, not an identity. Whoever you are was settled by
       // the session; letting a server payload move `selfId` would reintroduce
       // exactly the substitution the SESSION branch just closed off.
       // Identity, so `useReducer` bails out of the render entirely. A poll that
       // found nothing new is the common case and must cost nothing.
-      if (people === state.people) return state;
-      return { ...state, people };
+      if (people === state.people && myTasks === state.myTasks) return state;
+      return { ...state, people, myTasks };
     }
 
     default:

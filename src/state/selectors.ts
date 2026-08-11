@@ -58,10 +58,11 @@ export type RankedMember = {
   ini: string;
   name: string;
   first: string;
-  /** "71% · 5 of 7 · 🔥 2w" — the follow-through metric the sort uses. */
+  /** "71% · 5 of 7 · 🔥 2w", or why there is no number to show. */
   sub: string;
-  pct: number;
-  given: number;
+  /** Null when this member's week is unknown — not the same as a week of zeroes. */
+  pct: number | null;
+  given: number | null;
 };
 
 /**
@@ -70,33 +71,49 @@ export type RankedMember = {
  */
 const score = (s: MemberStats) => (s.total ? s.done * (s.done / s.total) : 0);
 
+/** Below every real score, including a real zero, which is a week someone had. */
+const UNKNOWN = -1;
+
+/** What a member with no week to report shows instead of a fabricated 0%. */
+const NO_WEEK = 'No week synced yet';
+
 export function ranking(state: State): RankedMember[] {
   const mine = myStats(state);
   const p = makePeople(state.people, state.selfId);
-  return circleMembers(state).map((k) => {
-    const s = p.isSelf(k) ? mine : p.stats(k);
-    return { k, s, score: score(s) };
-  })
-    .sort((a, b) => b.score - a.score)
-    .map(({ k, s }, i) => ({
+  return circleMembers(state)
+    .map((k) => {
+      // `p.get(k).stats`, not `p.stats(k)`: the resolver's EMPTY_STATS is a
+      // convenience for rendering, and here it would be a claim. A live circle
+      // member's week lives in `week_rollups`, which nothing pulls yet, so the
+      // truthful answer for them is "unknown" rather than a 0 of 0 that reads
+      // as somebody who staked nothing and closed nothing.
+      const s = p.isSelf(k) ? mine : p.get(k).stats;
+      return { k, s, score: s ? score(s) : UNKNOWN, name: p.name(k) };
+    })
+    // Name breaks the tie so a list of members we know nothing about has a
+    // stable order rather than one that implies a ranking it does not have.
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+    .map(({ k, s, name }, i) => ({
       rank: i + 1,
       k,
       ini: p.initials(k),
-      name: p.name(k),
+      name,
       first: p.first(k),
-      sub:
-        `${s.total ? Math.round((100 * s.done) / s.total) : 0}% · ${s.done} of ${s.total}` +
-        (s.streak ? ` · 🔥 ${s.streak}w` : ''),
-      pct: s.total ? s.done / s.total : 0,
-      given: s.given,
+      sub: s
+        ? `${s.total ? Math.round((100 * s.done) / s.total) : 0}% · ${s.done} of ${s.total}` +
+          (s.streak ? ` · 🔥 ${s.streak}w` : '')
+        : NO_WEEK,
+      pct: s ? (s.total ? s.done / s.total : 0) : null,
+      given: s ? s.given : null,
     }));
 }
 
 export const myRank = (state: State) =>
   ranking(state).find((r) => r.k === state.selfId)?.rank ?? 0;
 
+/** Counts the members whose week we actually have. An unknown adds nothing. */
 export const totalCheersExchanged = (state: State) =>
-  ranking(state).reduce((a, r) => a + r.given, 0);
+  ranking(state).reduce((a, r) => a + (r.given ?? 0), 0);
 
 /**
  * Who's on the leaderboard. A live account's circle is whoever is in the
