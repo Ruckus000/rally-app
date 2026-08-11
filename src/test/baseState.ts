@@ -15,6 +15,8 @@ import { FIXTURE_WEEK } from '../data/week';
 export const baseState: State = {
   account: 'seeded',
   selfId: SELF_DEMO_ID,
+  // A demo account never signs in, so `off` is the only value it can hold.
+  session: { status: 'off' },
   people: seedPeople('seeded'),
   // Pinned, so the suite doesn't drift with the calendar.
   week: FIXTURE_WEEK,

@@ -5,10 +5,15 @@
  * overlay behind. Those are what's tested here.
  */
 import { Action, DEFAULT_CONFIG, hydrate, reducer, State } from '../store';
+import { pick } from '../persistence';
 import { MY_TASKS, MOMENTS } from '../../data/fixtures';
 import { WORLD, getWorld, seedProfile } from '../../data/seed';
+import { personOf } from '../../data/people';
 import { baseState as base, freshState } from '../../test/baseState';
 import { weekAfter } from '../../data/week';
+
+/** RFC 4122, any version — the shape, not a particular generator. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 
 const run = (state: State, ...actions: Action[]) => actions.reduce(reducer, state);
@@ -361,6 +366,20 @@ describe('accounts', () => {
     expect(s.onboardStep).toBeNull();
   });
 
+  it('resets to live with nothing seeded at all', () => {
+    // A live account's rows come from the server. Anything seeded here would
+    // be local fiction the sync layer would then try to reconcile.
+    const s = reducer(base, { type: 'RESET', mode: 'live' });
+    expect(s.account).toBe('live');
+    expect(s.myTasks).toHaveLength(0);
+    expect(Object.keys(s.people)).toHaveLength(0);
+    expect(s.moments).toHaveLength(0);
+    expect(s.history).toHaveLength(0);
+    expect(s.yearLevels).toHaveLength(0);
+    expect(s.profile.allTimePoints).toBe(0);
+    expect(s.onboardStep).toBeNull();
+  });
+
   it('marks read only the notifications the account actually has', () => {
     const fresh: State = { ...base, account: 'fresh' };
     expect(reducer(fresh, { type: 'READ_ALL_NOTIFS' }).notifRead).toEqual({});
@@ -387,6 +406,22 @@ describe('hydration', () => {
     expect(hydrate({ account: 'live', selfId: uid }).selfId).toBe(uid);
   });
 
+  it('never restores a session', () => {
+    expect(hydrate({ account: 'live', session: { status: 'ready', userId: 'u1' } }).session).toEqual({
+      status: 'off',
+    });
+  });
+
+  it('leaves a live account with no session pointing self at nobody', () => {
+    // The sentinel is safe only because it can never collide: profile ids are
+    // uuids, and a live account's directory starts empty. So until the session
+    // resolves, no real person is rendered as you.
+    const s = hydrate({ account: 'live' });
+    expect(s.selfId).toBe('you');
+    expect(s.people.you).toBeUndefined();
+    expect(Object.keys(s.people)).toHaveLength(0);
+  });
+
   it('gives the restored directory a null prototype', () => {
     // Off disk it came through JSON.parse and carries Object.prototype, where
     // a lookup for `toString` returns the inherited function rather than
@@ -397,6 +432,109 @@ describe('hydration', () => {
     });
     expect(Object.getPrototypeOf(restored.people)).toBeNull();
     expect((restored.people as Record<string, unknown>).toString).toBeUndefined();
+  });
+});
+
+describe('task ids', () => {
+  it('are client-minted uuids, so a retried write collides instead of duplicating', () => {
+    const staked = run(
+      base,
+      { type: 'SET_DRAFT', value: 'Swim' },
+      { type: 'ADD_TASK', aud: 'friends' },
+    );
+    const logged = run(
+      base,
+      { type: 'SET_COMPOSER_VAL', value: 'Walked' },
+      { type: 'SUBMIT_COMPOSER' },
+    );
+    const suggested = reducer(base, {
+      type: 'ADD_SUGGESTION',
+      suggestion: { id: 's1', tag: 'X', title: 'Stretch', sub: '', pts: 20, cat: 'Fitness' },
+    });
+
+    for (const s of [staked, logged, suggested]) {
+      expect(s.myTasks[s.myTasks.length - 1].id).toMatch(UUID);
+    }
+  });
+
+  it('never repeats', () => {
+    const s = run(
+      base,
+      { type: 'SET_DRAFT', value: 'One' },
+      { type: 'ADD_TASK', aud: 'friends' },
+      { type: 'SET_DRAFT', value: 'Two' },
+      { type: 'ADD_TASK', aud: 'friends' },
+    );
+    const ids = s.myTasks.map((t) => t.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe('the session', () => {
+  const ready = { status: 'ready', userId: 'u1' } as const;
+
+  it('moves state', () => {
+    const s = reducer(base, { type: 'SESSION', session: ready });
+    expect(s.session).toEqual(ready);
+  });
+
+  it('is never written to disk', () => {
+    // Derived from the auth client on every launch. Persisting it would let an
+    // edited payload claim a user id this install never signed in as.
+    expect(Object.keys(pick({ ...base, session: ready }))).not.toContain('session');
+  });
+
+  it('ignores a session equal to the one already held', () => {
+    // ensureSession both resolves and broadcasts, so the same value arrives
+    // twice on a cold start — and every dispatch re-renders every screen.
+    const s = reducer(base, { type: 'SESSION', session: ready });
+    expect(reducer(s, { type: 'SESSION', session: { status: 'ready', userId: 'u1' } })).toBe(s);
+  });
+});
+
+describe('merging rows from the server', () => {
+  const maya = personOf('maya', 'Maya Chen');
+
+  it('returns the same state object when nothing is new', () => {
+    // Identity, so useReducer bails out of the render. A poll that found
+    // nothing is the common case and has to cost nothing.
+    const known = base.people.maya!;
+    expect(reducer(base, { type: 'SERVER_MERGE', merge: { people: [known] } })).toBe(base);
+    expect(reducer(base, { type: 'SERVER_MERGE', merge: {} })).toBe(base);
+    expect(reducer(base, { type: 'SERVER_MERGE', merge: { selfId: base.selfId } })).toBe(base);
+  });
+
+  it('adds someone new without touching who was already there', () => {
+    const jo = personOf('00000000-0000-4000-8000-0000000000aa', 'Jo Ramos');
+    const s = reducer(base, { type: 'SERVER_MERGE', merge: { people: [jo] } });
+    expect(s).not.toBe(base);
+    expect(s.people[jo.id]?.name).toBe('Jo Ramos');
+    expect(s.people.maya).toBe(base.people.maya);
+    expect(Object.getPrototypeOf(s.people)).toBeNull();
+  });
+
+  it('does not close a sheet the user has open', () => {
+    // A row arriving from someone else's phone is not a route change. This is
+    // why SERVER_MERGE is not GO_PLACE, which spreads CLEARED.
+    const busy: State = {
+      ...base,
+      sheet: { type: 'person', id: 'maya' },
+      note: 'half typed',
+      planOpen: true,
+      notifOpen: true,
+    };
+    const s = reducer(busy, { type: 'SERVER_MERGE', merge: { people: [{ ...maya, name: 'Maya C.' }] } });
+    expect(s.sheet).toEqual({ type: 'person', id: 'maya' });
+    expect(s.note).toBe('half typed');
+    expect(s.planOpen).toBe(true);
+    expect(s.notifOpen).toBe(true);
+  });
+
+  it('adopts the real self id when the server supplies it', () => {
+    const uid = '00000000-0000-4000-8000-00000000000b';
+    const live: State = { ...base, account: 'live', selfId: 'you' };
+    const s = reducer(live, { type: 'SERVER_MERGE', merge: { selfId: uid } });
+    expect(s.selfId).toBe(uid);
   });
 });
 

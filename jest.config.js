@@ -33,6 +33,11 @@ module.exports = {
       rootDir: __dirname,
       testEnvironment: 'node',
       testMatch: ['<rootDir>/integration/**/*.test.ts'],
+      // Scoped so Jest cannot discover src/__mocks__/@supabase/supabase-js.
+      // Without this the integration suite silently runs against the unit
+      // fake — every test fails on `signInWithPassword is not a function`,
+      // and a subtler fake would have failed far less honestly.
+      roots: ['<rootDir>/integration'],
       // Borrow jest-expo's babel wiring (it already handles our TypeScript and
       // ESM) but none of its React Native resolver/haste/environment, which
       // would misresolve @supabase/supabase-js in Node.
