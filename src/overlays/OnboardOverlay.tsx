@@ -139,7 +139,7 @@ export function OnboardOverlay({
       cat: SUGGESTION_CATEGORY[r.id] ?? CUSTOM_CATEGORY,
       pts: r.pts,
     }));
-    dispatch({ type: 'FINISH_ONBOARD', stakes, aud: effectiveAudience });
+    dispatch({ type: 'FINISH_ONBOARD', stakes, aud: effectiveAudience, name: flow.name });
   };
 
   /**

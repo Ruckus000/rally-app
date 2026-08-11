@@ -437,7 +437,7 @@ it('keeps the cheers a week produced when that week rolls over', async () => {
   // The prompt is deliberately suppressed while onboarding is on screen, and a
   // restored account starts there — without this the rollover never commits and
   // the assertion below passes for a reason that has nothing to do with cheers.
-  act(() => dispatch({ type: 'FINISH_ONBOARD', stakes: [], aud: 'friends' }));
+  act(() => dispatch({ type: 'FINISH_ONBOARD', stakes: [], aud: 'friends', name: '' }));
   act(() => dispatch({ type: 'ROLLOVER_DETECTED', to: weekAfter(liveWeek()) }));
   act(() => dispatch({ type: 'COMMIT_ROLLOVER', carryIds: [] }));
   await settle(10_000);

@@ -111,7 +111,7 @@ export function StakedScreen({
               size={96}
               weight={800}
               tracking={-4.5}
-              lineHeight={82}
+              lineHeight={102}
               color={color.lime}
               style={heroGlow}
             >

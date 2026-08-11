@@ -92,7 +92,7 @@ export function StakeScreen({
           accessibilityLabel={`${staked} points staked so far`}
           style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 11, marginTop: 20 }}
         >
-          <Bri size={64} weight={800} tracking={-3} lineHeight={51} color={color.lime} style={heroGlow}>
+          <Bri size={64} weight={800} tracking={-3} lineHeight={68} color={color.lime} style={heroGlow}>
             {staked}
           </Bri>
           <View style={{ paddingBottom: 6 }}>
@@ -175,6 +175,7 @@ export function StakeScreen({
 
       <View style={{ paddingTop: 10, paddingHorizontal: 22, paddingBottom: 30 }}>
         <PillButton
+          dark
           label={picked.length ? `Stake ${staked} pts` : 'Pick at least one'}
           disabled={!picked.length}
           onPress={onNext}

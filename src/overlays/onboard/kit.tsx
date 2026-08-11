@@ -51,14 +51,26 @@ export function PillButton({
     );
   }
 
+  // A disabled fill of ink-at-8% reads as a pill on paper and as nothing at all
+  // on #12170F, which is where the only disabled CTA in the flow actually
+  // lives. The dark screens get the paper-side equivalent so the button is
+  // still a button before you have picked anything.
   const bg = disabled
-    ? color.disabledFill
+    ? dark
+      ? onDark.fill
+      : color.disabledFill
     : variant === 'primary'
       ? color.lime
       : variant === 'paper'
         ? color.paper
         : onDark.fill;
-  const ink = disabled ? color.faintInk : variant === 'outline' ? color.paper : color.ink;
+  const ink = disabled
+    ? dark
+      ? onDark.tertiary
+      : color.faintInk
+    : variant === 'outline'
+      ? color.paper
+      : color.ink;
 
   return (
     <Tap

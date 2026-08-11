@@ -390,10 +390,29 @@ describe('accounts', () => {
     expect(reducer(joined, { type: 'SKIP_ONBOARD' }).account).toBe('seeded');
   });
 
+  it('keeps the name you typed, so you are not rendered as a stranger', () => {
+    // The flow asks for a name on screen 2. Leaving it uncommitted meant the
+    // avatar rendered "?" the moment onboarding finished — asking and then
+    // discarding is worse than never asking.
+    const chosen = reducer(undecided, { type: 'SET_ACCOUNT', mode: 'fresh' });
+    const s = reducer(chosen, {
+      type: 'FINISH_ONBOARD',
+      name: 'Jonathan Philistin',
+      stakes: [],
+      aud: 'friends',
+    });
+
+    expect(s.people[s.selfId]?.initials).toBe('JP');
+    expect(s.people[s.selfId]?.first).toBe('Jonathan');
+    // Second person, not third: the circle refers to you as "You".
+    expect(s.people[s.selfId]?.name).toBe('You');
+  });
+
   it('turns what you staked in onboarding into real tasks', () => {
     const chosen = reducer(undecided, { type: 'SET_ACCOUNT', mode: 'fresh' });
     const s = reducer(chosen, {
       type: 'FINISH_ONBOARD',
+      name: 'Jonathan Philistin',
       stakes: [
         { title: 'Run 5k', cat: 'Fitness', pts: 40 },
         { title: 'In bed by 11', cat: 'Mind', pts: 40 },
@@ -417,6 +436,7 @@ describe('accounts', () => {
     const demo = reducer(undecided, { type: 'SET_ACCOUNT', mode: 'seeded' });
     const s = reducer(demo, {
       type: 'FINISH_ONBOARD',
+      name: 'Jonathan Philistin',
       stakes: [{ title: 'Write 500 words', cat: 'Work', pts: 50 }],
       aud: 'friends',
     });

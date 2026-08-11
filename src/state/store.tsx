@@ -46,6 +46,7 @@ import {
   PersonId,
   SELF_DEMO_ID,
   indexPeople,
+  initialsFromName,
   makePeople,
 } from '../data/people';
 import { flush, load, save } from './persistence';
@@ -253,7 +254,7 @@ export type Action =
   | { type: 'ROLLOVER_DETECTED'; to: WeekContext }
   | { type: 'COMMIT_ROLLOVER'; carryIds: string[] }
   | { type: 'SKIP_ONBOARD' }
-  | { type: 'FINISH_ONBOARD'; stakes: OnboardStake[]; aud: Audience }
+  | { type: 'FINISH_ONBOARD'; stakes: OnboardStake[]; aud: Audience; name: string }
   | { type: 'SESSION'; session: SessionState }
   | { type: 'SERVER_MERGE'; merge: ServerMerge };
 
@@ -850,12 +851,36 @@ export function reducer(state: State, action: Action): State {
         cmts: [],
         source: 'staked',
       }));
+      /**
+       * The name goes into the people directory, which is where every screen
+       * already resolves a name and initials from. It was briefly left
+       * uncommitted on the grounds that a live profile name has to be written
+       * through a `profiles` push the client does not have yet — true, but the
+       * consequence was that the flow asked you to type your name and then
+       * rendered you as "?". Asking and discarding is worse than not asking.
+       * Live mode overwrites this the moment profiles sync; until then it is
+       * the honest local answer.
+       */
+      const named = action.name.trim();
+      const people = named
+        ? {
+            ...indexPeople(Object.values(state.people).filter((p): p is Person => !!p)),
+            [state.selfId]: {
+              ...(state.people[state.selfId] ?? { id: state.selfId }),
+              name: 'You',
+              first: named.split(/\s+/)[0] || named,
+              initials: initialsFromName(named),
+            },
+          }
+        : state.people;
+
       return {
         ...state,
         onboardStep: null,
         tab: 'week',
         scope: 'personal',
         myTasks: [...state.myTasks, ...staked],
+        people,
       };
     }
 
