@@ -53,8 +53,10 @@ it('says a member’s week is unknown rather than showing it as a zero', () => {
   // about Sofia — a week in which she staked nothing and closed nothing.
   expect(screen.getByText('No week synced yet')).toBeTruthy();
   expect(screen.queryByText('0% · 0 of 0')).toBeNull();
-  // …and the cheers chip says the same thing rather than a confident 0.
-  expect(screen.getAllByText('– given').length).toBeGreaterThan(0);
+  // …and the podium says the same thing rather than announcing "0 cheers given".
+  expect(screen.getByLabelText(/Maya Chen, rank \d, No week synced yet/)).toBeTruthy();
+  // Your own zero stays a zero: it is your week, and the app has it.
+  expect(screen.getByLabelText(/Alex Rivera, rank 1, 0 cheers given/)).toBeTruthy();
 });
 
 it('puts you first, because yours is the only week it can vouch for', () => {

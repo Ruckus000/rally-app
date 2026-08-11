@@ -32,13 +32,19 @@ const fromWire = (over: Partial<Task> = {}): Task =>
 
 const clean: ReadonlySet<string> = new Set<string>();
 const dirty = (...ids: string[]): ReadonlySet<string> => new Set(ids);
+/**
+ * Every id these tests use, treated as already confirmed by the server.
+ * Dropping a local row now requires that confirmation — the two tests at the
+ * bottom of this file cover what happens without it.
+ */
+const allAcked: ReadonlySet<string> = new Set(['a', 'b', 'c', 'd', 'e']);
 
 describe('reconcileTasks', () => {
   it('takes the server version of a clean row', () => {
     const local = [aTask({ id: 'a', title: 'Old', done: false })];
     const server = [fromWire({ id: 'a', title: 'New', done: true })];
 
-    const out = reconcileTasks(local, server, clean);
+    const out = reconcileTasks(local, server, clean, allAcked);
 
     expect(out).toHaveLength(1);
     expect(out[0].title).toBe('New');
@@ -49,7 +55,7 @@ describe('reconcileTasks', () => {
     const mine = aTask({ id: 'a', title: 'Mine', done: true });
     const server = [fromWire({ id: 'a', title: 'Theirs', done: false })];
 
-    const out = reconcileTasks([mine], server, dirty('a'));
+    const out = reconcileTasks([mine], server, dirty('a'), allAcked);
 
     // Not just equal — the same object. The queued upsert is about to make the
     // server agree, so there is nothing here to merge.
@@ -60,7 +66,7 @@ describe('reconcileTasks', () => {
     const local = [aTask({ id: 'a', done: false })];
     const server = [fromWire({ id: 'a', done: true })];
 
-    const out = reconcileTasks(local, server, clean);
+    const out = reconcileTasks(local, server, clean, allAcked);
 
     expect(out[0].done).toBe(true);
     expect(out[0]).not.toBe(local[0]);
@@ -70,7 +76,7 @@ describe('reconcileTasks', () => {
     const local = [aTask({ id: 'a' }), aTask({ id: 'b', day: 1 })];
     const server = [fromWire({ id: 'a' })];
 
-    const out = reconcileTasks(local, server, clean);
+    const out = reconcileTasks(local, server, clean, allAcked);
 
     expect(out.map((t) => t.id)).toEqual(['a']);
   });
@@ -79,7 +85,7 @@ describe('reconcileTasks', () => {
     const fresh = aTask({ id: 'b', day: 1, title: 'Typed on a plane' });
     const local = [aTask({ id: 'a' }), fresh];
 
-    const out = reconcileTasks(local, [fromWire({ id: 'a' })], dirty('b'));
+    const out = reconcileTasks(local, [fromWire({ id: 'a' })], dirty('b'), allAcked);
 
     expect(out.map((t) => t.id)).toEqual(['a', 'b']);
     expect(out[1]).toBe(fresh);
@@ -88,7 +94,7 @@ describe('reconcileTasks', () => {
   it('adopts a row that only exists on the server', () => {
     const arrived = fromWire({ id: 'b', day: 2, title: 'Added on the other phone' });
 
-    const out = reconcileTasks([aTask({ id: 'a' })], [fromWire({ id: 'a' }), arrived], clean);
+    const out = reconcileTasks([aTask({ id: 'a' })], [fromWire({ id: 'a' }), arrived], clean, allAcked);
 
     expect(out.map((t) => t.id)).toEqual(['a', 'b']);
     expect(out[1]).toBe(arrived);
@@ -102,7 +108,7 @@ describe('reconcileTasks', () => {
       aTask({ id: 'a', day: 1 }),
     ];
 
-    const out = reconcileTasks(local, local.map((t) => fromWire(t)), clean);
+    const out = reconcileTasks(local, local.map((t) => fromWire(t)), clean, allAcked);
 
     expect(out.map((t) => t.id)).toEqual(['m', 'a', 'c', 'z']);
   });
@@ -112,14 +118,14 @@ describe('reconcileTasks', () => {
       const local = [aTask({ id: 'a', day: 0 }), aTask({ id: 'b', day: 1 })];
       const server = local.map((t) => fromWire(t));
 
-      expect(reconcileTasks(local, server, clean)).toBe(local);
+      expect(reconcileTasks(local, server, clean, allAcked)).toBe(local);
     });
 
     it('keeps every unchanged element when one row did change', () => {
       const local = [aTask({ id: 'a', day: 0 }), aTask({ id: 'b', day: 1, title: 'Old' })];
       const server = [fromWire(local[0]), fromWire({ ...local[1], title: 'New' })];
 
-      const out = reconcileTasks(local, server, clean);
+      const out = reconcileTasks(local, server, clean, allAcked);
 
       expect(out).not.toBe(local);
       expect(out[0]).toBe(local[0]);
@@ -131,13 +137,13 @@ describe('reconcileTasks', () => {
       const local = [aTask({ id: 'a', title: 'Mine' })];
       const server = [fromWire({ id: 'a', title: 'Theirs' })];
 
-      expect(reconcileTasks(local, server, dirty('a'))).toBe(local);
+      expect(reconcileTasks(local, server, dirty('a'), allAcked)).toBe(local);
     });
 
     it('returns the original array when the local list is already sorted and empty of news', () => {
       const local = [aTask({ id: 'a', day: 3 })];
 
-      expect(reconcileTasks(local, [fromWire({ id: 'a', day: 3 })], clean)).toBe(local);
+      expect(reconcileTasks(local, [fromWire({ id: 'a', day: 3 })], clean, allAcked)).toBe(local);
     });
   });
 
@@ -145,7 +151,7 @@ describe('reconcileTasks', () => {
     it('does not wipe dirty local work when the server returns nothing', () => {
       const local = [aTask({ id: 'a' }), aTask({ id: 'b', day: 1 })];
 
-      const out = reconcileTasks(local, [], dirty('a', 'b'));
+      const out = reconcileTasks(local, [], dirty('a', 'b'), allAcked);
 
       expect(out).toBe(local);
     });
@@ -153,7 +159,7 @@ describe('reconcileTasks', () => {
     it('drops clean local rows when the server returns nothing', () => {
       // A pull that legitimately came back empty means the other device cleared
       // the week. Only the queue can vouch for a row, and it is not vouching.
-      const out = reconcileTasks([aTask({ id: 'a' })], [], clean);
+      const out = reconcileTasks([aTask({ id: 'a' })], [], clean, allAcked);
 
       expect(out).toEqual([]);
     });
@@ -161,7 +167,7 @@ describe('reconcileTasks', () => {
     it('fills an empty local list from the server', () => {
       const server = [fromWire({ id: 'b', day: 1 }), fromWire({ id: 'a', day: 0 })];
 
-      const out = reconcileTasks([], server, clean);
+      const out = reconcileTasks([], server, clean, allAcked);
 
       expect(out.map((t) => t.id)).toEqual(['a', 'b']);
     });
@@ -169,7 +175,7 @@ describe('reconcileTasks', () => {
     it('returns the original empty array when both sides are empty', () => {
       const local: Task[] = [];
 
-      expect(reconcileTasks(local, [], clean)).toBe(local);
+      expect(reconcileTasks(local, [], clean, allAcked)).toBe(local);
     });
   });
 
@@ -186,7 +192,7 @@ describe('reconcileTasks', () => {
       }),
     ];
 
-    const out = reconcileTasks(local, [fromWire({ id: 'a', title: 'New' })], clean);
+    const out = reconcileTasks(local, [fromWire({ id: 'a', title: 'New' })], clean, allAcked);
 
     expect(out[0].title).toBe('New');
     expect(out[0].pair).toBe(local[0].pair);
@@ -201,9 +207,56 @@ describe('reconcileTasks', () => {
     const localOrder = local.map((t) => t.id);
     const serverOrder = server.map((t) => t.id);
 
-    reconcileTasks(local, server, clean);
+    reconcileTasks(local, server, clean, allAcked);
 
     expect(local.map((t) => t.id)).toEqual(localOrder);
     expect(server.map((t) => t.id)).toEqual(serverOrder);
+  });
+});
+
+describe('a row is only deleted on evidence the server ever held it', () => {
+  const neverAcked: ReadonlySet<string> = new Set();
+
+  it('keeps a local row the server has never confirmed', () => {
+    // "Absent from the server" also describes a row that never got there: an
+    // upsert refused permanently and dead-lettered, or one belonging to a
+    // session since replaced by a fresh anonymous id, whose pull legitimately
+    // returns nothing. Deleting on that evidence turns a sync failure into
+    // data loss.
+    const local = [aTask({ id: 'a', title: 'Never landed' })];
+
+    const out = reconcileTasks(local, [], clean, neverAcked);
+
+    expect(out).toBe(local);
+  });
+
+  it('does not wipe the week when a pull comes back empty for the wrong reason', () => {
+    const local = [aTask({ id: 'a' }), aTask({ id: 'b' }), aTask({ id: 'c' })];
+
+    expect(reconcileTasks(local, [], clean, neverAcked)).toHaveLength(3);
+  });
+
+  it('still deletes a row another device really removed', () => {
+    const local = [aTask({ id: 'a' }), aTask({ id: 'b' })];
+
+    const out = reconcileTasks(local, [fromWire({ id: 'a' })], clean, allAcked);
+
+    expect(out.map((t) => t.id)).toEqual(['a']);
+  });
+});
+
+describe('a delete that has not drained yet', () => {
+  it('is not undone by a pull that still sees the row', () => {
+    // The reducer has already removed it locally, so the first loop never
+    // sees it — and the server has not processed the delete, so the pull
+    // still returns it. Folding it back in resurrects a task the user
+    // explicitly removed, and the engine then re-enqueues an upsert for it.
+    // kick() runs drain and pull in parallel, so this is an ordinary race.
+    const local = [aTask({ id: 'a' })];
+    const server = [fromWire({ id: 'a' }), fromWire({ id: 'b', title: 'Deleted a moment ago' })];
+
+    const out = reconcileTasks(local, server, dirty('b'), allAcked);
+
+    expect(out.map((t) => t.id)).toEqual(['a']);
   });
 });

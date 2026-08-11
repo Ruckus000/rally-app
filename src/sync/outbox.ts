@@ -259,6 +259,22 @@ export function enqueue(op: OutboxOp, key: string, payload: Record<string, unkno
   schedule();
 }
 
+/**
+ * Rows this device has watched reach the server.
+ *
+ * Reconcile needs it to tell "another device deleted this" from "this never
+ * got there at all" — a dead-lettered upsert, or a row belonging to a session
+ * that has since been replaced. Only the first of those justifies deleting the
+ * user's copy.
+ */
+export function ackedTaskIds(): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const key of acked) {
+    if (key.startsWith('task:')) ids.add(key.slice('task:'.length));
+  }
+  return ids;
+}
+
 export function pending(): OutboxEntry[] {
   return queue.map((e) => ({ ...e }));
 }

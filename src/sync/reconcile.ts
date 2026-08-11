@@ -49,7 +49,12 @@ const adopt = (local: Task, server: Task): Task => ({
  */
 const byDayThenId = (a: Task, b: Task): number => (a.day - b.day) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
-export function reconcileTasks(local: Task[], server: Task[], dirtyIds: ReadonlySet<string>): Task[] {
+export function reconcileTasks(
+  local: Task[],
+  server: Task[],
+  dirtyIds: ReadonlySet<string>,
+  ackedIds: ReadonlySet<string>,
+): Task[] {
   const serverById = new Map<string, Task>();
   for (const row of server) serverById.set(row.id, row);
 
@@ -68,9 +73,21 @@ export function reconcileTasks(local: Task[], server: Task[], dirtyIds: Readonly
       continue;
     }
 
-    // Gone from the server and nothing of ours is in flight for it: another
-    // device deleted it. Keeping it would resurrect it on the next push.
-    if (!row) continue;
+    // Gone from the server, nothing of ours is in flight for it, and this
+    // device has seen the server hold it before: another device deleted it.
+    //
+    // `acked` is what makes that inference safe. Without it, "absent from the
+    // server" also covers a row that never reached the server at all — one
+    // whose upsert was permanently refused and dead-lettered, or one belonging
+    // to a session that has since been replaced by a new anonymous id, whose
+    // pull then legitimately returns nothing. Deleting on that evidence turns
+    // a sync failure into data loss, and the outbox's own header promises the
+    // opposite: two copies quietly disagreeing beats erasing the user's work.
+    if (!row) {
+      if (ackedIds.has(task.id)) continue;
+      next.push(task);
+      continue;
+    }
 
     next.push(sameServerFields(task, row) ? task : adopt(task, row));
   }
@@ -78,6 +95,13 @@ export function reconcileTasks(local: Task[], server: Task[], dirtyIds: Readonly
   for (const row of server) {
     if (seen.has(row.id)) continue;
     seen.add(row.id);
+    // A row the user just deleted is absent from `local`, so the loop above
+    // never saw it — but the server has not processed the delete yet and the
+    // pull still returns it. Folding it back in resurrects a task the user
+    // explicitly removed, and `observe` then re-enqueues an upsert for it,
+    // undoing the delete outright. `kick()` runs drain and pull in parallel
+    // with no ordering, so this is an ordinary race, not a rare one.
+    if (dirtyIds.has(row.id)) continue;
     next.push(row);
   }
 

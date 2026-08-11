@@ -115,11 +115,20 @@ export function ProgressRing({
   trackColor = 'rgba(25,30,22,.08)',
 }: {
   size: number;
-  pct: number;
+  /**
+   * `null` when this person's week has never been synced, which is not the
+   * same as a week where they closed nothing. Coalescing it to 0 draws an
+   * empty ring — visually identical to a real zero — so the one place the
+   * circle is read at a glance would state a score nobody has earned.
+   */
+  pct: number | null;
   stroke?: number;
   ringColor?: string;
   trackColor?: string;
 }) {
+  // A dashed track and no arc: legibly "nothing to show" rather than "nothing
+  // achieved". The text beside it already says "No week synced yet".
+  const unknown = pct === null;
   return (
     <Svg
       width={size}
@@ -127,18 +136,28 @@ export function ProgressRing({
       viewBox="0 0 100 100"
       style={{ position: 'absolute', top: 0, left: 0, transform: [{ rotate: '-90deg' }] }}
     >
-      <Circle cx={50} cy={50} r={43} fill="none" stroke={trackColor} strokeWidth={stroke} />
       <Circle
         cx={50}
         cy={50}
         r={43}
         fill="none"
-        stroke={ringColor}
+        stroke={trackColor}
         strokeWidth={stroke}
-        strokeLinecap="round"
-        strokeDasharray={RING_CIRCUMFERENCE}
-        strokeDashoffset={RING_CIRCUMFERENCE * (1 - pct)}
+        strokeDasharray={unknown ? '10 9' : undefined}
       />
+      {unknown ? null : (
+        <Circle
+          cx={50}
+          cy={50}
+          r={43}
+          fill="none"
+          stroke={ringColor}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={RING_CIRCUMFERENCE}
+          strokeDashoffset={RING_CIRCUMFERENCE * (1 - pct)}
+        />
+      )}
     </Svg>
   );
 }

@@ -57,7 +57,7 @@ import {
   startAutoRefresh,
   stopAutoRefresh,
 } from '../sync/session';
-import { clearOutbox, flushOutbox } from '../sync/outbox';
+import { ackedTaskIds, clearOutbox, flushOutbox } from '../sync/outbox';
 import { reconcileTasks } from '../sync/reconcile';
 // The queue's key format is the engine's business, not the reducer's; it hands
 // back the ids, and the type-only edge means this adds no import cycle.
@@ -824,7 +824,7 @@ export function reducer(state: State, action: Action): State {
       // in state: it would be a second record of what the server still owes us,
       // and the one that decides what actually goes out is the outbox.
       const myTasks = action.merge.tasks
-        ? reconcileTasks(state.myTasks, action.merge.tasks, dirtyTaskIds())
+        ? reconcileTasks(state.myTasks, action.merge.tasks, dirtyTaskIds(), ackedTaskIds())
         : state.myTasks;
 
       // A merge carries rows, not an identity. Whoever you are was settled by

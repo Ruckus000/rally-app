@@ -21,6 +21,7 @@ import type { WeekContext } from '../data/week';
 import type { Action, ServerMerge, State } from '../state/store';
 import { mondayOf } from './mappers';
 import {
+  ackedTaskIds,
   drain,
   enqueue,
   pending,
@@ -152,15 +153,18 @@ export function createEngine(
    * copy of under that key.
    */
   let lastWeek: WeekContext | null = null;
-  /** Set immediately before dispatching a merge. See `observe`. */
-  let suppress = false;
+  /**
+   * The row ids a merge just delivered, set immediately before dispatching it.
+   * See `observe`.
+   */
+  let merging: Set<string> | null = null;
   let pullTimer: ReturnType<typeof setInterval> | null = null;
   let pulling = false;
 
   function observe(state: State): void {
     const tasks = state.myTasks;
-    const merged = suppress;
-    suppress = false;
+    const merged = merging;
+    merging = null;
     lastWeek = state.week;
 
     if (seen === null) {
@@ -174,19 +178,23 @@ export function createEngine(
     // Unsuppressed, every merge would enqueue its own rows straight back and
     // two devices would ping-pong forever.
     //
-    // So the merge's own observation is *adopted* rather than diffed: whatever
-    // it produced becomes the new baseline and nothing is sent. Exactly one
-    // observation, because the flag is cleared above before anything else can
-    // read it.
+    // So the rows the merge delivered are *adopted* rather than diffed —
+    // but only those rows.
     //
-    // The dispatch that sets this runs in its own microtask, so it does not
-    // share a commit with a tap. If that ever stops being true, a tap batched
-    // into the same commit would be adopted with the merge and would not reach
-    // the server until that row is next touched.
+    // A blanket "skip this whole observation" was the obvious version and it
+    // is subtly lossy: if a tap lands in the same React commit as the merge,
+    // one observation covers both, and the user's edit is adopted as though
+    // the server had sent it. It is then never enqueued, and never sent until
+    // that row happens to be touched again. Adopting by id instead means a tap
+    // on any other row is still diffed and still queued, whatever React
+    // decides to batch.
     if (merged) {
-      seen = index(tasks);
-      lastTasks = tasks;
-      return;
+      for (const task of tasks) {
+        if (merged.has(task.id)) seen.set(task.id, task);
+      }
+      for (const id of seen.keys()) {
+        if (merged.has(id) && !tasks.some((t) => t.id === id)) seen.delete(id);
+      }
     }
 
     if (tasks === lastTasks) return;
@@ -215,7 +223,6 @@ export function createEngine(
       // The week is whatever the last observation saw. Without one there is no
       // week to ask for, and guessing is worse than waiting a cycle.
       const week = lastWeek;
-      const local = lastTasks;
       const [people, rows] = await Promise.all([
         wire.pullCircle(userId),
         week ? wire.pullTasks(userId, mondayOf(week)) : Promise.resolve(null),
@@ -231,16 +238,20 @@ export function createEngine(
       // merge move `myTasks` at all — and may it? A rollover during the round
       // trip makes these rows answer for a week that is no longer on screen,
       // and reconciling them into the new one would delete it.
-      if (rows && local && week === lastWeek && reconcileTasks(local, rows, dirtyTaskIds()) !== local) {
-        merge.tasks = rows;
+      //
+      // Folded against `lastTasks` read now, not before the await: that is the
+      // list the reducer is about to fold them into, so this asks the reducer's
+      // question rather than a stale version of it.
+      const local = lastTasks;
+      if (rows && local && week === lastWeek) {
+        if (reconcileTasks(local, rows, dirtyTaskIds(), ackedTaskIds()) !== local) merge.tasks = rows;
       }
 
       if (!merge.people && !merge.tasks) return;
-      // Armed only when the merge really does move the slice `observe` diffs.
-      // A flag armed for a merge the reducer then bails out of by identity is
-      // never spent — React commits nothing, no observation arrives — and the
-      // user's next tap gets adopted as if it were server data and never sent.
-      if (merge.tasks) suppress = true;
+      // Only the ids this merge actually carries. A merge the reducer then
+      // bails out of by identity commits nothing and produces no observation,
+      // so the set would otherwise sit armed and swallow the next real tap.
+      if (merge.tasks) merging = new Set(merge.tasks.map((t) => t.id));
       dispatch({ type: 'SERVER_MERGE', merge });
     } catch {
       // Offline, or a server that will be there next minute. A pull has no

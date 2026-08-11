@@ -100,7 +100,7 @@ export function CircleScreen() {
             </Bri>
 
             <View style={{ width: 36, height: 36 }}>
-              <ProgressRing size={36} pct={r.pct ?? 0} stroke={9} />
+              <ProgressRing size={36} pct={r.pct} stroke={9} />
               <Avatar who={r.k} size={26} style={{ position: 'absolute', top: 5, left: 5 }} />
             </View>
 
@@ -199,7 +199,7 @@ function PodiumMember({
       style={{ alignItems: 'center' }}
     >
       <View style={{ width: size, height: size }}>
-        <ProgressRing size={size} pct={member.pct ?? 0} ringColor={isFirst ? color.lime : '#C6DDA0'} />
+        <ProgressRing size={size} pct={member.pct} ringColor={isFirst ? color.lime : '#C6DDA0'} />
         <View
           style={{
             position: 'absolute',
