@@ -57,6 +57,8 @@ import {
   startAutoRefresh,
   stopAutoRefresh,
 } from '../sync/session';
+import { flushOutbox } from '../sync/outbox';
+import { kickSync, useSyncEngine } from '../sync/useSyncEngine';
 
 export type Tab = 'week' | 'circle' | 'me';
 export type Scope = 'personal' | 'friends' | 'global';
@@ -945,6 +947,14 @@ export function StoreProvider({
     };
   }, [syncOn]);
 
+  /**
+   * Push what the reducer has already applied, and fold back what the server
+   * has. Same gate as everything else, and deliberately the same expression
+   * rather than a second one that could drift away from it. The engine holds no
+   * React state, so nothing here re-renders on a timer.
+   */
+  useSyncEngine(state, dispatch, syncOn);
+
   // Backgrounding is the last reliable moment before a force-quit. Coming back
   // is when the calendar may have moved on without us — and, in live mode, when
   // the access token needs refreshing again before the first write 401s.
@@ -952,11 +962,19 @@ export function StoreProvider({
     const sub = AppState.addEventListener('change', (next) => {
       if (next !== 'active') {
         if (persist) flush();
-        if (syncOn) stopAutoRefresh();
+        if (syncOn) {
+          stopAutoRefresh();
+          // The queue is the record of what the server still owes us, so it has
+          // to survive a force-quit exactly as the state does.
+          void flushOutbox();
+        }
         return;
       }
       if (syncOn) {
         startAutoRefresh();
+        // Whatever was staked on the train goes now, rather than up to five
+        // seconds after the user is already looking at the screen.
+        kickSync();
         // A launch with no network leaves the session `offline`, and the sign-in
         // effect only runs when `syncOn` flips. Without this, sync would stay
         // silently dead until the process was restarted — the one failure mode
