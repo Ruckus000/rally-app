@@ -98,17 +98,36 @@ describe('a reaction is as visible as the thing it hangs off', () => {
     expect(await reactionsSeenBy('sofia', task)).toHaveLength(1);
   });
 
-  it('your own reaction is readable even when the target is not', async () => {
-    // reactions_insert only checks actor_id, so tomas can cheer a task he
-    // cannot read. The `actor_id = auth.uid()` branch of reactions_select then
-    // hands it back to him and to nobody else.
+  it('cannot be placed on a target the actor cannot see', async () => {
+    // reactions_insert used to check actor_id alone, so anyone could cheer any
+    // uuid they guessed — a write oracle for whether a row existed.
     const task = await makeTask('maya', 'private', null);
-    const { error } = await react('tomas', task);
-    expect(error).toBeNull();
 
-    expect(await reactionsSeenBy('tomas', task)).toHaveLength(1);
-    expect(await reactionsSeenBy('jordan', task)).toEqual([]);
+    const { error } = await react('tomas', task);
+
+    expect(error?.code).toBe('42501');
   });
+
+  it('stays readable to its actor after the target goes out of view', () =>
+    // Seeded past the policy on purpose: this is the row you legitimately made
+    // while the task was visible, and then the owner made it private. The
+    // `actor_id = auth.uid()` branch of reactions_select still hands it back to
+    // you, and to nobody else.
+    (async () => {
+      const task = await makeTask('maya', 'private', null);
+      const { error } = await asService()
+        .from('reactions')
+        .insert({
+          actor_id: idOf('tomas'),
+          target_type: 'task',
+          target_id: task,
+          kind: 'cheer',
+        });
+      expect(error).toBeNull();
+
+      expect(await reactionsSeenBy('tomas', task)).toHaveLength(1);
+      expect(await reactionsSeenBy('jordan', task)).toEqual([]);
+    })());
 
   it('a signed-out client cannot reach the table at all', async () => {
     const { error } = await asAnon().from('reactions').select('id');
