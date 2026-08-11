@@ -161,7 +161,18 @@ function entryIsSound(v: unknown): v is OutboxEntry {
  * corrupt row is not a reason to throw away five good mutations that the user
  * believes are already saved.
  */
+/**
+ * Once per process. The effect that calls this re-runs whenever sync flips on,
+ * and it flips on again after any live -> demo -> live round trip — without
+ * this, every restored entry is merged in a second time, with a fresh id and
+ * seq, and a duplicate of an in-flight id also defeats the coalescing guard.
+ */
+let hydrated = false;
+
 export async function hydrateOutbox(): Promise<void> {
+  if (hydrated) return;
+  hydrated = true;
+
   let stored: OutboxEntry[] = [];
   let storedDead: OutboxEntry[] = [];
   let storedAcked: string[] = [];
@@ -366,10 +377,36 @@ async function run(transport: QueueTransport, now: number): Promise<OutboxStats>
 }
 
 /** Test seam — the module holds the queue, the seq and the timer across a suite. */
+/**
+ * Forget everything queued, and the record of what has been sent.
+ *
+ * Called when the account is reset. "This clears everything you've done and
+ * starts over" has to include work the device has not managed to send yet:
+ * without this, a task the user staked and then erased is uploaded minutes
+ * later, and the dead list keeps its title on disk indefinitely.
+ */
+export async function clearOutbox(): Promise<void> {
+  if (timer) clearTimeout(timer);
+  timer = null;
+  dirty = false;
+  queue = [];
+  dead = [];
+  acked = new Set();
+  nextSeq = 1;
+  inFlight = null;
+  try {
+    await AsyncStorage.removeItem(KEY);
+  } catch {
+    // The in-memory queue is already empty, which is the half that would
+    // otherwise still reach the network.
+  }
+}
+
 export function __resetOutboxForTests(): void {
   if (timer) clearTimeout(timer);
   timer = null;
   dirty = false;
+  hydrated = false;
   queue = [];
   dead = [];
   acked = new Set();

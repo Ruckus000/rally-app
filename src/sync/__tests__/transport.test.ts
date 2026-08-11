@@ -254,3 +254,21 @@ describe('pullCircle', () => {
     expect(fakeSupabase.calls.filter((c) => c.table === 'profiles')).toHaveLength(0);
   });
 });
+
+describe('an entry we cannot even turn into a request', () => {
+  it('is permanent, not retryable — otherwise it wedges the queue forever', async () => {
+    // A TypeError out of the mappers is indistinguishable from a dead fetch,
+    // and the queue is strictly ordered and head-of-line blocking. Classified
+    // as retryable, a malformed entry can never succeed and never dies, so
+    // every mutation behind it is silently stranded for the life of the
+    // install. This is the one case where giving up is the safe answer.
+    const result = await supabaseTransport().push(
+      { id: 'malformed-1', op: 'task.upsert', task: undefined as never, weekStart: WEEK, at: AT },
+      ME,
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({ ok: false, retryable: false, code: 'malformed' }),
+    );
+  });
+});

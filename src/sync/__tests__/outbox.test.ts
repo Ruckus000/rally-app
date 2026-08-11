@@ -7,9 +7,11 @@
  * takes its own `now`, which is the whole reason the scheduling lives in a
  * different module.
  */
+import { backoffMs } from '../backoff';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   __resetOutboxForTests,
+  clearOutbox,
   deadLetters,
   drain,
   enqueue,
@@ -175,8 +177,11 @@ describe('ordering', () => {
     await drain(t.transport, now);
     expect(t.calls).toHaveLength(1);
 
-    // 1s ±20%, so 900ms is inside the window on any RNG draw.
-    await drain(t.transport, now + 900);
+    // The first backoff is 1s ±20%, i.e. anywhere in [800, 1200]. Asserting
+    // against 900 failed on roughly a quarter of runs; the honest lower bound
+    // is the one the jitter cannot go below.
+    const soonest = backoffMs(1, () => 0);
+    await drain(t.transport, now + soonest - 1);
     expect(t.calls).toHaveLength(1);
 
     await drain(t.transport, now + MINUTE);
@@ -480,5 +485,52 @@ describe('on disk', () => {
     const [head] = pending() as OutboxEntry[];
     expect(head.tries).toBe(1);
     expect(head.lastError).toBe('Network request failed');
+  });
+});
+
+describe('what a reset has to take with it', () => {
+  it('drops queued work, so an erased task is not uploaded after the wipe', async () => {
+    // RESET empties myTasks and turns the engine off in the same commit, so no
+    // deletes are ever enqueued. Without clearing, the pending upserts simply
+    // outlive the wipe and land minutes later.
+    const t = makeTransport(() => offline());
+    stake('a', { title: 'erased' });
+    await drain(t.transport);
+    expect(pending()).toHaveLength(1);
+
+    const before = t.calls.length;
+    await clearOutbox();
+
+    expect(pending()).toEqual([]);
+    await drain(t.transport, Date.now() + MINUTE);
+    // The pre-wipe attempt already failed offline; what matters is that no
+    // further attempt is ever made once the user has erased it.
+    expect(t.calls).toHaveLength(before);
+  });
+
+  it('leaves nothing behind on disk either', async () => {
+    stake('a', { title: 'erased' });
+    await flushOutbox();
+    expect(await AsyncStorage.getItem('rally:outbox:v1')).not.toBeNull();
+
+    await clearOutbox();
+    expect(await AsyncStorage.getItem('rally:outbox:v1')).toBeNull();
+  });
+});
+
+describe('hydration happens once', () => {
+  it('does not duplicate restored work when sync flips on again', async () => {
+    // The effect that hydrates re-runs on every live -> demo -> live round
+    // trip. Merging twice would give the same mutation two ids and two seqs,
+    // and a second copy of an in-flight id also defeats the coalescing guard.
+    stake('a', { title: 'once' });
+    await flushOutbox();
+    __resetOutboxForTests();
+
+    await hydrateOutbox();
+    await hydrateOutbox();
+    await hydrateOutbox();
+
+    expect(pending()).toHaveLength(1);
   });
 });

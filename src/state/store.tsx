@@ -57,7 +57,7 @@ import {
   startAutoRefresh,
   stopAutoRefresh,
 } from '../sync/session';
-import { flushOutbox } from '../sync/outbox';
+import { clearOutbox, flushOutbox } from '../sync/outbox';
 import { kickSync, useSyncEngine } from '../sync/useSyncEngine';
 
 export type Tab = 'week' | 'circle' | 'me';
@@ -957,6 +957,22 @@ export function StoreProvider({
 
   // Backgrounding is the last reliable moment before a force-quit. Coming back
   // is when the calendar may have moved on without us — and, in live mode, when
+  /**
+   * Switching accounts throws away the queue.
+   *
+   * "This clears everything you've done and starts over" has to mean the work
+   * the device has not managed to send yet as well. Without this, a task the
+   * user staked and then erased is uploaded minutes later, because RESET empties
+   * `myTasks` and turns the engine off in the same commit — so no deletes are
+   * ever enqueued and the pending upserts simply outlive the wipe.
+   */
+  const lastAccount = useRef(state.account);
+  useEffect(() => {
+    if (lastAccount.current === state.account) return;
+    lastAccount.current = state.account;
+    void clearOutbox();
+  }, [state.account]);
+
   // the access token needs refreshing again before the first write 401s.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {

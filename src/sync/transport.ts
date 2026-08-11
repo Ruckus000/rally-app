@@ -93,6 +93,11 @@ function isAuthExpired(e: WireError): boolean {
 }
 
 function classify(err: unknown): PushResult {
+  // Checked before anything else: a Malformed is a TypeError by ancestry and
+  // isNetwork() would wave it through as a dead fetch.
+  if (err instanceof Malformed) {
+    return { ok: false, retryable: false, code: 'malformed', error: err.message };
+  }
   const e = asWireError(err);
   if (isNetwork(e) || isTransient(e)) return { ok: false, retryable: true, error: describe(e) };
   // The server answered, and it will answer the same way to the same request.
@@ -108,6 +113,20 @@ function classify(err: unknown): PushResult {
  * finish, which is the whole reason ids are client-minted.
  */
 const isAlreadyDone = (err: unknown): boolean => asWireError(err).code === '23505';
+
+/**
+ * We could not even build the request. No network will ever fix that, and it
+ * must not be mistaken for one: a plain TypeError out of the mappers looks
+ * exactly like a failed fetch, and a retryable entry that can never succeed
+ * sits at the head of a strictly ordered queue forever.
+ */
+class Malformed extends Error {
+  readonly permanent = true;
+  constructor(message: string) {
+    super(message);
+    this.name = 'Malformed';
+  }
+}
 
 /**
  * gotrue's refresh, called only on a 401 and only once per push.
@@ -148,7 +167,17 @@ export function supabaseTransport(): Transport {
     const supabase = getSupabase();
 
     if (entry.op === 'task.upsert') {
-      const row = { ...taskToRow(entry.task, entry.weekStart, entry.at), owner_id: userId };
+      // Built before the request, so a malformed entry fails as a Malformed
+      // rather than as whatever TypeError the mapper happens to raise. Those
+      // are indistinguishable from a dead fetch, which is retryable — and a
+      // retryable entry that can never succeed blocks every entry behind it
+      // for the life of the install.
+      let row: Record<string, unknown>;
+      try {
+        row = { ...taskToRow(entry.task, entry.weekStart, entry.at), owner_id: userId };
+      } catch (err) {
+        throw new Malformed(err instanceof Error ? err.message : String(err));
+      }
       const { error } = await supabase.from('tasks').upsert(row, { onConflict: 'id' });
       if (error) throw error;
       return;
