@@ -16,10 +16,12 @@
  * is identical is a row that was not touched.
  */
 import type { Dispatch } from 'react';
-import type { Task } from '../data/fixtures';
+import type { Note, Task } from '../data/fixtures';
+import type { PersonId } from '../data/people';
 import type { WeekContext } from '../data/week';
 import type { Action, ServerMerge, State } from '../state/store';
 import { mondayOf } from './mappers';
+import { noteKey, syncableNote, type NoteSite, type SyncableNote } from './notes';
 import {
   ackedTaskIds,
   drain,
@@ -29,9 +31,11 @@ import {
   type OutboxOp,
   type QueueTransport,
 } from './outbox';
+import { diffActed, reactionKey, type Acted, type ReactionKind } from './reactions';
+import { syncRealtime, stopRealtime } from './realtime';
 import { reconcileTasks } from './reconcile';
 import { startScheduler, stopScheduler } from './scheduler';
-import { currentUserId } from './session';
+import { currentUserId, onSessionChange } from './session';
 import { supabaseTransport, type WireOp as WireEntry, type Transport } from './transport';
 
 /** How often the queue is offered to the network. Matches scheduler.ts's own default. */
@@ -73,15 +77,23 @@ export type EngineOptions = {
  * same: a task queued on a Sunday must not drift into next week while it waits.
  */
 function wireEntry(op: OutboxOp, payload: Record<string, unknown>, entry: QueueEntry): WireEntry {
-  return op === 'task.upsert'
-    ? {
-        id: entry.id,
-        at: entry.at,
-        op: 'task.upsert',
+  const head = { id: entry.id, at: entry.at };
+  switch (op) {
+    case 'task.upsert':
+      return {
+        ...head,
+        op,
         task: payload.task as Task,
         weekStart: String(payload.weekStart),
-      }
-    : { id: entry.id, at: entry.at, op: 'task.delete', taskId: String(payload.taskId) };
+      };
+    case 'task.delete':
+      return { ...head, op, taskId: String(payload.taskId) };
+    case 'reaction.add':
+    case 'reaction.remove':
+      return { ...head, op, targetId: String(payload.targetId), kind: payload.kind as ReactionKind };
+    case 'note.add':
+      return { ...head, op, note: payload.note as SyncableNote };
+  }
 }
 
 function queueTransport(wire: Transport): QueueTransport {
@@ -130,6 +142,31 @@ const index = (tasks: Task[]): Map<string, Task> => {
   return byId;
 };
 
+/** A note the reducer stored, and what it was stored against. */
+type PlacedNote = { note: Note; site: NoteSite; targetId: string };
+
+/**
+ * Every note this device could be asked to send, with the branch it took.
+ *
+ * `globalNotes` is deliberately absent rather than collected and rejected: a
+ * public post has no table, permanently, so walking it would be work done every
+ * observation to reach the same `null` — and `syncableNote` already answers
+ * `globalPost` that way if a caller ever does hand it one.
+ */
+function placedNotes(state: State): PlacedNote[] {
+  const out: PlacedNote[] = [];
+  for (const [who, notes] of Object.entries(state.personNotes) as [PersonId, Note[] | undefined][]) {
+    for (const note of notes ?? []) out.push({ note, site: 'person', targetId: who });
+  }
+  for (const task of state.myTasks) {
+    for (const note of task.cmts) out.push({ note, site: 'ownTask', targetId: task.id });
+  }
+  for (const moment of state.moments) {
+    for (const note of moment.cmts ?? []) out.push({ note, site: 'moment', targetId: moment.id });
+  }
+  return out;
+}
+
 export function createEngine(
   dispatch: Dispatch<Action>,
   { transport, pushEveryMs = PUSH_MS, pullEveryMs = PULL_MS }: EngineOptions = {},
@@ -146,6 +183,17 @@ export function createEngine(
    */
   let seen: Map<string, Task> | null = null;
   let lastTasks: Task[] | null = null;
+  /** `acted` as the last observation saw it. Diffed by `diffActed`, not by key. */
+  let lastActed: Acted = {};
+  /**
+   * Every note id this device has already accounted for — sent, or judged
+   * unsendable. A note is append-only and never edited, so an id that has been
+   * seen once can never become news again, and this is the whole diff.
+   */
+  let seenNotes: Set<string> = new Set();
+  /** The two note-bearing slices `myTasks` does not cover. Reference-compared. */
+  let lastPersonNotes: State['personNotes'] | null = null;
+  let lastMoments: State['moments'] | null = null;
   /**
    * The week the last observation was showing. A pull has to name a week, and
    * the only week it may name is the one on screen: rows for any other week,
@@ -160,16 +208,29 @@ export function createEngine(
   let merging: Set<string> | null = null;
   let pullTimer: ReturnType<typeof setInterval> | null = null;
   let pulling = false;
+  let unsubscribeSession: (() => void) | null = null;
 
   function observe(state: State): void {
     const tasks = state.myTasks;
     const merged = merging;
     merging = null;
+    // A rollover empties `acted`, and that is a week ending rather than the user
+    // taking back every cheer they ever gave. Diffing across it would delete the
+    // rows on the server — visibly, on other people's phones — so the new week's
+    // `acted` is adopted instead. Compared by week number, because
+    // `COMMIT_ROLLOVER` is the only thing that both moves the week and clears it.
+    const rolled = lastWeek !== null && lastWeek.number !== state.week.number;
     lastWeek = state.week;
 
     if (seen === null) {
       seen = index(tasks);
       lastTasks = tasks;
+      lastActed = state.acted;
+      lastPersonNotes = state.personNotes;
+      lastMoments = state.moments;
+      for (const placed of placedNotes(state)) {
+        if (placed.note.id) seenNotes.add(placed.note.id);
+      }
       return;
     }
 
@@ -197,25 +258,77 @@ export function createEngine(
       }
     }
 
-    if (tasks === lastTasks) return;
+    const tasksMoved = tasks !== lastTasks;
 
-    const weekStart = mondayOf(state.week);
-    const next = index(tasks);
+    // Tasks first, and not only for tidiness: a note names a task by foreign
+    // key, and the queue is strictly ordered, so an insert that arrives before
+    // the row it points at is a permanent 23503.
+    if (tasksMoved) {
+      const weekStart = mondayOf(state.week);
+      const next = index(tasks);
 
-    for (const task of tasks) {
-      // Identity, not equality: the reducer copies only the row it changed.
-      if (seen.get(task.id) === task) continue;
-      enqueue('task.upsert', `task:${task.id}`, { task, weekStart });
+      for (const task of tasks) {
+        // Identity, not equality: the reducer copies only the row it changed.
+        if (seen.get(task.id) === task) continue;
+        enqueue('task.upsert', `task:${task.id}`, { task, weekStart });
+      }
+      for (const id of seen.keys()) {
+        if (!next.has(id)) enqueue('task.delete', `task:${id}`, { taskId: id });
+      }
+
+      seen = next;
     }
-    for (const id of seen.keys()) {
-      if (!next.has(id)) enqueue('task.delete', `task:${id}`, { taskId: id });
+
+    // The same reference diff, one slice over. `acted` is replaced wholesale by
+    // `ACT` and by nothing else, so an unchanged reference is proof no cheer
+    // moved — and `diffActed` drops every key that does not name a real row,
+    // which is most of them while the feed is still fixtures.
+    if (state.acted !== lastActed) {
+      if (!rolled) {
+        const { added, removed } = diffActed(lastActed, state.acted);
+        for (const ref of added) {
+          enqueue('reaction.add', reactionKey(ref), { targetId: ref.targetId, kind: ref.kind });
+        }
+        for (const ref of removed) {
+          enqueue('reaction.remove', reactionKey(ref), { targetId: ref.targetId, kind: ref.kind });
+        }
+      }
+      lastActed = state.acted;
     }
 
-    seen = next;
+    // Notes are append-only, so this is a set difference rather than a diff. The
+    // walk is guarded by the three references that can carry one: a keystroke in
+    // the composer moves `note`, not these, and must not cost a walk of every
+    // thread on the device.
+    if (tasksMoved || state.personNotes !== lastPersonNotes || state.moments !== lastMoments) {
+      for (const { note, site, targetId } of placedNotes(state)) {
+        // No id: a fixture, or a note restored from a payload written before the
+        // id existed. It stays on screen and never becomes a row.
+        if (!note.id || seenNotes.has(note.id)) continue;
+        seenNotes.add(note.id);
+        // Rejected here means rejected forever — a fixture target, a moment id
+        // that is not yet a uuid, a public post. Recording the id above is what
+        // stops that judgement from being made again on every observation.
+        const row = syncableNote({ id: note.id, site, targetId, body: note.t });
+        if (row) enqueue('note.add', noteKey(row), { note: row });
+      }
+      lastPersonNotes = state.personNotes;
+      lastMoments = state.moments;
+    }
+
     lastTasks = tasks;
   }
 
+  /**
+   * The socket is opened here rather than at `start`, because `start` runs
+   * before there is a session to open it for. Idempotent, so calling it on
+   * every tick and every kick is how a session that arrives late — or a
+   * sign-out — is noticed without another listener to keep in step.
+   */
+  const attach = (): void => syncRealtime(currentUserId(), () => void pull());
+
   async function pull(): Promise<void> {
+    attach();
     const userId = currentUserId();
     if (!userId || pulling) return;
     pulling = true;
@@ -267,6 +380,11 @@ export function createEngine(
     start(): void {
       startScheduler(queue, pushEveryMs);
       if (pullTimer) return;
+      // Sign-in usually lands after `start`, and the channel is subscribed for
+      // whoever the session says you are. Without this the socket would not open
+      // until the poll a minute later noticed — which is a minute of the app
+      // being exactly as live as it was before any of this existed.
+      unsubscribeSession = onSessionChange(() => attach());
       pullTimer = setInterval(() => void pull(), pullEveryMs);
       void pull();
     },
@@ -275,6 +393,11 @@ export function createEngine(
       stopScheduler();
       if (pullTimer) clearInterval(pullTimer);
       pullTimer = null;
+      unsubscribeSession?.();
+      unsubscribeSession = null;
+      // Unmount, or sync switching off. The channel outliving the engine would
+      // be a socket firing refetches at a `pull` nothing is listening to.
+      stopRealtime();
     },
 
     kick(): void {

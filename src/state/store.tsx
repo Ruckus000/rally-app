@@ -62,6 +62,7 @@ import { reconcileTasks } from '../sync/reconcile';
 // The queue's key format is the engine's business, not the reducer's; it hands
 // back the ids, and the type-only edge means this adds no import cycle.
 import { dirtyTaskIds } from '../sync/engine';
+import { pauseRealtime, resumeRealtime, teardownRealtime } from '../sync/realtime';
 import { kickSync, useSyncEngine } from '../sync/useSyncEngine';
 
 export type Tab = 'week' | 'circle' | 'me';
@@ -118,7 +119,7 @@ export type State = {
   day: DayIndex;
   myTasks: Task[];
   moments: Moment[];
-  /** `${id}:${kind}` → true. kind: cheer | in | cosign | nod | back | share */
+  /** `${id}:${kind}` → true. kind: cheer | in | cosign | nod | share */
   acted: Record<string, true>;
   replied: Partial<Record<PersonId, true>>;
   pending: Partial<Record<PersonId, true>>;
@@ -367,7 +368,12 @@ export function reducer(state: State, action: Action): State {
       const sh = state.sheet;
       if (!t || !sh || !sh.id) return state;
       const people = makePeople(state.people, state.selfId);
-      const mine: Note = { w: people.name(state.selfId), k: state.selfId, t };
+      // Client-minted, for the reason `nextTaskId` is: `notes` has no unique
+      // constraint that could dedupe a replay, and cannot have one — saying the
+      // same thing twice is a second note, not a mistake. The pk is the only
+      // thing that makes a re-sent insert collide with itself instead of
+      // appearing twice on someone's screen.
+      const mine: Note = { w: people.name(state.selfId), k: state.selfId, t, id: randomUUID() };
 
       if (sh.type === 'person') {
         const k = sh.id;
@@ -988,6 +994,12 @@ export function StoreProvider({
     if (lastAccount.current === state.account) return;
     lastAccount.current = state.account;
     void clearOutbox();
+    // …and the socket, which is subscribed for an account that no longer exists.
+    // `removeAllChannels` rather than an unsubscribe: this is the sign-out path,
+    // so anything still open belongs to the account being left. It cannot build
+    // a client to do it — see `teardownRealtime` — so a demo account that has
+    // never opened a channel stays genuinely offline through this line.
+    teardownRealtime();
   }, [state.account]);
 
   // the access token needs refreshing again before the first write 401s.
@@ -1000,11 +1012,17 @@ export function StoreProvider({
           // The queue is the record of what the server still owes us, so it has
           // to survive a force-quit exactly as the state does.
           void flushOutbox();
+          // A websocket held open behind the app is a radio kept awake for
+          // events nobody is on screen to see. The poll on foreground catches up
+          // on all of them in one round trip, which is what makes this safe.
+          pauseRealtime();
         }
         return;
       }
       if (syncOn) {
         startAutoRefresh();
+        // Cleared before the kick below, which is what actually resubscribes.
+        resumeRealtime();
         // Whatever was staked on the train goes now, rather than up to five
         // seconds after the user is already looking at the screen.
         kickSync();

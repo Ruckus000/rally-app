@@ -11,6 +11,7 @@ import { backoffMs } from '../backoff';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   __resetOutboxForTests,
+  ackedTaskIds,
   clearOutbox,
   deadLetters,
   drain,
@@ -384,6 +385,143 @@ describe('coalescing', () => {
     // the delete has to follow it rather than be optimised away.
     expect(calls.map((c) => c.op)).toEqual(['task.upsert', 'task.delete']);
     expect(pending()).toEqual([]);
+  });
+});
+
+describe('coalescing a reaction', () => {
+  const TASK = '4d1f0f3a-6c2b-4a0e-9f77-1b2c3d4e5f60';
+  const KEY = `reaction:${TASK}:cheer`;
+
+  const cheer = () => enqueue('reaction.add', KEY, { targetId: TASK, kind: 'cheer' });
+  const uncheer = () => enqueue('reaction.remove', KEY, { targetId: TASK, kind: 'cheer' });
+
+  it('cancels both when a cheer is taken back before it is sent', async () => {
+    const t = makeTransport();
+    cheer();
+    uncheer();
+
+    // Without this the delete matches on a tuple no row has — and, far worse,
+    // an add that outlives its cancellation lands a cheer on someone's phone
+    // that this device is no longer showing.
+    expect(pending()).toEqual([]);
+    await drain(t.transport);
+    expect(t.calls).toHaveLength(0);
+  });
+
+  it('does the same for the second cheer of a re-cheered task', async () => {
+    const t = makeTransport();
+    cheer();
+    uncheer();
+    cheer();
+    uncheer();
+
+    expect(pending()).toEqual([]);
+    await drain(t.transport);
+    expect(t.calls).toHaveLength(0);
+  });
+
+  it('sends the delete once the add has gone — the server holds the row', async () => {
+    const t = makeTransport();
+    cheer();
+    await drain(t.transport);
+
+    uncheer();
+    expect(pending().map((e) => e.op)).toEqual(['reaction.remove']);
+    await drain(t.transport, Date.now() + MINUTE);
+    expect(t.calls.map((c) => c.op)).toEqual(['reaction.add', 'reaction.remove']);
+  });
+
+  it('sends the delete for an add that is in flight', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const calls: Call[] = [];
+    const transport: QueueTransport = {
+      ownerId: () => OWNER,
+      async send(op, payload) {
+        calls.push({ op, payload });
+        if (calls.length === 1) await gate;
+        return { ok: true };
+      },
+    };
+
+    cheer();
+    const run = drain(transport);
+    await Promise.resolve();
+    uncheer();
+    release();
+    await run;
+    await drain(transport, Date.now() + MINUTE);
+
+    // The server was learning about the cheer at the moment it was taken back,
+    // so the delete has to follow it rather than be optimised away.
+    expect(calls.map((c) => c.op)).toEqual(['reaction.add', 'reaction.remove']);
+  });
+
+  it('leaves another kind on the same task alone', async () => {
+    const t = makeTransport();
+    cheer();
+    enqueue('reaction.add', `reaction:${TASK}:nod`, { targetId: TASK, kind: 'nod' });
+    uncheer();
+
+    // The kind is part of the unique tuple, so it is part of the key: two
+    // reactions on one task are two rows, and cancelling one cannot touch the
+    // other.
+    expect(keys()).toEqual([`reaction:${TASK}:nod`]);
+    await drain(t.transport);
+    expect(t.calls.map((c) => c.payload.kind)).toEqual(['nod']);
+  });
+
+  it('collapses a double tap on the same kind into one add', async () => {
+    cheer();
+    cheer();
+    expect(pending()).toHaveLength(1);
+  });
+
+  it('holds no actor_id until send time', async () => {
+    const t = makeTransport();
+    cheer();
+
+    expect(pending()[0].payload).not.toHaveProperty('actor_id');
+    await drain(t.transport);
+    expect(t.calls[0].payload.owner_id).toBe(OWNER);
+  });
+});
+
+describe('notes are append-only', () => {
+  const one = 'bbbbbbbb-0000-4000-8000-000000000001';
+  const two = 'bbbbbbbb-0000-4000-8000-000000000002';
+
+  it('never coalesces two notes, even identical ones', async () => {
+    const t = makeTransport();
+    enqueue('note.add', `note:${one}`, { id: one, body: 'nice' });
+    enqueue('note.add', `note:${two}`, { id: two, body: 'nice' });
+
+    // Saying the same thing twice is legitimate, and the table has no unique
+    // tuple that could dedupe it. Only the pk keeps a *retry* from doing so.
+    expect(pending()).toHaveLength(2);
+    await drain(t.transport);
+    expect(t.calls.map((c) => c.payload.id)).toEqual([one, two]);
+  });
+
+  it('does not fold a re-enqueued note into the pending one', async () => {
+    enqueue('note.add', `note:${one}`, { id: one, body: 'nice' });
+    enqueue('note.add', `note:${one}`, { id: one, body: 'nice' });
+
+    // Two deliveries of one row rather than one entry silently rewritten: the
+    // pk makes the second harmless at the server, and coalescing here would be
+    // the one place a note could be edited after the fact.
+    expect(pending()).toHaveLength(2);
+  });
+
+  it('never records a note as an acked task', async () => {
+    const t = makeTransport();
+    enqueue('note.add', `note:${one}`, { id: one, body: 'nice' });
+    stake('a');
+    await drain(t.transport);
+
+    expect([...ackedTaskIds()]).toEqual(['a']);
   });
 });
 

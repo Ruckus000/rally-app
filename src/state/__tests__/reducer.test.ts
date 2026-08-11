@@ -229,7 +229,13 @@ describe('notes', () => {
       { type: 'SET_NOTE', value: 'Halfway.' },
       { type: 'SEND_NOTE' },
     );
-    expect(s.myTasks.find((t) => t.id === 'm4')?.cmts).toEqual([{ w: 'You', k: 'you', t: 'Halfway.' }]);
+    const cmts = s.myTasks.find((t) => t.id === 'm4')?.cmts ?? [];
+    expect(cmts).toEqual([{ w: 'You', k: 'you', t: 'Halfway.', id: expect.any(String) }]);
+    // The id is the row's primary key in `notes`, so a note the server refuses
+    // to accept is a note the sync layer drops silently — the uuid gate in
+    // `syncableNote` is strict, and a generator that stopped producing uuids
+    // would show up nowhere else.
+    expect(cmts[0].id).toMatch(UUID);
     expect(s.note).toBe('');
   });
 
@@ -249,7 +255,10 @@ describe('notes on a public post', () => {
 
   it('keeps the note instead of silently dropping it', () => {
     const s = run(base, onGlobal, { type: 'SET_NOTE', value: 'Respect.' }, { type: 'SEND_NOTE' });
-    expect(s.globalNotes.g1).toEqual([{ w: 'You', k: 'you', t: 'Respect.' }]);
+    // Carries an id like any other note. It buys nothing here — a public post
+    // has no table — but a note that is written one way everywhere is one fewer
+    // shape for the sync layer to have an opinion about.
+    expect(s.globalNotes.g1).toEqual([{ w: 'You', k: 'you', t: 'Respect.', id: expect.any(String) }]);
     expect(s.note).toBe('');
   });
 
