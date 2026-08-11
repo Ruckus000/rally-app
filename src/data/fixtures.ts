@@ -1,66 +1,19 @@
 /**
  * Mock data. Explicitly *not* spec — the handoff calls out that every person,
  * task, week and grid cell here is a fixture standing in for a backend.
+ *
+ * Who the people *are* is no longer here: names, initials, tints, trends and
+ * their week's numbers live in `people.ts`, because live mode has to answer the
+ * same questions for ids these fixtures have never heard of.
  */
-import type { PersonKey } from '../theme/tokens';
+import { SELF_DEMO_ID, type PersonId } from './people';
 import type { DayIndex } from './week';
 
 export type Audience = 'friends' | 'everyone' | 'private';
 export type Category = 'Fitness' | 'Work' | 'Home' | 'Mind' | 'Quick log';
 
-export const NAME: Record<PersonKey, string> = {
-  you: 'You',
-  maya: 'Maya Chen',
-  dre: 'Dre Okafor',
-  jordan: 'Jordan Lee',
-  sofia: 'Sofia Park',
-  nana: 'Nana Rosa',
-  tomas: 'Tomás Vega',
-};
-
-export const FIRST: Record<PersonKey, string> = {
-  you: 'You',
-  maya: 'Maya',
-  dre: 'Dre',
-  jordan: 'Jordan',
-  sofia: 'Sofia',
-  nana: 'Nana',
-  tomas: 'Tomás',
-};
-
-export const INITIALS: Record<PersonKey, string> = {
-  you: 'AR',
-  maya: 'MC',
-  dre: 'DO',
-  jordan: 'JL',
-  sofia: 'SP',
-  nana: 'NR',
-  tomas: 'TV',
-};
-
-export type MemberStats = { done: number; total: number; streak: number; given: number };
-
-export const STATS: Record<Exclude<PersonKey, 'you'>, MemberStats> = {
-  maya: { done: 7, total: 7, streak: 5, given: 9 },
-  dre: { done: 5, total: 7, streak: 2, given: 6 },
-  sofia: { done: 4, total: 6, streak: 4, given: 3 },
-  nana: { done: 6, total: 6, streak: 1, given: 5 },
-  jordan: { done: 1, total: 5, streak: 0, given: 1 },
-  tomas: { done: 2, total: 2, streak: 1, given: 0 },
-};
-
-export const FRIENDS: PersonKey[] = ['maya', 'dre', 'jordan', 'sofia', 'nana'];
-export const CIRCLE: PersonKey[] = ['you', ...FRIENDS, 'tomas'];
-
-export const TREND: Record<PersonKey, 'up' | 'down' | 'same'> = {
-  maya: 'up',
-  dre: 'down',
-  jordan: 'down',
-  sofia: 'up',
-  nana: 'same',
-  tomas: 'up',
-  you: 'up',
-};
+export const FRIENDS: PersonId[] = ['maya', 'dre', 'jordan', 'sofia', 'nana'];
+export const CIRCLE: PersonId[] = [SELF_DEMO_ID, ...FRIENDS, 'tomas'];
 
 export const CIRCLE_NAME = 'The Basement';
 
@@ -70,7 +23,7 @@ export const CIRCLE_NAME = 'The Basement';
  * joined the demo circle or started fresh. Identity doesn't.
  */
 export const ME = {
-  key: 'you' as PersonKey,
+  key: SELF_DEMO_ID,
   name: 'Alex Rivera',
   handle: '@alexrivera',
   shortHandle: '@alexr',
@@ -110,7 +63,7 @@ export const AUDIENCE_WORD: Record<Audience, string> = {
 
 export const QUICK_LOG_POINTS = 20;
 
-export type Note = { w: string; k: PersonKey; t: string };
+export type Note = { w: string; k: PersonId; t: string };
 
 export type Task = {
   id: string;
@@ -120,9 +73,9 @@ export type Task = {
   pts: number;
   done: boolean;
   aud: Audience;
-  pair: PersonKey[];
+  pair: PersonId[];
   pairKind: 'joint' | 'loose' | null;
-  pairStatus?: Partial<Record<PersonKey, boolean>>;
+  pairStatus?: Partial<Record<PersonId, boolean>>;
   cmts: Note[];
   /** Quick logs and staked tasks are both tasks; this is how the list tells them apart. */
   source: 'staked' | 'quicklog';
@@ -216,7 +169,7 @@ export type MomentKind = 'big' | 'ask' | 'quiet' | 'quietwin' | 'normal';
 
 export type Moment = {
   id: string;
-  who: PersonKey;
+  who: PersonId;
   kind: MomentKind;
   time: string;
   day: DayIndex;
@@ -224,7 +177,7 @@ export type Moment = {
   text?: string;
   quote?: string;
   pts?: number;
-  backers?: PersonKey[];
+  backers?: PersonId[];
   cmts?: Note[];
 };
 
@@ -359,7 +312,7 @@ export type Suggestion = {
   sub: string;
   pts: number;
   cat: Category;
-  pair?: PersonKey[];
+  pair?: PersonId[];
 };
 
 export const SUGGESTIONS: Suggestion[] = [
@@ -390,7 +343,7 @@ export const SUGGESTIONS: Suggestion[] = [
   },
 ];
 
-export const PERSON_TASKS: Partial<Record<PersonKey, { t: string; done: boolean; sub: string }[]>> = {
+export const PERSON_TASKS: Partial<Record<PersonId, { t: string; done: boolean; sub: string }[]>> = {
   maya: [
     { t: 'Run 3x this week', done: true, sub: 'finished Tuesday' },
     { t: 'Ship the newsletter', done: true, sub: 'cheered by 2' },
@@ -415,7 +368,7 @@ export const PERSON_TASKS: Partial<Record<PersonKey, { t: string; done: boolean;
   tomas: [{ t: 'Walk 20 minutes daily', done: true, sub: '2 of 2 — fresh start' }],
 };
 
-export const PERSON_NOTES: Partial<Record<PersonKey, Note[]>> = {
+export const PERSON_NOTES: Partial<Record<PersonId, Note[]>> = {
   maya: [{ w: 'Dre', k: 'dre', t: 'Machine. Absolute machine.' }],
   dre: [{ w: 'Maya', k: 'maya', t: 'Negative splits?? Tell me everything.' }],
   jordan: [],
@@ -439,8 +392,8 @@ export type HistoryWeek = {
   total: number;
   quiet?: boolean;
   did: { title: string; points: number }[];
-  helpedBy: { k: PersonKey; detail: string }[];
-  helped: { k: PersonKey; detail: string }[];
+  helpedBy: { k: PersonId; detail: string }[];
+  helped: { k: PersonId; detail: string }[];
 };
 
 /** "190 pts", or an em dash for a week that scored nothing. */
@@ -521,12 +474,12 @@ export const YEAR_LEVELS = [
   3, 1, 3, 3,
 ];
 
-export const OWED_SEED: { k: PersonKey; reason: string }[] = [
+export const OWED_SEED: { k: PersonId; reason: string }[] = [
   { k: 'sofia', reason: 'kept a 5-morning streak and nobody said a word' },
   { k: 'nana', reason: 'sent you a recipe — she’d love to know it landed' },
 ];
 
-export const INVITE_SUGGESTIONS: PersonKey[] = ['tomas'];
+export const INVITE_SUGGESTIONS: PersonId[] = ['tomas'];
 
 export type NotifTier = 'needs' | 'week' | 'circle';
 
@@ -534,8 +487,8 @@ export type Notification = {
   id: string;
   tier: NotifTier;
   kind: 'ask' | 'reply' | 'owed' | 'due' | 'streak' | 'wrap' | 'cheer' | 'finished' | 'joined';
-  who?: PersonKey;
-  faces?: PersonKey[];
+  who?: PersonId;
+  faces?: PersonId[];
   name?: string;
   text: string;
   time: string;

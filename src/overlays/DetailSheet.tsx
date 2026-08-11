@@ -7,18 +7,14 @@
  */
 import React, { useEffect, useState } from 'react';
 import { Animated, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
-import { color, radius, tint as TINT } from '../theme/tokens';
+import { color, radius } from '../theme/tokens';
 import {
   AUDIENCE_LABEL,
-  FIRST,
   GLOBAL_POSTS,
-  INITIALS,
   ME,
-  NAME,
   Note,
   PERSON_NOTES,
   PERSON_TASKS,
-  STATS,
   Task,
 } from '../data/fixtures';
 import { useStore } from '../state/store';
@@ -28,7 +24,7 @@ import { Avatar } from '../components/Avatar';
 import { Icon } from '../components/Icon';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
 import { Overlay } from './Overlay';
-import type { PersonKey } from '../theme/tokens';
+import type { PersonId } from '../data/people';
 
 export function DetailSheet({ bottomInset }: { bottomInset: number }) {
   const { state, dispatch } = useStore();
@@ -108,7 +104,7 @@ export function DetailSheet({ bottomInset }: { bottomInset: number }) {
         </View>
 
         {sheet.type === 'task' ? <TaskSheet id={sheet.id!} /> : null}
-        {sheet.type === 'person' ? <PersonSheet who={sheet.id as PersonKey} /> : null}
+        {sheet.type === 'person' ? <PersonSheet who={sheet.id!} /> : null}
         {sheet.type === 'invite' ? <InviteSheet /> : null}
 
         {hasComposer ? <NoteComposer bottomInset={bottomInset} /> : null}
@@ -120,7 +116,7 @@ export function DetailSheet({ bottomInset }: { bottomInset: number }) {
 /* ── task ───────────────────────────────────────────────────────────────── */
 
 function TaskSheet({ id }: { id: string }) {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, people } = useStore();
 
   const mine = state.myTasks.find((x) => x.id === id);
   const moment = state.moments.find((x) => x.id === id);
@@ -128,11 +124,11 @@ function TaskSheet({ id }: { id: string }) {
   const raw = mine ?? moment ?? global;
   if (!raw) return null;
 
-  const who = mine ? ('you' as PersonKey) : moment?.who;
-  const name = global?.name ?? (who ? NAME[who] : '');
-  const initials = global?.ini ?? (who ? INITIALS[who] : '?');
-  const tintColor = global?.tint ?? (who ? TINT[who] : color.chip);
-  const first = global ? global.name.replace('@', '') : who ? FIRST[who] : '';
+  const who = mine ? state.selfId : moment?.who;
+  const name = global?.name ?? (who ? people.name(who) : '');
+  const initials = global?.ini ?? (who ? people.initials(who) : '?');
+  const tintColor = global?.tint ?? (who ? people.tint(who) : color.chip);
+  const first = global ? global.name.replace('@', '') : who ? people.first(who) : '';
   // A public post has no thread of its own — what we can show is what you said.
   const cmts: Note[] = (mine?.cmts ?? moment?.cmts ?? state.globalNotes[id] ?? []) as Note[];
   const pts = mine?.pts ?? moment?.pts;
@@ -185,7 +181,7 @@ function TaskSheet({ id }: { id: string }) {
         <Sans size={12.5} color={color.muted} style={{ marginBottom: 6 }}>
           🔒{' '}
           {mine.pair.length
-            ? `Only visible to you and ${mine.pair.map((k) => FIRST[k]).join(', ')}`
+            ? `Only visible to you and ${mine.pair.map((k) => people.first(k)).join(', ')}`
             : 'Only visible to you'}
         </Sans>
       ) : null}
@@ -264,14 +260,15 @@ function TaskSheet({ id }: { id: string }) {
 }
 
 function JointProgress({ task }: { task: Task }) {
-  const people: { key: PersonKey; name: string; done: boolean }[] = [
-    { key: 'you', name: 'You', done: task.done },
-    ...task.pair.map((k) => ({ key: k, name: FIRST[k], done: !!task.pairStatus?.[k] })),
+  const { people } = useStore();
+  const roster: { key: PersonId; name: string; done: boolean }[] = [
+    { key: people.selfId, name: people.first(people.selfId), done: task.done },
+    ...task.pair.map((k) => ({ key: k, name: people.first(k), done: !!task.pairStatus?.[k] })),
   ];
 
   return (
     <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-      {people.map((p) => (
+      {roster.map((p) => (
         <View
           key={p.key}
           style={{
@@ -305,9 +302,9 @@ function JointProgress({ task }: { task: Task }) {
 
 /* ── person ─────────────────────────────────────────────────────────────── */
 
-function PersonSheet({ who }: { who: PersonKey }) {
-  const { state, dispatch } = useStore();
-  const stats = who === 'you' ? myStats(state) : STATS[who as Exclude<PersonKey, 'you'>];
+function PersonSheet({ who }: { who: PersonId }) {
+  const { state, dispatch, people } = useStore();
+  const stats = people.isSelf(who) ? myStats(state) : people.stats(who);
   const tasks = PERSON_TASKS[who] ?? [];
   const notes = [...(PERSON_NOTES[who] ?? []), ...(state.personNotes[who] ?? [])];
 
@@ -321,7 +318,7 @@ function PersonSheet({ who }: { who: PersonKey }) {
         <Avatar who={who} size={52} />
         <View style={fill}>
           <Bri size={20} weight={800} tracking={-0.4}>
-            {NAME[who]}
+            {people.name(who)}
           </Bri>
           <Sans size={12.5} color={color.muted}>
             {stats.streak ? `🔥 ${stats.streak}-week streak` : 'building back'} · {stats.done}/
@@ -331,7 +328,7 @@ function PersonSheet({ who }: { who: PersonKey }) {
       </View>
 
       <Caps size={11} tracking={1.4} style={{ marginTop: 16, marginBottom: 9, marginHorizontal: 2 }}>
-        {FIRST[who]}’s week
+        {people.first(who)}’s week
       </Caps>
       <View style={{ gap: 8 }}>
         {tasks.map((t, i) => {
@@ -372,10 +369,10 @@ function PersonSheet({ who }: { who: PersonKey }) {
                 onPress={() =>
                   dispatch({
                     type: 'OPEN_PLAN_WITH',
-                    seed: { title: t.t, pair: [who], toast: `Staking it with ${FIRST[who]}` },
+                    seed: { title: t.t, pair: [who], toast: `Staking it with ${people.first(who)}` },
                   })
                 }
-                accessibilityLabel={`Stake "${t.t}" with ${FIRST[who]}`}
+                accessibilityLabel={`Stake "${t.t}" with ${people.first(who)}`}
                 style={{
                   borderWidth: 1,
                   borderColor: 'rgba(25,30,22,.14)',
@@ -392,7 +389,9 @@ function PersonSheet({ who }: { who: PersonKey }) {
                 </Sans>
               </Tap>
               <Tap
-                onPress={() => dispatch({ type: 'ACT', id: actKey, kind: 'a', toast: `${FIRST[who]} saw it` })}
+                onPress={() =>
+                  dispatch({ type: 'ACT', id: actKey, kind: 'a', toast: `${people.first(who)} saw it` })
+                }
                 accessibilityLabel={t.done ? `Cheer ${t.t}` : `Back ${t.t}`}
                 style={{
                   borderRadius: 999,
@@ -423,8 +422,8 @@ function PersonSheet({ who }: { who: PersonKey }) {
 /* ── invite ─────────────────────────────────────────────────────────────── */
 
 function InviteSheet() {
-  const { state, dispatch, world } = useStore();
-  const pending = Object.keys(state.pending) as PersonKey[];
+  const { state, dispatch, world, people } = useStore();
+  const pending: PersonId[] = Object.keys(state.pending);
   const suggestions = world.inviteSuggestions.filter((k) => !state.pending[k]);
 
   return (
@@ -476,7 +475,7 @@ function InviteSheet() {
           <View key={k} style={inviteRow}>
             <Avatar who={k} size={32} />
             <Sans size={13.5} weight={600} style={fill}>
-              {NAME[k]}
+              {people.name(k)}
             </Sans>
             <Sans size={11.5} color={color.muted}>
               invited just now
@@ -503,11 +502,11 @@ function InviteSheet() {
           <View key={k} style={inviteRow}>
             <Avatar who={k} size={32} />
             <Sans size={13.5} weight={600} style={fill}>
-              {NAME[k]}
+              {people.name(k)}
             </Sans>
             <Tap
               onPress={() => dispatch({ type: 'INVITE', key: k })}
-              accessibilityLabel={`Invite ${NAME[k]}`}
+              accessibilityLabel={`Invite ${people.name(k)}`}
               style={{
                 borderRadius: 999,
                 paddingHorizontal: 13,
@@ -586,10 +585,10 @@ function NoteThread({ notes, emptyText }: { notes: Note[]; emptyText: string }) 
 }
 
 function NoteComposer({ bottomInset }: { bottomInset: number }) {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, people } = useStore();
   const sheet = state.sheet;
   const placeholder =
-    sheet?.type === 'person' && sheet.id ? `Write to ${FIRST[sheet.id as PersonKey]}…` : 'Say something…';
+    sheet?.type === 'person' && sheet.id ? `Write to ${people.first(sheet.id)}…` : 'Say something…';
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>

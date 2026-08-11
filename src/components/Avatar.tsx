@@ -5,8 +5,9 @@
 import React from 'react';
 import { StyleProp, View, ViewStyle } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import { color, PersonKey, tint as TINT } from '../theme/tokens';
-import { INITIALS, NAME } from '../data/fixtures';
+import { color } from '../theme/tokens';
+import { PersonId } from '../data/people';
+import { usePeople } from '../state/store';
 import { Bri, Tap } from './primitives';
 
 export function Avatar({
@@ -17,7 +18,7 @@ export function Avatar({
   label,
   style,
 }: {
-  who?: PersonKey;
+  who?: PersonId;
   size?: number;
   /** For people outside the circle (global feed handles). */
   initials?: string;
@@ -25,9 +26,10 @@ export function Avatar({
   label?: string;
   style?: StyleProp<ViewStyle>;
 }) {
-  const ini = initials ?? (who ? INITIALS[who] : '?');
-  const bg = tint ?? (who ? TINT[who] : color.chip);
-  const name = label ?? (who ? NAME[who] : undefined);
+  const people = usePeople();
+  const ini = initials ?? (who ? people.initials(who) : '?');
+  const bg = tint ?? (who ? people.tint(who) : color.chip);
+  const name = label ?? (who ? people.name(who) : undefined);
 
   return (
     <View
@@ -60,13 +62,14 @@ export function FaceStack({
   ringWidth = 2,
   onPressPerson,
 }: {
-  people: PersonKey[];
+  people: PersonId[];
   size?: number;
   ringColor?: string;
   ringWidth?: number;
   /** When set, each face becomes a route to that person's profile. */
-  onPressPerson?: (who: PersonKey) => void;
+  onPressPerson?: (who: PersonId) => void;
 }) {
+  const dir = usePeople();
   return (
     <View style={{ flexDirection: 'row' }}>
       {people.map((k, i) => {
@@ -85,7 +88,7 @@ export function FaceStack({
           <Tap
             key={k}
             onPress={() => onPressPerson(k)}
-            accessibilityLabel={`Open ${NAME[k]}`}
+            accessibilityLabel={`Open ${dir.name(k)}`}
             minSize={size}
           >
             {face}

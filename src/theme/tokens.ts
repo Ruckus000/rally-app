@@ -37,16 +37,16 @@ export const onDark = {
   hairline: 'rgba(241,242,236,.11)',
 } as const;
 
-export type PersonKey = 'you' | 'maya' | 'dre' | 'jordan' | 'sofia' | 'nana' | 'tomas';
+/**
+ * Avatar tints. The demo circle carries its own tint per person, straight from
+ * the reference; this palette is what an id we've never seen falls back to.
+ */
+export const personTints = ['#E0E6D3','#D5E2BD','#E9E0C2','#E8CFBE','#C9D9CE','#EFE3AE','#CBD6C4'] as const;
 
-export const tint: Record<PersonKey, string> = {
-  you: '#E0E6D3',
-  maya: '#D5E2BD',
-  dre: '#E9E0C2',
-  jordan: '#E8CFBE',
-  sofia: '#C9D9CE',
-  nana: '#EFE3AE',
-  tomas: '#CBD6C4',
+export const hashTint = (id: string): string => {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (Math.imul(h, 31) + id.charCodeAt(i)) | 0;
+  return personTints[(h >>> 0) % personTints.length];
 };
 
 /** Year-grid cell levels: 0 nothing · 1 partial · 2 good · 3 perfect */

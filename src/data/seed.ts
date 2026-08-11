@@ -29,9 +29,21 @@ import {
   CIRCLE,
 } from './fixtures';
 import { WeekContext, weekBefore } from './week';
-import type { PersonKey } from '../theme/tokens';
+import {
+  DEMO_INDEX,
+  PeopleIndex,
+  SELF_DEMO_ID,
+  SELF_ONLY_INDEX,
+  type PersonId,
+} from './people';
 
-export type AccountMode = 'fresh' | 'seeded';
+/**
+ * Kept as a tuple so the persistence guard can be written against it. The two
+ * used to be spelled out separately, and a mode added here but not there would
+ * have meant every payload of that kind was silently thrown away on launch.
+ */
+export const ACCOUNT_MODES = ['fresh', 'seeded', 'live'] as const;
+export type AccountMode = (typeof ACCOUNT_MODES)[number];
 
 /**
  * Your running totals. Held in state and updated when a week closes, rather
@@ -54,13 +66,13 @@ export type Profile = {
 
 export type World = {
   /** The circle, always including you. */
-  members: PersonKey[];
+  members: PersonId[];
   notifications: Notification[];
-  owed: { k: PersonKey; reason: string }[];
+  owed: { k: PersonId; reason: string }[];
   /** The PICK IT BACK UP rail. */
   suggestions: Suggestion[];
   /** "People you might know" in the invite sheet. */
-  inviteSuggestions: PersonKey[];
+  inviteSuggestions: PersonId[];
 };
 
 const SEEDED: World = Object.freeze({
@@ -72,17 +84,28 @@ const SEEDED: World = Object.freeze({
 });
 
 const FRESH: World = Object.freeze({
-  members: ['you'] as PersonKey[],
+  members: [SELF_DEMO_ID],
   notifications: [],
   owed: [],
   suggestions: [],
   inviteSuggestions: [],
 });
 
-export const WORLD: Record<AccountMode, World> = { fresh: FRESH, seeded: SEEDED };
+/** Live starts out looking like a fresh account; the server fills it in. */
+export const WORLD: Record<AccountMode, World> = { fresh: FRESH, seeded: SEEDED, live: FRESH };
 
 /** Undecided (mid-onboarding) counts as fresh — nothing has been granted yet. */
 export const getWorld = (mode: AccountMode | null): World => WORLD[mode ?? 'fresh'];
+
+/**
+ * Live mode gets an empty directory rather than the self-only one: the account
+ * is a real profile row, so inventing a placeholder for it would shadow it.
+ */
+export const seedPeople = (mode: AccountMode | null): PeopleIndex => {
+  if (mode === 'seeded') return DEMO_INDEX;
+  if (mode === 'live') return {};
+  return SELF_ONLY_INDEX;
+};
 
 export const seedTasks = (mode: AccountMode | null): Task[] =>
   mode === 'seeded' ? MY_TASKS : [];

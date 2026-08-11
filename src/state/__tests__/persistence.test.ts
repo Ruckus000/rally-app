@@ -113,6 +113,24 @@ describe('what gets discarded', () => {
   });
 });
 
+describe('payloads the directory has to keep working with', () => {
+  it('one written before people existed, which hydrate backfills', async () => {
+    const old: Record<string, unknown> = { ...pick(base) };
+    delete old.people;
+    delete old.selfId;
+    await AsyncStorage.setItem(KEY, envelope(old));
+
+    const restored = await load();
+    expect(restored).not.toBeNull();
+    expect(restored?.myTasks).toHaveLength(base.myTasks.length);
+  });
+
+  it('a live account, rather than discarding it on every launch', async () => {
+    await AsyncStorage.setItem(KEY, envelope({ ...pick(base), account: 'live' }));
+    expect(await load()).toMatchObject({ account: 'live' });
+  });
+});
+
 // This behaviour is deliberately inverted from what it used to be. Discarding
 // on a week change was right only while the week could never move; now that it
 // can, discarding would throw away the week's work instead of rolling it over.
@@ -193,5 +211,24 @@ describe('write economy', () => {
     save(reducer(base, { type: 'TOGGLE_TASK', id: 'm2' }));
     await flush();
     expect(setItem).toHaveBeenCalled();
+  });
+});
+
+describe('a hostile directory', () => {
+  it('discards a person whose display name is unbounded', async () => {
+    // A name reaches every screen and every accessibility label, so the bound
+    // lives at the trust boundary rather than at each of the render sites.
+    const bad = {
+      ...pick(base),
+      people: { x: { id: 'x', name: 'a'.repeat(500), first: 'a', initials: 'A' } },
+    };
+    await AsyncStorage.setItem(KEY, envelope(bad));
+    expect(await load()).toBeNull();
+  });
+
+  it('discards a person missing the fields a render dereferences', async () => {
+    const bad = { ...pick(base), people: { x: { id: 'x', name: 'X' } } };
+    await AsyncStorage.setItem(KEY, envelope(bad));
+    expect(await load()).toBeNull();
   });
 });

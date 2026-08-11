@@ -7,14 +7,13 @@
 import React from 'react';
 import { ScrollView, View } from 'react-native';
 import { color, gutter, radius } from '../theme/tokens';
-import { NAME } from '../data/fixtures';
-import { useStore } from '../state/store';
+import { useStore, usePeople } from '../state/store';
 import { helpedByThisWeek, helpedThisWeek, pluralTimes } from '../state/selectors';
 import { Avatar } from '../components/Avatar';
 import { Icon } from '../components/Icon';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
 import { Overlay } from './Overlay';
-import type { PersonKey } from '../theme/tokens';
+import type { PersonId } from '../data/people';
 
 export function LedgerOverlay({ topInset, bottomInset }: { topInset: number; bottomInset: number }) {
   const { state, dispatch } = useStore();
@@ -25,19 +24,19 @@ export function LedgerOverlay({ topInset, bottomInset }: { topInset: number; bot
     ? history.did
     : state.myTasks.filter((t) => t.done).map((t) => ({ title: t.title, points: t.pts }));
 
-  const helpedByMap = helpedByThisWeek(state.myTasks);
+  const helpedByMap = helpedByThisWeek(state.myTasks, state.selfId);
   const helpedMap = helpedThisWeek(state);
 
   const helpedBy = history
     ? history.helpedBy.map((h) => ({ k: h.k, detail: h.detail }))
-    : (Object.keys(helpedByMap) as PersonKey[]).map((k) => ({
+    : (Object.keys(helpedByMap) as PersonId[]).map((k) => ({
         k,
         detail: `${pluralTimes(helpedByMap[k] ?? 0)} this week`,
       }));
 
   const helped = history
     ? history.helped.map((h) => ({ k: h.k, detail: h.detail }))
-    : (Object.keys(helpedMap) as PersonKey[]).map((k) => ({
+    : (Object.keys(helpedMap) as PersonId[]).map((k) => ({
         k,
         detail: pluralTimes(helpedMap[k] ?? 0),
       }));
@@ -168,7 +167,7 @@ export function LedgerOverlay({ topInset, bottomInset }: { topInset: number; bot
   );
 }
 
-function PeopleList({ people }: { people: { k: PersonKey; detail: string }[] }) {
+function PeopleList({ people }: { people: { k: PersonId; detail: string }[] }) {
   return (
     <View style={{ gap: 7, marginBottom: 16 }}>
       {people.map((h) => (
@@ -178,12 +177,13 @@ function PeopleList({ people }: { people: { k: PersonKey; detail: string }[] }) 
   );
 }
 
-function PersonLine({ who, detail }: { who: PersonKey; detail: string }) {
+function PersonLine({ who, detail }: { who: PersonId; detail: string }) {
+  const people = usePeople();
   return (
     <View style={[row, { gap: 10 }]}>
       <Avatar who={who} size={32} />
       <Sans size={14} style={fill}>
-        {NAME[who]}
+        {people.name(who)}
         <Sans size={14} color={color.muted}>
           {' — '}
           {detail}

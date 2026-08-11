@@ -13,7 +13,6 @@ import {
   Audience,
   CATEGORY_POINTS,
   Category,
-  FIRST,
   HistoryWeek,
   ME,
   Moment,
@@ -33,12 +32,21 @@ import {
   getWorld,
   seedHistory,
   seedMoments,
+  seedPeople,
   seedProfile,
   seedTasks,
   seedYearLevels,
 } from '../data/seed';
+import {
+  People,
+  PeopleIndex,
+  Person,
+  PersonId,
+  SELF_DEMO_ID,
+  indexPeople,
+  makePeople,
+} from '../data/people';
 import { flush, load, save } from './persistence';
-import type { PersonKey } from '../theme/tokens';
 
 export type Tab = 'week' | 'circle' | 'me';
 export type Scope = 'personal' | 'friends' | 'global';
@@ -64,6 +72,10 @@ export type State = {
    * the world is treated as fresh until you either join or skip.
    */
   account: AccountMode | null;
+  /** Which of `people` is you. 'you' in demo mode, a profile id once live. */
+  selfId: PersonId;
+  /** Everyone this account can name, by id. Lookups go through `makePeople`. */
+  people: PeopleIndex;
   /** The week this state belongs to. Compared against the clock to spot rollover. */
   week: WeekContext;
   /** Closed weeks, newest first. */
@@ -85,9 +97,9 @@ export type State = {
   moments: Moment[];
   /** `${id}:${kind}` → true. kind: cheer | in | cosign | nod | back | share */
   acted: Record<string, true>;
-  replied: Partial<Record<PersonKey, true>>;
-  pending: Partial<Record<PersonKey, true>>;
-  personNotes: Partial<Record<PersonKey, Note[]>>;
+  replied: Partial<Record<PersonId, true>>;
+  pending: Partial<Record<PersonId, true>>;
+  personNotes: Partial<Record<PersonId, Note[]>>;
   /** Your replies on public posts, which live outside your tasks and moments. */
   globalNotes: Record<string, Note[]>;
   usedSugg: Record<string, true>;
@@ -98,7 +110,7 @@ export type State = {
 
   draftDay: DayIndex | null;
   draftCat: Category;
-  draftPair: PersonKey[];
+  draftPair: PersonId[];
   /** null = fall back to config.defaultAudience */
   draftAud: Audience | null;
   /** Non-null when the composer is editing an existing stake rather than adding one. */
@@ -124,6 +136,8 @@ export type State = {
 /** An account starts empty; onboarding decides what it gets seeded with. */
 const initialState: State = {
   account: null,
+  selfId: SELF_DEMO_ID,
+  people: seedPeople(null),
   week: liveWeek(),
   history: [],
   yearLevels: [],
@@ -176,7 +190,7 @@ export type Action =
   | { type: 'SET_DRAFT_CAT'; cat: Category }
   | { type: 'SET_DRAFT_DAY'; day: DayIndex }
   | { type: 'SET_DRAFT_AUD'; aud: Audience }
-  | { type: 'TOGGLE_PAIR'; key: PersonKey }
+  | { type: 'TOGGLE_PAIR'; key: PersonId }
   | { type: 'ADD_TASK'; aud: Audience }
   | { type: 'START_EDIT'; id: string }
   | { type: 'SAVE_EDIT'; aud: Audience }
@@ -198,8 +212,8 @@ export type Action =
   | { type: 'SET_NOTIF_FILTER'; filter: 'all' | NotifTier }
   | { type: 'READ_NOTIF'; id: string }
   | { type: 'READ_ALL_NOTIFS' }
-  | { type: 'REPLY'; key: PersonKey }
-  | { type: 'INVITE'; key: PersonKey }
+  | { type: 'REPLY'; key: PersonId }
+  | { type: 'INVITE'; key: PersonId }
   | { type: 'JOIN_CIRCLE' }
   | { type: 'RESET'; mode: AccountMode }
   | { type: 'ROLLOVER_DETECTED'; to: WeekContext }
@@ -211,7 +225,7 @@ export type Action =
 export type PlanSeed = {
   title?: string;
   cat?: Category;
-  pair?: PersonKey[];
+  pair?: PersonId[];
   day?: DayIndex;
   toast?: string;
 };
@@ -289,17 +303,18 @@ export function reducer(state: State, action: Action): State {
       const t = state.note.trim();
       const sh = state.sheet;
       if (!t || !sh || !sh.id) return state;
-      const mine: Note = { w: 'You', k: 'you', t };
+      const people = makePeople(state.people, state.selfId);
+      const mine: Note = { w: people.name(state.selfId), k: state.selfId, t };
 
       if (sh.type === 'person') {
-        const k = sh.id as PersonKey;
+        const k = sh.id;
         return withToast(
           {
             ...state,
             note: '',
             personNotes: { ...state.personNotes, [k]: [...(state.personNotes[k] ?? []), mine] },
           },
-          `${k === 'you' ? 'You' : FIRST_NAME(k)} will see that`,
+          `${people.first(k)} will see that`,
         );
       }
 
@@ -577,7 +592,7 @@ export function reducer(state: State, action: Action): State {
     case 'INVITE':
       return withToast(
         { ...state, pending: { ...state.pending, [action.key]: true } },
-        `Invited ${FIRST_NAME(action.key)}`,
+        `Invited ${makePeople(state.people, state.selfId).first(action.key)}`,
       );
 
     case 'JOIN_CIRCLE':
@@ -585,6 +600,8 @@ export function reducer(state: State, action: Action): State {
       return {
         ...state,
         account: 'seeded',
+        selfId: SELF_DEMO_ID,
+        people: seedPeople('seeded'),
         myTasks: seedTasks('seeded'),
         moments: seedMoments('seeded'),
         history: seedHistory('seeded', state.week),
@@ -611,6 +628,8 @@ export function reducer(state: State, action: Action): State {
         week,
         day: week.today,
         account: action.mode,
+        selfId: SELF_DEMO_ID,
+        people: seedPeople(action.mode),
         myTasks: seedTasks(action.mode),
         moments: seedMoments(action.mode),
         history: seedHistory(action.mode, week),
@@ -700,7 +719,34 @@ export function reducer(state: State, action: Action): State {
   }
 }
 
-const FIRST_NAME = (k: PersonKey) => FIRST[k];
+/**
+ * Restore, and fill in what an older payload cannot have had.
+ *
+ * A spread only copies keys that are *present*, so a payload written before the
+ * directory existed would leave `people` and `selfId` missing and render the
+ * whole circle as "Someone". Both are derivable from `account`, which has
+ * always been on disk. This is also the seam live-mode hydration hangs off.
+ */
+export function hydrate(restored?: Partial<State> | null): State {
+  const s = restored ? { ...initialState, ...restored } : initialState;
+  return {
+    ...s,
+    // In a demo account there is exactly one legitimate self, so `selfId` is
+    // not restored — it is asserted. Honouring whatever was on disk would let
+    // an edited payload point self at Maya, which hands her your live week in
+    // the ranking, highlights her row as you, and authors your notes under her
+    // name. Only a live account has an identity worth restoring, and that one
+    // will come from the session rather than from disk.
+    selfId: s.account === 'live' ? (restored?.selfId ?? SELF_DEMO_ID) : SELF_DEMO_ID,
+    // Rebuilt rather than taken as-is: a directory off disk came through
+    // JSON.parse and so carries Object.prototype, where a lookup for an id
+    // like `toString` returns the inherited function instead of missing.
+    // indexPeople gives it a null prototype again.
+    people: restored?.people
+      ? indexPeople(Object.values(restored.people).filter((p): p is Person => !!p))
+      : seedPeople(s.account),
+  };
+}
 
 type Store = {
   state: State;
@@ -708,6 +754,8 @@ type Store = {
   config: Config;
   /** What this account has: circle, history, suggestions, profile numbers. */
   world: World;
+  /** Names, initials, tints and trends — total, for any id at all. */
+  people: People;
   /** Resolved audience for the composer: the draft choice, or the configured default. */
   effectiveAudience: Audience;
 };
@@ -727,10 +775,7 @@ export function StoreProvider({
   /** Tests turn this off so no debounced writes outlive the suite. */
   persist?: boolean;
 }) {
-  const [state, dispatch] = useReducer(
-    reducer,
-    restored ? { ...initialState, ...restored } : initialState,
-  );
+  const [state, dispatch] = useReducer(reducer, hydrate(restored));
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Single-slot toast: each new message restarts the dismissal clock.
@@ -772,6 +817,7 @@ export function StoreProvider({
       dispatch,
       config,
       world: getWorld(state.account),
+      people: makePeople(state.people, state.selfId),
       effectiveAudience: state.draftAud ?? config.defaultAudience,
     }),
     [state, config],
@@ -792,6 +838,10 @@ export function useStore() {
   const ctx = useContext(StoreContext);
   if (!ctx) throw new Error('useStore must be used inside <StoreProvider>');
   return ctx;
+}
+
+export function usePeople() {
+  return useStore().people;
 }
 
 export { ME };

@@ -7,12 +7,15 @@
  */
 import type { State } from '../state/store';
 import { MOMENTS, MY_TASKS } from '../data/fixtures';
-import { seedHistory, seedProfile, seedYearLevels } from '../data/seed';
+import { seedHistory, seedPeople, seedProfile, seedYearLevels } from '../data/seed';
+import { SELF_DEMO_ID } from '../data/people';
 import { FIXTURE_WEEK } from '../data/week';
 
 /** The populated demo account, mid-week, with nothing acted on yet. */
 export const baseState: State = {
   account: 'seeded',
+  selfId: SELF_DEMO_ID,
+  people: seedPeople('seeded'),
   // Pinned, so the suite doesn't drift with the calendar.
   week: FIXTURE_WEEK,
   history: seedHistory('seeded', FIXTURE_WEEK),
@@ -56,6 +59,8 @@ export const baseState: State = {
 export const freshState: State = {
   ...baseState,
   account: 'fresh',
+  // Without this the spread hands a fresh account the whole demo directory.
+  people: seedPeople('fresh'),
   myTasks: [],
   moments: [],
   history: [],

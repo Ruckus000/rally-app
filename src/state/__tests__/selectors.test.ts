@@ -147,7 +147,7 @@ describe('unread badge', () => {
 
 describe('ledger rollup', () => {
   it('credits note authors and pairs, never yourself', () => {
-    const map = helpedByThisWeek(base.myTasks);
+    const map = helpedByThisWeek(base.myTasks, base.selfId);
     expect(map.you).toBeUndefined();
     expect(map.dre).toBeGreaterThan(0);
     expect(map.maya).toBeGreaterThan(0);

@@ -5,9 +5,15 @@
 import React from 'react';
 import { TextInput, View } from 'react-native';
 import { color, radius, shadows } from '../theme/tokens';
-import { FIRST, GLOBAL_POSTS, Moment, NAME, parseHours } from '../data/fixtures';
+import { GLOBAL_POSTS, Moment, parseHours } from '../data/fixtures';
 import { useStore } from '../state/store';
-import { allTasksDone, personalFeed, stakedPoints, weekPoints } from '../state/selectors';
+import {
+  allTasksDone,
+  circleMembers,
+  personalFeed,
+  stakedPoints,
+  weekPoints,
+} from '../state/selectors';
 import { Avatar } from '../components/Avatar';
 import { Icon } from '../components/Icon';
 import {
@@ -50,14 +56,14 @@ export function WeekScreen() {
 /* ── personal: quick-log composer + points bar ──────────────────────────── */
 
 function PersonalHeader() {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, people } = useStore();
   const pts = weekPoints(state);
   const doneCount = state.myTasks.filter((t) => t.done).length;
 
   return (
     <>
       <View style={[row, { gap: 11, marginBottom: 14 }]}>
-        <Avatar who="you" size={38} />
+        <Avatar who={people.selfId} size={38} />
         {state.composerOpen ? (
           <>
             <TextInput
@@ -196,13 +202,13 @@ function PersonalFeed() {
 /* ── friends ────────────────────────────────────────────────────────────── */
 
 function FriendsFeed() {
-  const { state, config, dispatch, world } = useStore();
+  const { state, config, dispatch } = useStore();
 
   const moments = [...state.moments]
     .filter((m) => config.quietComebacks || m.kind !== 'quiet')
     .sort((a, b) => parseHours(a.time) - parseHours(b.time));
 
-  if (world.members.length < 2) {
+  if (circleMembers(state).length < 2) {
     return (
       <EmptyState
         title="Nobody here yet"
@@ -232,8 +238,8 @@ function FriendsFeed() {
 }
 
 function MomentItem({ moment: m }: { moment: Moment }) {
-  const { state, dispatch } = useStore();
-  const first = FIRST[m.who];
+  const { state, dispatch, people } = useStore();
+  const first = people.first(m.who);
   const cheered = !!state.acted[`${m.id}:cheer`];
 
   const openSheet = () => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'task', id: m.id } });
@@ -270,7 +276,7 @@ function MomentItem({ moment: m }: { moment: Moment }) {
   return (
     <SocialCard
       who={m.who}
-      name={NAME[m.who]}
+      name={people.name(m.who)}
       time={m.time}
       title={m.title ?? ''}
       quote={m.quote}
@@ -298,8 +304,8 @@ function MomentItem({ moment: m }: { moment: Moment }) {
 /* ── global ─────────────────────────────────────────────────────────────── */
 
 function GlobalFeed() {
-  const { state, dispatch, world } = useStore();
-  const alone = world.members.length < 2;
+  const { state, dispatch } = useStore();
+  const alone = circleMembers(state).length < 2;
 
   return (
     <>
