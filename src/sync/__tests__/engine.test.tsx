@@ -14,6 +14,7 @@ import { act, render, screen } from '@testing-library/react-native';
 
 import { fakeSupabase } from '../../__mocks__/@supabase/supabase-js';
 import { Action, StoreProvider, useStore } from '../../state/store';
+import { mondayOf } from '../mappers';
 import { __resetOutboxForTests, deadLetters, pending } from '../outbox';
 import { __resetSessionForTests, currentUserId } from '../session';
 
@@ -29,7 +30,15 @@ function Probe() {
   React.useEffect(() => {
     dispatch = store.dispatch;
   }, [store.dispatch]);
-  return <Text testID="people">{Object.keys(store.state.people).sort().join(',')}</Text>;
+  return (
+    <>
+      <Text testID="people">{Object.keys(store.state.people).sort().join(',')}</Text>
+      <Text testID="tasks">{store.state.myTasks.map((t) => t.title).join(',')}</Text>
+      {/* The week the pull has to name. Read off state so the assertion below
+          cannot drift from what the engine actually asked for. */}
+      <Text testID="week">{mondayOf(store.state.week)}</Text>
+    </>
+  );
 }
 
 /** `account: 'live'` is what opens the gate; everything else is default. */
@@ -129,12 +138,7 @@ it('does not write anything back when a circle merge arrives', async () => {
   await settle(60_000);
   expect(screen.getByTestId('people')).toHaveTextContent(new RegExp(OTHER));
 
-  // A merge is not a mutation. Worth stating plainly, though: today this holds
-  // for a reason weaker than the suppression flag. A merge currently carries
-  // only `people`, and the diff watches `myTasks`, so no merge can produce a
-  // write yet whether suppression fires or not — I verified that by disabling
-  // the flag and watching this still pass. The real ping-pong test arrives with
-  // tasks-down, when a merge can finally move the slice being diffed.
+  // A merge is not a mutation.
   expect(upserts()).toHaveLength(1);
   expect(pending()).toHaveLength(0);
 
@@ -144,10 +148,48 @@ it('does not write anything back when a circle merge arrives', async () => {
   expect(titles()).toEqual(['swim', 'lift']);
 });
 
-// Cannot be written until SERVER_MERGE carries tasks. Left here rather than in
-// a tracker because this is the one mechanism in the engine with no coverage,
-// and the comment above explains why the test next to it does not supply any.
-it.todo('a merge that changes myTasks does not enqueue those rows straight back');
+it('a merge that changes myTasks does not enqueue those rows straight back', async () => {
+  mount();
+  await settle();
+  const me = currentUserId() as string;
+  const week = screen.getByTestId('week').props.children as string;
+
+  // Your own week, as your other phone left it. Nothing about this row is local:
+  // the reducer has never seen it, and the outbox has nothing queued for it.
+  fakeSupabase.seed({
+    tasks: [
+      {
+        id: '44444444-4444-4444-8444-444444444444',
+        owner_id: me,
+        week_start: week,
+        day: 2,
+        title: 'staked on the other phone',
+        category: 'Fitness',
+        points: 40,
+        aud: 'friends',
+        source: 'staked',
+        done_at: null,
+      },
+    ],
+  });
+
+  await settle(60_000);
+
+  // The merge landed — without this the rest of the test would pass vacuously.
+  expect(screen.getByTestId('tasks')).toHaveTextContent('staked on the other phone');
+
+  // …and went no further. The engine reference-diffs `myTasks`, and the merge
+  // just replaced that array; only the suppression flag stops the new row from
+  // reading as a local edit and being pushed back to the server it came from.
+  await settle(30_000);
+  expect(upserts()).toHaveLength(0);
+  expect(pending()).toHaveLength(0);
+
+  // Spent, not stuck: the tap after a merge still reaches the server.
+  stake('lift');
+  await settle(10_000);
+  expect(titles()).toEqual(['staked on the other phone', 'lift']);
+});
 
 it('enqueues nothing at all in a demo account', async () => {
   mount('seeded');

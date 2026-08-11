@@ -17,6 +17,13 @@ import { EmptyState } from '../components/FeedCards';
 const TREND_GLYPH = { up: '▲', down: '▼', same: '–' } as const;
 const TREND_COLOR = { up: color.moss, down: color.faintInk, same: color.dash } as const;
 
+/**
+ * A member whose week has not been pulled has no cheer count, and a 0 in that
+ * chip would read as one. An en dash says "nothing to report" — the same thing
+ * the row's own metric line says in words.
+ */
+const cheers = (given: number | null) => (given === null ? '–' : String(given));
+
 export function CircleScreen() {
   const { state, dispatch, config, people } = useStore();
   const ranked = ranking(state);
@@ -93,7 +100,7 @@ export function CircleScreen() {
             </Bri>
 
             <View style={{ width: 36, height: 36 }}>
-              <ProgressRing size={36} pct={r.pct} stroke={9} />
+              <ProgressRing size={36} pct={r.pct ?? 0} stroke={9} />
               <Avatar who={r.k} size={26} style={{ position: 'absolute', top: 5, left: 5 }} />
             </View>
 
@@ -122,7 +129,7 @@ export function CircleScreen() {
             >
               <Icon name="heart" size={12} color={color.moss} />
               <Sans size={12} weight={700} color={color.moss}>
-                {r.given}
+                {cheers(r.given)}
               </Sans>
             </View>
           </Tap>
@@ -184,11 +191,15 @@ function PodiumMember({
   return (
     <Tap
       onPress={onPress}
-      accessibilityLabel={`${member.name}, rank ${member.rank}, ${member.given} cheers given`}
+      accessibilityLabel={
+        member.given === null
+          ? `${member.name}, rank ${member.rank}, ${member.sub}`
+          : `${member.name}, rank ${member.rank}, ${member.given} cheers given`
+      }
       style={{ alignItems: 'center' }}
     >
       <View style={{ width: size, height: size }}>
-        <ProgressRing size={size} pct={member.pct} ringColor={isFirst ? color.lime : '#C6DDA0'} />
+        <ProgressRing size={size} pct={member.pct ?? 0} ringColor={isFirst ? color.lime : '#C6DDA0'} />
         <View
           style={{
             position: 'absolute',
@@ -236,7 +247,7 @@ function PodiumMember({
         </Sans>
         <Sans size={12} color={color.faintInk}>
           {' · '}
-          {member.given} given
+          {cheers(member.given)} given
         </Sans>
       </View>
     </Tap>

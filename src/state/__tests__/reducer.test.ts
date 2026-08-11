@@ -6,7 +6,8 @@
  */
 import { Action, DEFAULT_CONFIG, hydrate, reducer, State } from '../store';
 import { pick } from '../persistence';
-import { MY_TASKS, MOMENTS } from '../../data/fixtures';
+import { MY_TASKS, MOMENTS, Task } from '../../data/fixtures';
+import { __resetOutboxForTests, enqueue } from '../../sync/outbox';
 import { WORLD, getWorld, seedProfile } from '../../data/seed';
 import { personOf } from '../../data/people';
 import { baseState as base, freshState } from '../../test/baseState';
@@ -528,6 +529,61 @@ describe('merging rows from the server', () => {
     expect(s.note).toBe('half typed');
     expect(s.planOpen).toBe(true);
     expect(s.notifOpen).toBe(true);
+  });
+
+  describe('tasks', () => {
+    /** What a pull produces: `rowToTask` cannot answer for pairs or comments. */
+    const asRow = (t: Task, over: Partial<Task> = {}): Task => ({
+      ...t,
+      pair: [],
+      pairKind: null,
+      cmts: [],
+      ...over,
+    });
+
+    beforeEach(__resetOutboxForTests);
+    afterEach(__resetOutboxForTests);
+
+    it('folds server rows into the week', () => {
+      const [first] = base.myTasks;
+      const s = reducer(base, {
+        type: 'SERVER_MERGE',
+        merge: { tasks: base.myTasks.map((t) => asRow(t, { done: true })) },
+      });
+
+      expect(s).not.toBe(base);
+      expect(s.myTasks.every((t) => t.done)).toBe(true);
+      // The row is the same task, not a second copy of it.
+      expect(s.myTasks.filter((t) => t.id === first.id)).toHaveLength(1);
+    });
+
+    it('leaves a task with unsent local edits exactly as it is', () => {
+      const mine = { ...base.myTasks[0], title: 'Typed on a plane' };
+      const local: State = { ...base, myTasks: [mine, ...base.myTasks.slice(1)] };
+      // The queue is what makes it dirty, and the reducer asks the queue —
+      // nothing about this row in state says the server has not seen it.
+      enqueue('task.upsert', `task:${mine.id}`, { task: mine, weekStart: '2026-08-10' });
+
+      const s = reducer(local, {
+        type: 'SERVER_MERGE',
+        merge: { tasks: local.myTasks.map((t) => asRow(t, { title: 'Whatever the server had' })) },
+      });
+
+      expect(s.myTasks.find((t) => t.id === mine.id)).toBe(mine);
+      // …and the rows with nothing queued for them did take the server's copy,
+      // so this is not passing because the merge was ignored wholesale.
+      expect(s.myTasks.filter((t) => t.title === 'Whatever the server had').length).toBe(
+        base.myTasks.length - 1,
+      );
+    });
+
+    it('returns the same state object when the rows change nothing', () => {
+      const s = reducer(base, {
+        type: 'SERVER_MERGE',
+        merge: { people: [base.people.maya!], tasks: base.myTasks.map((t) => asRow(t)) },
+      });
+      expect(s).toBe(base);
+    });
   });
 
   it('carries rows, never an identity', () => {

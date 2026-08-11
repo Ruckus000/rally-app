@@ -17,15 +17,18 @@
  */
 import type { Dispatch } from 'react';
 import type { Task } from '../data/fixtures';
-import type { Action, State } from '../state/store';
+import type { WeekContext } from '../data/week';
+import type { Action, ServerMerge, State } from '../state/store';
 import { mondayOf } from './mappers';
 import {
   drain,
   enqueue,
+  pending,
   type OutboxEntry as QueueEntry,
   type OutboxOp,
   type QueueTransport,
 } from './outbox';
+import { reconcileTasks } from './reconcile';
 import { startScheduler, stopScheduler } from './scheduler';
 import { currentUserId } from './session';
 import { supabaseTransport, type WireOp as WireEntry, type Transport } from './transport';
@@ -33,9 +36,10 @@ import { supabaseTransport, type WireOp as WireEntry, type Transport } from './t
 /** How often the queue is offered to the network. Matches scheduler.ts's own default. */
 const PUSH_MS = 5_000;
 /**
- * Pulls are far rarer than pushes: the circle changes when somebody joins, and
- * every tick costs a round trip on a phone radio. Foregrounding kicks one
- * anyway, which is when a stale directory is actually visible.
+ * Pulls are far rarer than pushes: the circle changes when somebody joins, your
+ * own week changes when your other phone touches it, and every tick costs a
+ * round trip on a phone radio. Foregrounding kicks one anyway, which is when a
+ * stale directory or a week edited elsewhere is actually visible.
  */
 const PULL_MS = 60_000;
 
@@ -100,6 +104,25 @@ function queueTransport(wire: Transport): QueueTransport {
   };
 }
 
+/** `task:<uuid>` — the coalescing key `observe` enqueues under. */
+const TASK_KEY = 'task:';
+
+/**
+ * The rows the queue still owes the server, by id.
+ *
+ * `reconcileTasks` needs this to know which local rows a pull may not touch,
+ * and the outbox is the only honest source for it: an entry is dirty for
+ * exactly as long as it is queued. Derived on demand rather than tracked, so
+ * there is never a stale second copy to disagree with the queue.
+ */
+export function dirtyTaskIds(): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const entry of pending()) {
+    if (entry.key.startsWith(TASK_KEY)) ids.add(entry.key.slice(TASK_KEY.length));
+  }
+  return ids;
+}
+
 const index = (tasks: Task[]): Map<string, Task> => {
   const byId = new Map<string, Task>();
   for (const t of tasks) byId.set(t.id, t);
@@ -122,6 +145,13 @@ export function createEngine(
    */
   let seen: Map<string, Task> | null = null;
   let lastTasks: Task[] | null = null;
+  /**
+   * The week the last observation was showing. A pull has to name a week, and
+   * the only week it may name is the one on screen: rows for any other week,
+   * reconciled into `myTasks`, would drop every visible row the server has no
+   * copy of under that key.
+   */
+  let lastWeek: WeekContext | null = null;
   /** Set immediately before dispatching a merge. See `observe`. */
   let suppress = false;
   let pullTimer: ReturnType<typeof setInterval> | null = null;
@@ -131,6 +161,7 @@ export function createEngine(
     const tasks = state.myTasks;
     const merged = suppress;
     suppress = false;
+    lastWeek = state.week;
 
     if (seen === null) {
       seen = index(tasks);
@@ -181,13 +212,36 @@ export function createEngine(
     if (!userId || pulling) return;
     pulling = true;
     try {
-      const people = await wire.pullCircle(userId);
+      // The week is whatever the last observation saw. Without one there is no
+      // week to ask for, and guessing is worse than waiting a cycle.
+      const week = lastWeek;
+      const local = lastTasks;
+      const [people, rows] = await Promise.all([
+        wire.pullCircle(userId),
+        week ? wire.pullTasks(userId, mondayOf(week)) : Promise.resolve(null),
+      ]);
+
+      const merge: ServerMerge = {};
       // No rows is the common answer, and a dispatch that changes nothing still
       // runs the reducer for every screen. Not dispatching is cheaper than
       // relying on SERVER_MERGE's identity bail-out.
-      if (people.length === 0) return;
-      suppress = true;
-      dispatch({ type: 'SERVER_MERGE', merge: { people } });
+      if (people.length > 0) merge.people = people;
+
+      // Two questions, both answered by folding the rows here first. Would this
+      // merge move `myTasks` at all — and may it? A rollover during the round
+      // trip makes these rows answer for a week that is no longer on screen,
+      // and reconciling them into the new one would delete it.
+      if (rows && local && week === lastWeek && reconcileTasks(local, rows, dirtyTaskIds()) !== local) {
+        merge.tasks = rows;
+      }
+
+      if (!merge.people && !merge.tasks) return;
+      // Armed only when the merge really does move the slice `observe` diffs.
+      // A flag armed for a merge the reducer then bails out of by identity is
+      // never spent — React commits nothing, no observation arrives — and the
+      // user's next tap gets adopted as if it were server data and never sent.
+      if (merge.tasks) suppress = true;
+      dispatch({ type: 'SERVER_MERGE', merge });
     } catch {
       // Offline, or a server that will be there next minute. A pull has no
       // queue behind it and nothing to retire; the next tick asks again.

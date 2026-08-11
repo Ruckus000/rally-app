@@ -266,12 +266,37 @@ describe('tasks writes', () => {
   });
 });
 
+const minutesFromNow = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
+
+const readUpdatedAt = async (id: string) => {
+  const { data } = await asService().from('tasks').select('updated_at').eq('id', id).single();
+  return Date.parse((data as { updated_at: string }).updated_at);
+};
+
+/**
+ * A task of maya's with a chosen `updated_at`, seeded through her own client so
+ * the insert path is exercised too. An INSERT has no stored row to lose to, so
+ * this is the only way to plant a row whose clock is genuinely in the past.
+ */
+const stake = async (fields: Record<string, unknown>): Promise<string> => {
+  const { data, error } = await asUser('maya')
+    .from('tasks')
+    .insert({
+      owner_id: idOf('maya'),
+      week_start: WEEK,
+      day: 0,
+      title: 'staked',
+      category: 'move',
+      points: 3,
+      ...fields,
+    })
+    .select('id')
+    .single();
+  expect(error).toBeNull();
+  return (data as { id: string }).id;
+};
+
 describe('the updated_at clamp', () => {
-  const minutesFromNow = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
-  const readUpdatedAt = async (id: string) => {
-    const { data } = await asService().from('tasks').select('updated_at').eq('id', id).single();
-    return Date.parse((data as { updated_at: string }).updated_at);
-  };
 
   it('clamps an updated_at far in the future to about now', async () => {
     const { data, error } = await asUser('maya')
@@ -299,14 +324,187 @@ describe('the updated_at clamp', () => {
   it('preserves a client-supplied updated_at that is not in the future', async () => {
     // The point of the column: a stake queued offline keeps the moment the
     // user tapped, not the moment it happened to reach the server.
+    //
+    // Staged against a row stamped older still. `T_everyone` was inserted with
+    // the default `now()`, and since the last-write-wins guard landed, a write
+    // dated 90 minutes ago no longer beats it — see the tests below. What is
+    // being pinned here is that a *winning* past stamp is stored verbatim
+    // rather than being rewritten to arrival time.
+    const id = await stake({ day: 5, title: 'staked offline', updated_at: minutesFromNow(-180) });
     const tapped = minutesFromNow(-90);
 
     const { error } = await asUser('maya')
       .from('tasks')
       .update({ title: 'edited offline', updated_at: tapped })
-      .eq('id', ids.T_everyone);
+      .eq('id', id);
     expect(error).toBeNull();
 
-    expect(await readUpdatedAt(ids.T_everyone)).toBe(Date.parse(tapped));
+    expect(await readUpdatedAt(id)).toBe(Date.parse(tapped));
+  });
+
+  it('bounds a backdated updated_at to 90 days ago', async () => {
+    // Backdating is clamped for a different reason than post-dating. Once the
+    // guard below exists, a 1970 stamp mostly loses — but the row still
+    // *exists*, sorting before every plausible "changed since" cursor, so it
+    // would be invisible to future pulls rather than merely stale.
+    const id = await stake({ day: 6, title: 'from 1970', updated_at: '1970-01-01T00:00:00Z' });
+
+    const stored = await readUpdatedAt(id);
+    const floor = Date.now() - 90 * 24 * 60 * 60_000;
+    expect(stored).toBeGreaterThan(floor - 60_000);
+    expect(stored).toBeLessThan(floor + 60_000);
+  });
+
+  it('leaves a plausibly old offline stamp alone', async () => {
+    // The floor has to sit past any credible offline stretch, or it would eat
+    // the exact case the column exists for. A week is well inside it.
+    const tapped = minutesFromNow(-60 * 24 * 7);
+    const id = await stake({ day: 4, title: 'a week in the outbox', updated_at: tapped });
+
+    expect(await readUpdatedAt(id)).toBe(Date.parse(tapped));
+  });
+});
+
+/**
+ * last-write-wins, which until now was a column nobody compared.
+ *
+ * The client upserts a whole row with `onConflict: 'id'`, so a losing write
+ * arrives as a full-row UPDATE — every column, not just the changed ones. That
+ * is why "the older write loses" has to be checked on the row's *other* fields
+ * and not only on its timestamp.
+ */
+describe('last-write-wins', () => {
+  /** The shape the client actually sends: a full row, upserted on id. */
+  const upsert = (id: string, at: string, fields: Record<string, unknown>) =>
+    asUser('maya')
+      .from('tasks')
+      .upsert(
+        {
+          id,
+          owner_id: idOf('maya'),
+          week_start: WEEK,
+          day: 0,
+          category: 'move',
+          points: 3,
+          aud: 'friends',
+          updated_at: at,
+          ...fields,
+        },
+        { onConflict: 'id' },
+      );
+
+  const readTask = async (id: string) => {
+    const { data } = await asService()
+      .from('tasks')
+      .select('title,points,done_at,updated_at')
+      .eq('id', id)
+      .single();
+    return data as { title: string; points: number; done_at: string | null; updated_at: string };
+  };
+
+  it('a newer write replaces an older row', async () => {
+    const id = await stake({ day: 0, title: 'monday', updated_at: minutesFromNow(-120) });
+
+    const { error } = await upsert(id, minutesFromNow(-10), { title: 'wednesday', points: 7 });
+    expect(error).toBeNull();
+
+    const row = await readTask(id);
+    expect(row.title).toBe('wednesday');
+    expect(row.points).toBe(7);
+  });
+
+  it('an older write does not clobber a newer row', async () => {
+    // The scenario the clamp comment always claimed to cover: a stake queued
+    // offline on Monday, drained on Friday, arriving after a Wednesday edit
+    // made on another device.
+    const edited = minutesFromNow(-10);
+    const id = await stake({ day: 0, title: 'wednesday', points: 7, updated_at: edited });
+
+    const { error } = await upsert(id, minutesFromNow(-120), { title: 'monday', points: 1 });
+    // A loss is not an error. The write was well-formed and permitted; it was
+    // simply superseded, and there is nothing for the outbox to retry.
+    expect(error).toBeNull();
+
+    const row = await readTask(id);
+    expect(row.title).toBe('wednesday');
+    expect(row.points).toBe(7);
+    expect(Date.parse(row.updated_at)).toBe(Date.parse(edited));
+  });
+
+  it('hands the winning row back to the write that lost', async () => {
+    // The deliberate half of the design. A skipped row (`return null`) would
+    // come back as `[]`, which in this schema already means "RLS refused you"
+    // — see the refused-update tests above. Returning the stored row keeps
+    // losing a race distinguishable from being denied, and gives the loser the
+    // values it needs to reconcile against.
+    const id = await stake({ day: 0, title: 'wednesday', updated_at: minutesFromNow(-10) });
+
+    const { data, error } = await asUser('maya')
+      .from('tasks')
+      .update({ title: 'monday', updated_at: minutesFromNow(-120) })
+      .eq('id', id)
+      .select('title');
+    expect(error).toBeNull();
+    expect(data).toEqual([{ title: 'wednesday' }]);
+  });
+
+  it('is stable when two writes carry the same updated_at', async () => {
+    // Same millisecond, no recoverable ordering. Refusing both would lose a
+    // tap, and an equal stamp is also what a retry of a write that already
+    // landed looks like — so the later arrival applies, without an error.
+    const at = minutesFromNow(-30);
+    const id = await stake({ day: 0, title: 'first', updated_at: at });
+
+    const again = await upsert(id, at, { title: 'second', points: 5 });
+    expect(again.error).toBeNull();
+
+    const row = await readTask(id);
+    expect(row.title).toBe('second');
+    expect(row.points).toBe(5);
+    expect(Date.parse(row.updated_at)).toBe(Date.parse(at));
+  });
+
+  it('does not block an update that leaves updated_at alone', async () => {
+    // Changing a column against the row as it stands is not a competing write.
+    // The audience flip above takes this path, as does anything server-side.
+    const staked = minutesFromNow(-120);
+    const id = await stake({ day: 0, title: 'untouched clock', updated_at: staked });
+
+    const { error } = await asUser('maya').from('tasks').update({ points: 9 }).eq('id', id);
+    expect(error).toBeNull();
+
+    const row = await readTask(id);
+    expect(row.points).toBe(9);
+    expect(Date.parse(row.updated_at)).toBe(Date.parse(staked));
+  });
+
+  it('still lets a task be closed, and reopened', async () => {
+    // The commonest write in the app, end to end and in the client's own
+    // shape: `done_at` is the boolean the UI toggles, and each toggle carries
+    // a fresh clock, so it must never be the losing side.
+    const id = await stake({ day: 0, title: 'run', updated_at: minutesFromNow(-60) });
+    expect((await readTask(id)).done_at).toBeNull();
+
+    const closedAt = minutesFromNow(0);
+    const closed = await upsert(id, closedAt, { title: 'run', done_at: closedAt });
+    expect(closed.error).toBeNull();
+    expect((await readTask(id)).done_at).not.toBeNull();
+
+    const reopenedAt = minutesFromNow(1);
+    const reopened = await upsert(id, reopenedAt, { title: 'run', done_at: null });
+    expect(reopened.error).toBeNull();
+    expect((await readTask(id)).done_at).toBeNull();
+  });
+
+  it('a stale close cannot reopen a task that was closed later', async () => {
+    const id = await stake({ day: 0, title: 'run', updated_at: minutesFromNow(-60) });
+
+    const closedAt = minutesFromNow(-5);
+    expect((await upsert(id, closedAt, { title: 'run', done_at: closedAt })).error).toBeNull();
+
+    // A queued edit from before the close drains and would otherwise clear it.
+    const late = await upsert(id, minutesFromNow(-30), { title: 'run', done_at: null });
+    expect(late.error).toBeNull();
+    expect((await readTask(id)).done_at).not.toBeNull();
   });
 });
