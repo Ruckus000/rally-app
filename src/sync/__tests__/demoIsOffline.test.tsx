@@ -21,12 +21,18 @@ import { Alert } from 'react-native';
 
 import { App } from '../../App';
 import * as supabaseModule from '../../lib/supabase';
+import { captureBackPress } from '../../test/backPress';
 
 describe('the demo accounts are genuinely offline', () => {
   let getSupabase: jest.SpyInstance;
+  let back: ReturnType<typeof captureBackPress>;
   const realEnv = { ...process.env };
 
+  /** Onboarding's front door: the demo, and the empty account you get by leaving. */
+  const lookAround = () => fireEvent.press(screen.getByLabelText('Look around first'));
+
   beforeEach(() => {
+    back = captureBackPress();
     // Jest never loads .env, so without this `hasSupabaseConfig()` is false and
     // every assertion below passes for the wrong reason — the gate would be
     // shut by missing config rather than by the account mode. The control at
@@ -37,29 +43,40 @@ describe('the demo accounts are genuinely offline', () => {
   });
 
   afterEach(() => {
+    back.restore();
     getSupabase.mockRestore();
     process.env = { ...realEnv };
   });
 
-  it('never builds a client while joining the seeded circle', () => {
+  it('never builds a client while walking the whole flow into the demo', () => {
     render(<App persist sync />);
-    fireEvent.press(screen.getByText('Join The Basement'));
-    fireEvent.press(screen.getByText('Start my week'));
+    lookAround();
+    fireEvent.press(screen.getByLabelText('Move more'));
+    fireEvent.press(screen.getByLabelText('Continue with 1 focus'));
+    fireEvent.changeText(screen.getByLabelText('Your name'), 'Alex');
+    fireEvent.press(screen.getByLabelText('Continue'));
+    fireEvent.press(screen.getByLabelText('Morning walk, every day, 35 points'));
+    fireEvent.press(screen.getByLabelText('Stake 35 pts'));
+    fireEvent.press(screen.getByLabelText('Ride solo for now'));
+    fireEvent.press(screen.getByLabelText('Maybe later'));
+    fireEvent.press(screen.getByLabelText('Enter your week'));
 
     expect(getSupabase).not.toHaveBeenCalled();
   });
 
   it('never builds a client on the empty account either', () => {
     render(<App persist sync />);
-    fireEvent.press(screen.getByText('Skip for now'));
+    // Leaving by the front door, which is what grants an empty local account.
+    back.press();
 
     expect(getSupabase).not.toHaveBeenCalled();
   });
 
   it('never builds a client while the app is walked end to end', () => {
     render(<App persist sync />);
-    fireEvent.press(screen.getByText('Join The Basement'));
-    fireEvent.press(screen.getByText('Start my week'));
+    lookAround();
+    back.press();
+    back.press();
 
     fireEvent.press(screen.getByText('Circle'));
     fireEvent.press(screen.getByText('Me'));
@@ -78,7 +95,7 @@ describe('the demo accounts are genuinely offline', () => {
       );
 
     render(<App persist sync />);
-    fireEvent.press(screen.getByText('Skip for now'));
+    back.press();
     fireEvent.press(screen.getByText('Me'));
     await act(async () => {
       fireEvent.press(screen.getByLabelText('Switch to live mode'));

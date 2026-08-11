@@ -26,15 +26,35 @@ export const color = {
   dash: '#C6CDB8',
   exchangeTrack: '#E3E8D8',
   quietText: '#9AA28D',
+
+  /**
+   * Onboarding. `onboardBg` is a shade above `planBg` — the first and last
+   * screens sit slightly warmer than the Plan sheet so the flow reads as its
+   * own place rather than as Plan with the chrome removed.
+   */
+  onboardBg: '#101408',
+  /** Inset field inside an already-white card, where `card` would disappear. */
+  inputFill: '#F7F8F3',
+  /** A step already behind you, on light. Lime at .45 does this on dark. */
+  dotDone: '#B9C2A8',
+  /** A control that is present but not yet earned — fill under `faintInk`. */
+  disabledFill: 'rgba(25,30,22,.08)',
 } as const;
 
 /** Text on dark. Never go below .45 — that floor passes contrast on small caps. */
 export const onDark = {
   primary: color.paper,
+  /** Body copy that has to hold its own against `primary` beside it. */
+  bodyStrong: 'rgba(241,242,236,.85)',
   bodySecondary: 'rgba(241,242,236,.62)',
   secondary: 'rgba(241,242,236,.55)',
   tertiary: 'rgba(241,242,236,.45)',
   hairline: 'rgba(241,242,236,.11)',
+  /** A border that has to be seen, not just felt: buttons, inactive dots. */
+  hairlineStrong: 'rgba(241,242,236,.16)',
+  /** The two fill steps under a hairline: resting control, and its track. */
+  fill: 'rgba(241,242,236,.05)',
+  fillFaint: 'rgba(241,242,236,.04)',
 } as const;
 
 /**

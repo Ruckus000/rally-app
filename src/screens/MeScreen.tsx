@@ -377,10 +377,10 @@ function DevControls() {
     );
 
   /**
-   * Live mode has no designed way in yet — onboarding is its own piece of work.
-   * Until it lands the sync layer is otherwise untestable on a device, so the
-   * door sits here, next to the other explicit testing affordances, rather than
-   * hidden behind a gesture nobody would find by accident.
+   * Onboarding's "Get started" is the designed way in; this is the way back in
+   * once you've already chosen a demo, which is the state a device spends most
+   * of its testing life in. It sits next to the other explicit testing
+   * affordances rather than behind a gesture nobody would find by accident.
    */
   const goLive = () =>
     Alert.alert(

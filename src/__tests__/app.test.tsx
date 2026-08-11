@@ -8,19 +8,40 @@ import { Alert } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { App } from '../App';
 import { liveWeek } from '../data/week';
+import { captureBackPress } from '../test/backPress';
 
-/** Join the demo circle, which is what seeds the populated fixtures. */
+/**
+ * These tests are about the app behind onboarding — the week, the circle, the
+ * ledger — so both helpers take the shortest honest route through the flow and
+ * leave the flow itself to `overlays/onboard/__tests__/flow.test.tsx`.
+ *
+ * Backing out is that route. Onboarding's front door grants the account the
+ * moment you choose it, and leaving from the door keeps what it granted without
+ * staking a first week on top of the fixtures these tests are written against.
+ */
+let back: ReturnType<typeof captureBackPress>;
+
+beforeEach(() => {
+  back = captureBackPress();
+});
+
+afterEach(() => {
+  back.restore();
+});
+
+/** The demo account: "Look around first" is what seeds the populated fixtures. */
 function open(options?: { config?: React.ComponentProps<typeof App>['config'] }) {
   render(<App config={options?.config} persist={false} />);
-  fireEvent.press(screen.getByText('Join The Basement'));
-  // Joining lands on the onboarding Plan step; step past it into the app.
-  fireEvent.press(screen.getByText('Start my week'));
+  fireEvent.press(screen.getByLabelText('Look around first'));
+  // Step 1 back to the front door, then out of it — the demo it granted stays.
+  back.press();
+  back.press();
 }
 
-/** Decline the invite, which is what produces an empty first-run account. */
+/** Closing the front door without choosing is what leaves an empty account. */
 function openFresh() {
   render(<App persist={false} />);
-  fireEvent.press(screen.getByText('Skip for now'));
+  back.press();
 }
 
 const goToPersonal = () => fireEvent.press(screen.getByText('Personal'));
