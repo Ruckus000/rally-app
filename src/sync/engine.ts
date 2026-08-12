@@ -217,6 +217,29 @@ export function dirtyReactionKeys(): ReadonlySet<string> {
 export const PROFILE_KEY = 'profile';
 
 /**
+ * Queue your display name for the server. Called by whoever dispatched the
+ * change, in the same tick.
+ *
+ * This used to be derived in `observe`, from a reference diff of the directory
+ * like every other slice — and that was wrong for one reason the other slices
+ * do not have: `observe` runs in an effect, so between the reducer writing the
+ * name and the queue hearing about it there is a window, and a `SERVER_MERGE`
+ * that lands inside it overwrites the name with the signup trigger's
+ * placeholder. `dirtyProfile()` cannot help, because nothing is queued yet.
+ *
+ * A task cannot hit this: its id is minted locally and no merge can invent one.
+ * Your profile row already exists on the server, with a name you did not
+ * choose, so the merge always has something to overwrite you with.
+ *
+ * Queueing here makes the window zero-width: the entry exists before the
+ * reducer has even run, so any merge in the same commit is already too late.
+ */
+export function queueProfileName(name: string): void {
+  const trimmed = name.trim();
+  if (trimmed) enqueue('profile.update', PROFILE_KEY, { name: trimmed });
+}
+
+/**
  * True while the queue still owes the server your name.
  *
  * The `people` half of `dirtyTaskIds`, and it exists for the same reason: your
@@ -475,13 +498,6 @@ export function createEngine(
   let mergingActed: Set<string> | null = null;
   let mergingNotes: Set<string> | null = null;
   /**
-   * Your display name as of the last observation, and whether the merge about to
-   * land is the one that spoke for it. The `people` half of the three sets
-   * above; a scalar rather than a set because there is only ever one of you.
-   */
-  let lastSelfName: string | null = null;
-  let mergingProfile = false;
-  /**
    * The circle the last pull answered with. Held here rather than read back off
    * state because the reducer is not the engine's memory — and the comparison
    * has to be field-wise anyway, since every pull builds a new object.
@@ -503,15 +519,9 @@ export function createEngine(
     const merged = merging;
     const mergedActed = mergingActed;
     const mergedNotes = mergingNotes;
-    const mergedProfile = mergingProfile;
     merging = null;
     mergingActed = null;
     mergingNotes = null;
-    mergingProfile = false;
-    // Your own name, as the directory holds it. `FINISH_ONBOARD` writes it, a
-    // merge can replace it, and nothing else touches it — so a changed string
-    // here is a rename this device made and owes the server.
-    const selfName = state.people[state.selfId]?.name ?? null;
     // A rollover empties `acted`, and that is a week ending rather than the user
     // taking back every cheer they ever gave. Diffing across it would delete the
     // rows on the server — visibly, on other people's phones — so the new week's
@@ -526,7 +536,6 @@ export function createEngine(
       lastActed = state.acted;
       lastPersonNotes = state.personNotes;
       lastMoments = state.moments;
-      lastSelfName = selfName;
       for (const placed of placedNotes(state)) {
         if (placed.note.id) seenNotes.add(placed.note.id);
       }
@@ -631,18 +640,6 @@ export function createEngine(
       lastPersonNotes = state.personNotes;
       lastMoments = state.moments;
     }
-
-    // Adoption, one slice over from `merging` and for the same reason: a merge
-    // that carried your profile row already spoke for this name, so moving the
-    // baseline to it reports nothing rather than queueing the server's own
-    // answer back to it.
-    //
-    // Never enqueued from a null: an account with no directory entry yet has no
-    // name to claim, and `''` would blank a profile the server has.
-    if (!mergedProfile && selfName && selfName !== lastSelfName) {
-      enqueue('profile.update', PROFILE_KEY, { name: selfName });
-    }
-    lastSelfName = selfName;
 
     lastTasks = tasks;
   }
@@ -781,12 +778,6 @@ export function createEngine(
         mergingActed = keys;
       }
       if (merge.notes) mergingNotes = new Set(merge.notes.map((n) => n.id));
-      // Your own profile row is in `pullCircle`'s answer like anyone else's, so
-      // a merge that carries it moves the name `observe` is diffing against. Not
-      // adopting it would read the server's own answer as a rename made here and
-      // queue it straight back — the same echo the other three sets prevent.
-      if (merge.people?.some((p) => p.id === userId)) mergingProfile = true;
-
       dispatch({ type: 'SERVER_MERGE', merge });
     } catch {
       // Offline, or a server that will be there next minute. A pull has no
