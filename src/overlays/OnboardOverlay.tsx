@@ -11,7 +11,10 @@
  *
  * Deviations from the design are documented on the screens that make them —
  * WelcomeScreen on sign-in, StakeScreen on scope, NotificationsScreen on push.
- * The one made here is the circle step, below.
+ *
+ * Screen 4 is the one place this host does real I/O: creating or joining a
+ * circle is a server call whose answer the flow has to wait for. See
+ * `runCircleCall` on why those two alone are not queued like everything else.
  */
 import React, { useState } from 'react';
 import { StatusBar, View } from 'react-native';
@@ -19,6 +22,8 @@ import { color } from '../theme/tokens';
 import { CIRCLE_NAME, Category } from '../data/fixtures';
 import { OnboardStake, useStore } from '../state/store';
 import { Overlay } from './Overlay';
+import { createCircle, joinCircleByCode, UnknownInviteCode } from '../sync/transport';
+import { kickSync } from '../sync/useSyncEngine';
 import { OnboardHeader } from './onboard/kit';
 import { IntentId, SUGG, Suggestion, pool } from './onboard/data';
 import { WelcomeScreen } from './onboard/WelcomeScreen';
@@ -58,13 +63,11 @@ const SUGGESTION_CATEGORY: Record<string, Category> = Object.fromEntries(
 const CUSTOM_CATEGORY: Category = 'Mind';
 
 /**
- * There is no circle transport yet — the schema has `create_circle` and
- * `join_circle_by_code`, but the client has never called them, and wiring a
- * whole new sync surface is not this piece of work. Rather than accept a code
- * and quietly grant nothing, a live account is told the truth and offered the
- * door that does work.
+ * What screen 6 calls the circle you joined by code. The row's real name is one
+ * round trip away, and this screen is the only place it would be shown before
+ * the Circle tab reads it properly.
  */
-const CIRCLES_NOT_LIVE = 'Circles aren’t open on live accounts yet — ride solo, and bring people in once they are.';
+const JOINED_CIRCLE = 'your circle';
 
 type Flow = {
   step: number;
@@ -102,6 +105,7 @@ export function OnboardOverlay({
   const { state, dispatch, effectiveAudience } = useStore();
   const [flow, setFlow] = useState<Flow>(INITIAL_FLOW);
   const [trouble, setTrouble] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const { step } = flow;
   const dark = DARK_STEPS.includes(step);
@@ -150,10 +154,6 @@ export function OnboardOverlay({
    * the demo circle, which is what makes screen 6's "solo for now" true.
    */
   const joinDemoCircle = () => {
-    if (live) {
-      setTrouble(CIRCLES_NOT_LIVE);
-      return;
-    }
     dispatch({ type: 'SET_ACCOUNT', mode: 'seeded' });
     patch({ circle: CIRCLE_NAME });
     next();
@@ -164,6 +164,47 @@ export function OnboardOverlay({
     patch({ circle: null });
     next();
   };
+
+  /**
+   * The live pair. Unlike everything else this flow dispatches, these wait: the
+   * server owns the answer — whether the code names a circle at all — and a
+   * queued join would mean saying "you're in" and finding out later that you
+   * never were. So the card holds, and a refusal lands on the screen that asked.
+   */
+  const runCircleCall = async (call: () => Promise<string>) => {
+    setBusy(true);
+    setTrouble(null);
+    try {
+      patch({ circle: await call() });
+      // The member list is a pull away, and the next scheduled one is a minute
+      // out — long enough to reach the Circle tab and find it empty.
+      kickSync();
+      next();
+    } catch (err) {
+      setTrouble(
+        err instanceof UnknownInviteCode
+          ? err.message
+          : 'Couldn’t reach Rally just now. Try again in a moment.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const joinLiveCircle = (code: string) =>
+    void runCircleCall(async () => {
+      await joinCircleByCode(code.trim());
+      // The name is on a row we can now read, but reading it is a round trip
+      // for one string on one screen. The code is what the user typed, and
+      // screen 6 only needs something true to call it.
+      return JOINED_CIRCLE;
+    });
+
+  const createLiveCircle = (name: string) =>
+    void runCircleCall(async () => {
+      await createCircle(name.trim());
+      return name.trim();
+    });
 
   return (
     <Overlay
@@ -238,9 +279,10 @@ export function OnboardOverlay({
 
         {step === 4 ? (
           <CircleScreen
-            onJoin={joinDemoCircle}
-            onCreate={joinDemoCircle}
+            onJoin={live ? joinLiveCircle : joinDemoCircle}
+            onCreate={live ? createLiveCircle : joinDemoCircle}
             onSolo={rideSolo}
+            busy={busy}
             error={trouble}
           />
         ) : null}
