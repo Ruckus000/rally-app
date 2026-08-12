@@ -502,3 +502,53 @@ describe('the invariants, not just the error codes', () => {
     expect(error?.code).toBe('23514');
   });
 });
+
+/**
+ * The read behind the invite sheet. Asserted here rather than only against the
+ * fake because `circles_select` is membership-scoped, and "can I read the row
+ * whose id I hold" is a question only real RLS answers.
+ */
+describe('reading your own circle', () => {
+  const myCircle = async (handle: SeedHandle) => {
+    const client = asUser(handle);
+    const mine = await client
+      .from('circle_members')
+      .select('circle_id')
+      .eq('profile_id', idOf(handle))
+      .limit(1);
+    const circleId = mine.data?.[0]?.circle_id;
+    if (!circleId) return null;
+    const row = await client.from('circles').select('id,name,invite_code').eq('id', circleId);
+    return row.data?.[0] ?? null;
+  };
+
+  it('gives a member the code they need to invite someone', async () => {
+    const circle = await myCircle('maya');
+
+    expect(circle).not.toBeNull();
+    expect(SEED_CIRCLE_IDS).toContain(circle?.id);
+    // The entropy the schema insists on. A code without it is guessable against
+    // an oracle with no rate limit, which is what the rotation was for.
+    expect(circle?.invite_code).toMatch(/-[0-9a-f]{16}$/);
+  });
+
+  it('gives a different member a different circle — the control', () => {
+    // Without this, a read that ignored the caller entirely would satisfy the
+    // assertion above by always returning the same row.
+    return Promise.all([myCircle('maya'), myCircle('jordan')]).then(([mine, theirs]) => {
+      expect(theirs).not.toBeNull();
+      expect(theirs?.id).not.toBe(mine?.id);
+    });
+  });
+
+  it('refuses the row to someone holding its id but not its membership', async () => {
+    // The id is not a capability: jordan shares no circle with maya, so even
+    // naming her circle exactly answers with nothing.
+    const { data } = await asUser('jordan')
+      .from('circles')
+      .select('id,invite_code')
+      .eq('id', CIRCLE_IDS.basement);
+
+    expect(data).toEqual([]);
+  });
+});

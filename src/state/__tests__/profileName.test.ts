@@ -83,6 +83,45 @@ describe('the session arriving late', () => {
   });
 });
 
+describe('renaming yourself later', () => {
+  it('keeps everything about you that a name does not decide', () => {
+    const named = onboard(ready(live()), 'Maya Chen');
+    const withExtras = {
+      ...named,
+      people: indexPeople([
+        { ...named.people[SESSION_ID]!, tint: '#D5E2BD', trend: 'up' as const },
+      ]),
+    };
+
+    const s = reducer(withExtras, { type: 'RENAME_SELF', name: 'Maya C.' });
+
+    expect(s.people[SESSION_ID]).toMatchObject({
+      name: 'Maya C.',
+      first: 'Maya',
+      initials: 'MC',
+      // Rebuilding the record from the name alone would drop these silently.
+      tint: '#D5E2BD',
+      trend: 'up',
+    });
+  });
+
+  it('ignores an empty name rather than blanking a profile the server holds', () => {
+    const named = onboard(ready(live()), 'Maya Chen');
+
+    // `profiles_name_length` refuses '' anyway; returning state unchanged means
+    // nothing is queued to be refused.
+    expect(reducer(named, { type: 'RENAME_SELF', name: '   ' })).toBe(named);
+  });
+
+  it('bounds a long one, so the push cannot be dead-lettered', () => {
+    const named = onboard(ready(live()), 'Maya Chen');
+
+    const s = reducer(named, { type: 'RENAME_SELF', name: 'A'.repeat(200) });
+
+    expect(s.people[SESSION_ID]?.name).toHaveLength(NAME_MAX);
+  });
+});
+
 describe('a name long enough to wipe the device', () => {
   /**
    * Before names were user-chosen this could not happen: every one of them was

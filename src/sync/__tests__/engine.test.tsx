@@ -99,9 +99,19 @@ const realtime = (() => {
 let appState: (next: string) => void = () => {};
 
 let dispatch: React.Dispatch<Action>;
+/**
+ * Renders of a store consumer, which is what a wasteful merge actually costs:
+ * the context is `useMemo(..., [state, config])`, so a dispatch that changes
+ * nothing re-renders every screen in the app. Counted in an effect rather than
+ * during render — a render must have no side effects, refs included.
+ */
+const rendered = { count: 0 };
 
 function Probe() {
   const store = useStore();
+  React.useEffect(() => {
+    rendered.count += 1;
+  });
   // The test drives the app through the same dispatch the screens get, so that
   // what is under test is a tap and not a hand-built outbox entry.
   React.useEffect(() => {
@@ -113,6 +123,8 @@ function Probe() {
       {/* Your own name as a screen would draw it — the thing that used to read
           "Someone" no matter what you typed. */}
       <Text testID="myname">{store.state.people[store.state.selfId]?.name ?? ''}</Text>
+      {/* The invite code, which is the only string that lets anyone in. */}
+      <Text testID="circle">{store.state.circle?.inviteCode ?? ''}</Text>
       <Text testID="tasks">{store.state.myTasks.map((t) => t.title).join(',')}</Text>
       {/* The ids are minted in the reducer, so a note or a cheer aimed at a real
           row has to read them back off state rather than invent one. */}
@@ -206,6 +218,7 @@ beforeEach(() => {
   fakeSupabase.reset();
   __resetOutboxForTests();
   __resetSessionForTests();
+  rendered.count = 0;
 });
 
 afterEach(() => {
@@ -275,6 +288,26 @@ it('sends the name you typed in onboarding', async () => {
   expect(pending()).toHaveLength(0);
 });
 
+it('pushes a rename made long after onboarding, with no sync code of its own', async () => {
+  mount();
+  await settle();
+  const me = currentUserId() as string;
+  finishOnboarding('Maya Chen');
+  await settle(10_000);
+
+  // The point of this test: `RENAME_SELF` touches only the people directory.
+  // It calls no transport and enqueues nothing itself — the watcher Wave A
+  // added for onboarding is not onboarding-specific, so writing the name *is*
+  // queueing it. If that ever stops being true, this fails and the rename
+  // silently becomes local-only.
+  act(() => dispatch({ type: 'RENAME_SELF', name: 'Maya C.' }));
+  await settle(10_000);
+
+  expect(nameOnServer(me)).toBe('Maya C.');
+  expect(screen.getByTestId('myname')).toHaveTextContent('Maya C.');
+  expect(pending()).toHaveLength(0);
+});
+
 it('takes a rename from another device without sending it back', async () => {
   mount();
   await settle();
@@ -319,6 +352,27 @@ it('keeps the name on screen when a pull races the push', async () => {
 
   expect(screen.getByTestId('myname')).toHaveTextContent('Maya Chen');
   expect(nameOnServer(me)).toBe('Maya Chen');
+});
+
+it('learns which circle it is in, and stops asking once it knows', async () => {
+  mount();
+  await settle();
+  const me = currentUserId() as string;
+  inACircleWith(me);
+
+  await settle(60_000);
+
+  // The invite code the sheet shows, taken from the row rather than a literal
+  // so it cannot pass against a hardcoded string.
+  const row = fakeSupabase.rows('circles')[0];
+  expect(screen.getByTestId('circle')).toHaveTextContent(String(row.invite_code));
+
+  // A second identical answer must not re-render the app. Every pull mints a
+  // new object for the same circle, so this is only true if the comparison is
+  // field-wise rather than by reference.
+  const renders = rendered.count;
+  await settle(60_000);
+  expect(rendered.count).toBe(renders);
 });
 
 it('does not write anything back when a circle merge arrives', async () => {

@@ -15,6 +15,7 @@ import { FIXTURE_WEEK } from '../data/week';
 export const baseState: State = {
   account: 'seeded',
   selfId: SELF_DEMO_ID,
+  circle: null,
   // A demo account never signs in, so `off` is the only value it can hold.
   session: { status: 'off' },
   people: seedPeople('seeded'),

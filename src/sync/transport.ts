@@ -16,6 +16,7 @@
  */
 import type { Task } from '../data/fixtures';
 import type { Person } from '../data/people';
+import type { CircleRef } from '../state/store';
 import { getSupabase } from '../lib/supabase';
 import { rowToPerson, rowToTask, taskToRow } from './mappers';
 import type { NoteTarget, SyncableNote } from './notes';
@@ -58,6 +59,7 @@ export type Transport = {
   push(entry: WireOp, userId: string): Promise<PushResult>;
   pullTasks(userId: string, weekStart: string): Promise<Task[]>;
   pullCircle(userId: string): Promise<Person[]>;
+  pullMyCircle(userId: string): Promise<CircleRef | null>;
   pullReactions(userId: string): Promise<ReactionRef[]>;
   pullNotes(userId: string): Promise<PulledNote[]>;
 };
@@ -416,6 +418,44 @@ export function supabaseTransport(): Transport {
   };
 
   /**
+   * The circle you are in — deliberately a different question from `pullCircle`,
+   * which answers "who shares a circle with me". Same first hop, different shape
+   * and different consumers, and one function that answered both would be one
+   * you could not describe without an "and".
+   *
+   * First circle only. The schema allows several; the UI has always shown one.
+   */
+  const pullMyCircle = async (userId: string): Promise<CircleRef | null> => {
+    const supabase = getSupabase();
+
+    const mine = await supabase
+      .from('circle_members')
+      .select('circle_id')
+      .eq('profile_id', userId)
+      .limit(1);
+    if (mine.error) fail(mine.error);
+    const circleId = (mine.data ?? [])[0]?.circle_id;
+    if (!circleId) return null;
+
+    // `circles_select` is membership-scoped, so this can only ever answer for a
+    // circle the caller is in — the id above is not a capability on its own.
+    const row = await supabase
+      .from('circles')
+      .select('id,name,invite_code')
+      .eq('id', circleId)
+      .limit(1);
+    if (row.error) fail(row.error);
+    const circle = (row.data ?? [])[0];
+    if (!circle) return null;
+
+    return {
+      id: String(circle.id),
+      name: String(circle.name ?? ''),
+      inviteCode: String(circle.invite_code ?? ''),
+    };
+  };
+
+  /**
    * Your own reactions, which is all `acted` can hold: it is a set of taps *this*
    * user made, with no room for whose they were. Other people's cheers arrive as
    * counts on a moment, which is a different read.
@@ -488,5 +528,5 @@ export function supabaseTransport(): Transport {
     });
   };
 
-  return { push, pullTasks, pullCircle, pullReactions, pullNotes };
+  return { push, pullTasks, pullCircle, pullMyCircle, pullReactions, pullNotes };
 }

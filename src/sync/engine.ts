@@ -19,7 +19,7 @@ import type { Dispatch } from 'react';
 import type { Note, Task } from '../data/fixtures';
 import type { PersonId } from '../data/people';
 import type { WeekContext } from '../data/week';
-import type { Action, ServerMerge, State } from '../state/store';
+import type { Action, CircleRef, ServerMerge, State } from '../state/store';
 import { mondayOf } from './mappers';
 import { noteKey, syncableNote, type NoteSite, type SyncableNote } from './notes';
 import {
@@ -129,6 +129,11 @@ function queueTransport(wire: Transport): QueueTransport {
     },
   };
 }
+
+/** Field-wise, because every pull mints a new object for the same circle. */
+const sameCircle = (a: CircleRef | null, b: CircleRef | null): boolean =>
+  a === b ||
+  (!!a && !!b && a.id === b.id && a.name === b.name && a.inviteCode === b.inviteCode);
 
 /** `task:<uuid>` — the coalescing key `observe` enqueues under. */
 const TASK_KEY = 'task:';
@@ -441,6 +446,12 @@ export function createEngine(
    */
   let lastSelfName: string | null = null;
   let mergingProfile = false;
+  /**
+   * The circle the last pull answered with. Held here rather than read back off
+   * state because the reducer is not the engine's memory — and the comparison
+   * has to be field-wise anyway, since every pull builds a new object.
+   */
+  let lastCircle: CircleRef | null = null;
   let pullTimer: ReturnType<typeof setInterval> | null = null;
   let pulling = false;
   let unsubscribeSession: (() => void) | null = null;
@@ -611,8 +622,9 @@ export function createEngine(
       // The week is whatever the last observation saw. Without one there is no
       // week to ask for, and guessing is worse than waiting a cycle.
       const week = lastWeek;
-      const [people, rows, reactions, notes] = await Promise.all([
+      const [people, myCircle, rows, reactions, notes] = await Promise.all([
         wire.pullCircle(userId),
+        wire.pullMyCircle(userId),
         week ? wire.pullTasks(userId, mondayOf(week)) : Promise.resolve(null),
         wire.pullReactions(userId),
         wire.pullNotes(userId),
@@ -654,7 +666,24 @@ export function createEngine(
       const freshNotes = notes.filter((n) => !seenNotes.has(n.id));
       if (freshNotes.length > 0) merge.notes = freshNotes;
 
-      if (!merge.people && !merge.tasks && !merge.reactions && !merge.notes) return;
+      // Compared field-wise, not by reference: a fresh object every minute
+      // saying the same thing would re-render every screen for nothing. `null`
+      // is a real answer here — "you left the circle" — so the key is only set
+      // when the answer actually moved.
+      if (!sameCircle(lastCircle, myCircle)) {
+        merge.circle = myCircle;
+        lastCircle = myCircle;
+      }
+
+      if (
+        !merge.people &&
+        !merge.tasks &&
+        !merge.reactions &&
+        !merge.notes &&
+        merge.circle === undefined
+      ) {
+        return;
+      }
 
       // Only the rows this merge actually carries. A merge the reducer then
       // bails out of by identity commits nothing and produces no observation,

@@ -2,9 +2,10 @@
  * Me — profile, points, streak, year grid, exchange, owed, bests, past weeks.
  */
 import React from 'react';
-import { Alert, View } from 'react-native';
+import { Alert, TextInput, View } from 'react-native';
 import { color, onDark, radius, shadows, yearLevelColor } from '../theme/tokens';
 import { CIRCLE_NAME, ME, weekPointsLabel } from '../data/fixtures';
+import { NAME_MAX } from '../data/people';
 import { nextWeekAfter, useStore } from '../state/store';
 import { allTasksDone, cheersGiven, weekPoints } from '../state/selectors';
 import { Avatar } from '../components/Avatar';
@@ -13,6 +14,39 @@ import { Bri, Caps, GlowBloom, Sans, Tap, fill, row } from '../components/primit
 export function MeScreen() {
   const { state, dispatch, world, people } = useStore();
   const { profile, week, history, yearLevels } = state;
+  const live = state.account === 'live';
+
+  /**
+   * Read from the directory, not from `ME`. The fixture is the demo's identity
+   * and stays that — but this card used to render it on every account, so a
+   * live user saw "Alex Rivera" no matter who they were or what they had typed.
+   */
+  const myName = live ? people.name(state.selfId) : ME.name;
+  /**
+   * Demo: the fixture handle, and its circle once there is one. Live: the
+   * circle's real name, or nothing. No handle — a live one is `anon_6e8dd5641ace`,
+   * which is machine noise rather than an identity worth showing.
+   */
+  const subtitle = live
+    ? (state.circle?.name ?? '')
+    : world.members.length > 1
+      ? `${ME.handle} · ${CIRCLE_NAME}`
+      : ME.handle;
+
+  const [renaming, setRenaming] = React.useState(false);
+  const [draftName, setDraftName] = React.useState('');
+  const startRename = () => {
+    setDraftName(myName);
+    setRenaming(true);
+  };
+  // Blur and submit both land here, so tapping away commits rather than
+  // silently discarding what was typed. `RENAME_SELF` ignores an empty or
+  // unchanged name, which is what makes closing without editing a no-op.
+  const commitRename = () => {
+    if (!renaming) return;
+    setRenaming(false);
+    dispatch({ type: 'RENAME_SELF', name: draftName });
+  };
   const won = allTasksDone(state);
   const gave = cheersGiven(state);
   const got = profile.cheersReceived;
@@ -55,17 +89,45 @@ export function MeScreen() {
             <Avatar
               who={state.selfId}
               size={50}
-              label={ME.name}
+              label={myName}
               style={{ position: 'absolute', top: 5, left: 5 }}
             />
           </View>
           <View style={fill}>
-            <Bri size={22} weight={800} tracking={-0.5} color={color.paper}>
-              {ME.name}
-            </Bri>
+            {renaming ? (
+              <TextInput
+                value={draftName}
+                onChangeText={setDraftName}
+                onSubmitEditing={commitRename}
+                onBlur={commitRename}
+                autoFocus
+                maxLength={NAME_MAX}
+                autoCapitalize="words"
+                autoCorrect={false}
+                returnKeyType="done"
+                selectionColor={color.lime}
+                accessibilityLabel="Your name"
+                style={{
+                  fontFamily: 'BricolageGrotesque_800ExtraBold',
+                  fontSize: 22,
+                  letterSpacing: -0.5,
+                  color: color.paper,
+                  paddingVertical: 0,
+                }}
+              />
+            ) : (
+              <Tap
+                onPress={live ? startRename : undefined}
+                accessibilityLabel={live ? `${myName}. Change your name.` : undefined}
+                style={{ alignSelf: 'flex-start' }}
+              >
+                <Bri size={22} weight={800} tracking={-0.5} color={color.paper}>
+                  {myName}
+                </Bri>
+              </Tap>
+            )}
             <Sans size={12} color={onDark.secondary} style={{ marginTop: 2 }}>
-              {/* No circle, no circle name — you haven't joined one. */}
-              {world.members.length > 1 ? `${ME.handle} · ${CIRCLE_NAME}` : ME.handle}
+              {subtitle}
             </Sans>
           </View>
           <Tap

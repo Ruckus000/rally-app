@@ -40,6 +40,7 @@ import {
 } from '../data/seed';
 import {
   MemberStats,
+  NAME_MAX,
   People,
   PeopleIndex,
   Person,
@@ -48,6 +49,7 @@ import {
   indexPeople,
   initialsFromName,
   makePeople,
+  personOf,
 } from '../data/people';
 import { flush, load, save } from './persistence';
 import { hasSupabaseConfig } from '../lib/supabase';
@@ -101,6 +103,20 @@ export const DEFAULT_CONFIG: Config = {
   quietComebacks: true,
 };
 
+/**
+ * The circle you are in, as the two screens that name it need it: the Me
+ * screen's subtitle, and the invite sheet's code. Not the whole row — nothing
+ * renders `created_at`, and a shape that carried it would invite someone to.
+ */
+export type CircleRef = { id: string; name: string; inviteCode: string };
+
+/**
+ * `circles_name_length` in the schema, mirrored once for the two fields that
+ * can reach it — onboarding's circle step and the invite sheet's. A field that
+ * overran it would be a 23514 the user could do nothing about.
+ */
+export const CIRCLE_NAME_MAX = 80;
+
 export type State = {
   /**
    * Which seed this account got. null while onboarding is still undecided —
@@ -118,6 +134,18 @@ export type State = {
   session: SessionState;
   /** Everyone this account can name, by id. Lookups go through `makePeople`. */
   people: PeopleIndex;
+  /**
+   * The circle this account is in, on a live account, or null. Deliberately
+   * *not* persisted: it is entirely server-derived and refetched on launch and
+   * on foreground, so persisting it would buy a soundness validator and a
+   * version question in exchange for one pull's worth of latency on a surface
+   * you could not use offline anyway.
+   *
+   * One circle, not many. The schema allows several; every screen in this app
+   * has always assumed one, and inventing a picker for a case no user has is
+   * work for nobody.
+   */
+  circle: CircleRef | null;
   /** The week this state belongs to. Compared against the clock to spot rollover. */
   week: WeekContext;
   /** Closed weeks, newest first. */
@@ -178,6 +206,7 @@ export type State = {
 const initialState: State = {
   account: null,
   selfId: SELF_DEMO_ID,
+  circle: null,
   session: { status: 'off' },
   people: seedPeople(null),
   week: liveWeek(),
@@ -261,6 +290,7 @@ export type Action =
   | { type: 'COMMIT_ROLLOVER'; carryIds: string[] }
   | { type: 'SKIP_ONBOARD' }
   | { type: 'FINISH_ONBOARD'; stakes: OnboardStake[]; aud: Audience; name: string }
+  | { type: 'RENAME_SELF'; name: string }
   | { type: 'SESSION'; session: SessionState }
   | { type: 'SERVER_MERGE'; merge: ServerMerge };
 
@@ -272,6 +302,12 @@ export type Action =
  */
 export type ServerMerge = {
   people?: Person[];
+  /**
+   * The circle you are in, or `null` for "you are in none" — which is a real
+   * answer and not the absence of one, so the engine only sets the key when the
+   * value actually moved.
+   */
+  circle?: CircleRef | null;
   /** Your own id, once the session and your profile row have both resolved. */
   selfId?: PersonId;
   /**
@@ -349,6 +385,9 @@ const seedFor = (mode: AccountMode, week: WeekContext) =>
   ({
     account: mode,
     selfId: SELF_DEMO_ID,
+    // Server-derived, and the server it came from belongs to the account being
+    // left behind. Cleared here for the reason the outbox is.
+    circle: null,
     people: seedPeople(mode),
     myTasks: seedTasks(mode),
     moments: seedMoments(mode),
@@ -898,6 +937,31 @@ export function reducer(state: State, action: Action): State {
       };
     }
 
+    case 'RENAME_SELF': {
+      /**
+       * The whole feature. There is no push here and no outbox call, because
+       * the engine already watches `people[selfId].name` — the watcher Wave A
+       * added for onboarding is not onboarding-specific, so writing the name
+       * into the directory *is* queueing it.
+       *
+       * Bounded to `NAME_MAX` because `profiles_name_length` refuses anything
+       * longer, and a refusal here would dead-letter at the head of the queue.
+       */
+      const named = action.name.trim().slice(0, NAME_MAX);
+      const current = state.people[state.selfId];
+      if (!named || named === current?.name) return state;
+
+      // Spread first, so `personOf` overwrites exactly the three fields a name
+      // decides — and everything else about you (tint, trend, stats) survives a
+      // rename rather than being quietly dropped by rebuilding the record.
+      const people = indexPeople(
+        Object.values(state.people)
+          .filter((p): p is Person => !!p && p.id !== state.selfId)
+          .concat({ ...current, ...personOf(state.selfId, named) }),
+      );
+      return { ...state, people };
+    }
+
     case 'SESSION': {
       const cur = state.session;
       const next = action.session;
@@ -1001,15 +1065,21 @@ export function reducer(state: State, action: Action): State {
       // Identity, so `useReducer` bails out of the render entirely. A poll that
       // found nothing new is the common case and must cost nothing — which is
       // why every fold above answers by identity when it changed nothing.
+      // Assigned rather than folded: unlike the slices above, there is nothing
+      // local to protect — no screen writes the circle, so the server's answer
+      // is the only one there has ever been.
+      const circle = action.merge.circle !== undefined ? action.merge.circle : state.circle;
+
       if (
         people === state.people &&
         myTasks === state.myTasks &&
         acted === state.acted &&
-        personNotes === state.personNotes
+        personNotes === state.personNotes &&
+        circle === state.circle
       ) {
         return state;
       }
-      return { ...state, people, myTasks, acted, personNotes };
+      return { ...state, people, myTasks, acted, personNotes, circle };
     }
 
     default:
