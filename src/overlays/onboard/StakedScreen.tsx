@@ -24,23 +24,37 @@ export function StakedScreen({
   stakeSum,
   pickCount,
   circle,
+  joined,
   weekNumber,
   onEnter,
 }: {
   stakeSum: number;
   pickCount: number;
+  /**
+   * Its *name*, when we know it. Joining by code does not tell us one —
+   * `join_circle_by_code` answers with a uuid — so this stays null until the
+   * pull that follows fills `state.circle` in.
+   */
   circle: string | null;
+  /**
+   * Whether you are in one at all. Separate from the name because "in a circle
+   * I cannot name yet" is a real third state, and folding it into `circle` is
+   * what produced "your circle / your circle": a placeholder standing in for a
+   * name, printed underneath a label that already said the same words.
+   */
+  joined: boolean;
   weekNumber: number;
   onEnter: () => void;
 }) {
-  const closingLine = circle
-    ? `Everyone in ${circle} can see your plan from Monday. Close it out.`
+  const closingLine = joined
+    ? `Everyone in ${circle ?? 'your circle'} can see your plan from Monday. Close it out.`
     : 'Your week is on the record. Invite a circle whenever you want witnesses.';
 
   // One region, one sentence: read as an announcement, not as eight fragments.
+  const belonging = joined ? (circle ? `Your circle, ${circle}.` : 'You’re in a circle.') : 'Solo for now.';
   const summary =
     `Staked. ${stakeSum} points on the line for week ${weekNumber}. ` +
-    `${pickCount} commitments. ${circle ? `Your circle, ${circle}.` : 'Solo for now.'} ` +
+    `${pickCount} commitments. ${belonging} ` +
     closingLine;
 
   useEffect(() => {
@@ -131,7 +145,12 @@ export function StakedScreen({
           <View style={[row, { gap: 22 }]}>
             <Stat value={String(pickCount)} label="commitments" />
             <View style={{ width: 1, alignSelf: 'stretch', backgroundColor: onDark.hairlineStrong }} />
-            <Stat value={circle ?? 'Solo'} label={circle ? 'your circle' : 'for now'} />
+            {/* The value is the circle's name and the label says whose it is, so
+                the value must never be the words "your circle" — see `joined`. */}
+            <Stat
+              value={joined ? (circle ?? 'Joined') : 'Solo'}
+              label={joined ? 'your circle' : 'for now'}
+            />
           </View>
         </Reveal>
 

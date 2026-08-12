@@ -63,13 +63,6 @@ const SUGGESTION_CATEGORY: Record<string, Category> = Object.fromEntries(
 /** Something you wrote yourself belongs to no intent, so it files as personal. */
 const CUSTOM_CATEGORY: Category = 'Mind';
 
-/**
- * What screen 6 calls the circle you joined by code. The row's real name is one
- * round trip away, and this screen is the only place it would be shown before
- * the Circle tab reads it properly.
- */
-const JOINED_CIRCLE = 'your circle';
-
 type Flow = {
   step: number;
   intents: IntentId[];
@@ -83,8 +76,13 @@ type Flow = {
   /** Suggestion ids, across both the offered rows and your own. */
   picks: string[];
   custom: Suggestion[];
-  /** The circle you leave onboarding in, for screen 6's closing line. */
+  /**
+   * The circle you leave onboarding in, for screen 6's closing line: its name
+   * when we have one, and whether you are in one at all. Two fields because
+   * joining by code gives you the second without the first.
+   */
   circle: string | null;
+  joined: boolean;
 };
 
 const INITIAL_FLOW: Flow = {
@@ -94,6 +92,7 @@ const INITIAL_FLOW: Flow = {
   picks: [],
   custom: [],
   circle: null,
+  joined: false,
 };
 
 export function OnboardOverlay({
@@ -161,13 +160,13 @@ export function OnboardOverlay({
    */
   const joinDemoCircle = () => {
     dispatch({ type: 'SET_ACCOUNT', mode: 'seeded' });
-    patch({ circle: CIRCLE_NAME });
+    patch({ circle: CIRCLE_NAME, joined: true });
     next();
   };
 
   const rideSolo = () => {
     if (!live) dispatch({ type: 'SET_ACCOUNT', mode: 'fresh' });
-    patch({ circle: null });
+    patch({ circle: null, joined: false });
     next();
   };
 
@@ -177,11 +176,11 @@ export function OnboardOverlay({
    * queued join would mean saying "you're in" and finding out later that you
    * never were. So the card holds, and a refusal lands on the screen that asked.
    */
-  const runCircleCall = async (call: () => Promise<string>) => {
+  const runCircleCall = async (call: () => Promise<string | null>) => {
     setBusy(true);
     setTrouble(null);
     try {
-      patch({ circle: await call() });
+      patch({ circle: await call(), joined: true });
       // The member list is a pull away, and the next scheduled one is a minute
       // out — long enough to reach the Circle tab and find it empty.
       kickSync();
@@ -200,10 +199,11 @@ export function OnboardOverlay({
   const joinLiveCircle = (code: string) =>
     void runCircleCall(async () => {
       await joinCircleByCode(code.trim());
-      // The name is on a row we can now read, but reading it is a round trip
-      // for one string on one screen. The code is what the user typed, and
-      // screen 6 only needs something true to call it.
-      return JOINED_CIRCLE;
+      // No name: the RPC answers with a uuid. `kickSync` above means the pull
+      // that fills `state.circle` is already on its way, and screen 6 prefers
+      // it — so the name appears without a round trip of its own, and the copy
+      // reads correctly in the moment before it lands.
+      return null;
     });
 
   const createLiveCircle = (name: string) =>
@@ -237,13 +237,13 @@ export function OnboardOverlay({
               // Anonymous sign-in is the provider's session effect, which fires
               // on the account flipping to live. Nothing to await here.
               dispatch({ type: 'SET_ACCOUNT', mode: 'live' });
-              patch({ circle: null, step: step + 1 });
+              patch({ circle: null, joined: false, step: step + 1 });
             }}
             onLookAround={() => {
               dispatch({ type: 'SET_ACCOUNT', mode: 'seeded' });
               // You are in The Basement from this tap — screen 4 can only
               // confirm it or undo it, so screen 6 knows the answer already.
-              patch({ circle: CIRCLE_NAME, step: step + 1 });
+              patch({ circle: CIRCLE_NAME, joined: true, step: step + 1 });
             }}
           />
         ) : null}
@@ -307,7 +307,8 @@ export function OnboardOverlay({
           <StakedScreen
             stakeSum={stakeSum}
             pickCount={picked.length}
-            circle={flow.circle}
+            circle={state.circle?.name ?? flow.circle}
+            joined={flow.joined}
             weekNumber={state.week.number}
             onEnter={finish}
           />

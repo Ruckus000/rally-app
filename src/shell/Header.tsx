@@ -4,9 +4,12 @@ import { color, gutter, shadows } from '../theme/tokens';
 import { Bri, Sans, Tap, row } from '../components/primitives';
 import { Icon } from '../components/Icon';
 import { useStore } from '../state/store';
-import { unreadNeedsCount } from '../state/selectors';
+import { circleMembers, unreadNeedsCount } from '../state/selectors';
 import { ME } from '../data/fixtures';
-import type { Scope } from '../state/store';
+import type { Scope, State } from '../state/store';
+
+/** Includes you, which is what makes "1 person" the honest circle-of-one. */
+const memberCount = (state: State): number => circleMembers(state).length;
 
 const SCOPES: { key: Scope; label: string }[] = [
   { key: 'personal', label: 'Personal' },
@@ -15,10 +18,11 @@ const SCOPES: { key: Scope; label: string }[] = [
 ];
 
 export function Header({ topInset }: { topInset: number }) {
-  const { state, dispatch, config, world } = useStore();
+  const { state, dispatch, config } = useStore();
   const { week } = state;
   const unread = unreadNeedsCount(state);
   const isWeek = state.tab === 'week';
+  const members = memberCount(state);
 
   const title =
     state.tab === 'week' ? week.label : state.tab === 'circle' ? 'Your Circle' : ME.name;
@@ -26,9 +30,11 @@ export function Header({ topInset }: { topInset: number }) {
     state.tab === 'week'
       ? `${week.dateRange} · ${week.todayName}`
       : state.tab === 'circle'
-        ? config.showRank
-          ? `${world.members.length} people, ranked by follow-through`
-          : `${world.members.length} people, checking in on each other`
+        ? // `circleMembers`, not `world.members`: the world is a fixture, and the
+          // one it hands a live account has a single element — so this read
+          // "1 people" for a circle of two, and would have said it for eight.
+          `${members} ${members === 1 ? 'person' : 'people'}, ` +
+          (config.showRank ? 'ranked by follow-through' : 'checking in on each other')
         : `${ME.shortHandle} · ${ME.since}`;
 
   return (
