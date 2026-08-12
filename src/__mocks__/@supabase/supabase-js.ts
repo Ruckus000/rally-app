@@ -422,7 +422,7 @@ function withDefaults(table: string, input: Row): Row {
 
 // ─── the query builder ────────────────────────────────────────────────────
 
-type Filter = { op: 'eq' | 'in'; col: string; value: unknown };
+type Filter = { op: 'eq' | 'neq' | 'in'; col: string; value: unknown };
 type Op = 'select' | 'insert' | 'update' | 'delete' | 'upsert';
 
 const compare = (a: unknown, b: unknown): number => {
@@ -489,6 +489,11 @@ class Builder<T = Row[]> implements PromiseLike<Result<T>> {
 
   eq(col: string, value: unknown): this {
     this.filters.push({ op: 'eq', col, value });
+    return this;
+  }
+
+  neq(col: string, value: unknown): this {
+    this.filters.push({ op: 'neq', col, value });
     return this;
   }
 
@@ -561,9 +566,9 @@ class Builder<T = Row[]> implements PromiseLike<Result<T>> {
           pgError('42703', `column ${this.table}.${f.col} does not exist`),
         );
       }
-      return f.op === 'eq'
-        ? row[f.col] === f.value
-        : (f.value as unknown[]).includes(row[f.col]);
+      if (f.op === 'eq') return row[f.col] === f.value;
+      if (f.op === 'neq') return row[f.col] !== f.value;
+      return (f.value as unknown[]).includes(row[f.col]);
     });
   }
 

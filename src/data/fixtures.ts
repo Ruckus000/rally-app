@@ -193,6 +193,12 @@ export type Moment = {
   text?: string;
   quote?: string;
   pts?: number;
+  /**
+   * How many *other* people have cheered this. Absent on a fixture, and absent
+   * until the feed has been answered for — which is why the card falls back to
+   * the word "Cheer" rather than to a confident zero.
+   */
+  cheers?: number;
   backers?: PersonId[];
   cmts?: Note[];
 };
