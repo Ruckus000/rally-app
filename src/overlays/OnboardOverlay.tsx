@@ -70,10 +70,10 @@ type Flow = {
   step: number;
   intents: IntentId[];
   /**
-   * Kept for the avatar and the handle preview, and deliberately not committed:
-   * there is nowhere honest to put it. The demo's identity is a fixture, and a
-   * live profile's name would have to be written through a `profiles` push the
-   * client doesn't have. It gets one when profiles do.
+   * The avatar and the handle preview read it as you type, and `FINISH_ONBOARD`
+   * commits it: into the people directory always, and — on a live account — out
+   * to `profiles.name` through the outbox, because it is what your circle sees
+   * beside every task you close.
    */
   name: string;
   /** Suggestion ids, across both the offered rows and your own. */
@@ -210,7 +210,12 @@ export function OnboardOverlay({
         ) : null}
 
         {step === 2 ? (
-          <IdentityScreen value={flow.name} onChange={(name) => patch({ name })} onNext={next} />
+          <IdentityScreen
+            value={flow.name}
+            onChange={(name) => patch({ name })}
+            onNext={next}
+            showHandle={!live}
+          />
         ) : null}
 
         {step === 3 ? (

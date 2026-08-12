@@ -39,18 +39,35 @@ export const initialsFromName = (name: string): string => {
   return letters.join('').toUpperCase();
 };
 
+/**
+ * The longest display name this app will hold, and the one place it is spelled.
+ *
+ * A display name is the only string another person controls that reaches your
+ * screen, and — because `people` is persisted — your disk. `peopleAreSound`
+ * rejects a payload containing a longer one, and rejection there discards the
+ * *whole* payload: your staked week, your history, your streak. So an unbounded
+ * name is not a layout bug, it is one circle member able to wipe your device.
+ * Bounded on write (`profiles_name_length`), on read (here), and on restore.
+ */
+export const NAME_MAX = 80;
+
 /** Everything but the name is optional, because a live row is only ever an id and a name. */
 export const personOf = (
   id: PersonId,
   name: string,
   extra: Partial<Omit<Person, 'id'>> = {},
-): Person => ({
-  id,
-  name,
-  first: name.trim().split(/\s+/)[0] || name,
-  initials: initialsFromName(name),
-  ...extra,
-});
+): Person => {
+  // Truncated rather than refused: a name this long is someone else's row, and
+  // dropping the person entirely would leave their tasks attributed to nobody.
+  const bounded = name.length > NAME_MAX ? name.slice(0, NAME_MAX) : name;
+  return {
+    id,
+    name: bounded,
+    first: bounded.trim().split(/\s+/)[0] || bounded,
+    initials: initialsFromName(bounded),
+    ...extra,
+  };
+};
 
 /**
  * The demo circle, transcribed from the fixtures it replaces. Each one keeps

@@ -6,6 +6,7 @@ import React from 'react';
 import { TextInput, View } from 'react-native';
 import { color, font, personTints, shadows } from '../../theme/tokens';
 import { Bri, Caps, Sans } from '../../components/primitives';
+import { NAME_MAX } from '../../data/people';
 import { handleOf, initialsOf } from './data';
 import { PillButton, PulseRing } from './kit';
 
@@ -17,10 +18,18 @@ export function IdentityScreen({
   value,
   onChange,
   onNext,
+  showHandle = true,
 }: {
   value: string;
   onChange: (next: string) => void;
   onNext: () => void;
+  /**
+   * Off for a live account. The handle it previews is derived from what you
+   * type, but the server's is minted by the signup trigger and never rewritten
+   * — writing it would be a unique collision no retry could clear. So on live
+   * this would be showing you an address that isn't yours.
+   */
+  showHandle?: boolean;
 }) {
   const named = value.trim().length > 0;
 
@@ -74,7 +83,7 @@ export function IdentityScreen({
         color={named ? color.moss : color.faintInk}
         style={{ textAlign: 'center', minHeight: 18, marginBottom: 22 }}
       >
-        {handleOf(value)}
+        {showHandle ? handleOf(value) : ' '}
       </Sans>
 
       <TextInput
@@ -88,6 +97,10 @@ export function IdentityScreen({
         returnKeyType="done"
         autoCapitalize="words"
         autoCorrect={false}
+        // `profiles_name_length` refuses anything longer, and a refusal here
+        // would be a permanent 23514 at the head of the queue. Stopping the
+        // keystroke is kinder than dead-lettering the rename.
+        maxLength={NAME_MAX}
         accessibilityLabel="Your name"
         style={{
           height: 54,

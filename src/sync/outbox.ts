@@ -24,7 +24,8 @@ export type OutboxOp =
   | 'task.delete'
   | 'reaction.add'
   | 'reaction.remove'
-  | 'note.add';
+  | 'note.add'
+  | 'profile.update';
 
 export type OutboxEntry = {
   /** Client-minted, and the idempotency key the transport should send. */
@@ -88,6 +89,7 @@ const OPS: readonly OutboxOp[] = [
   'reaction.add',
   'reaction.remove',
   'note.add',
+  'profile.update',
 ];
 
 // ─── module state ─────────────────────────────────────────────────────────
