@@ -146,7 +146,8 @@ const sameMoments = (a: Moment[], b: Moment[]): boolean =>
       m.who === other.who &&
       m.title === other.title &&
       m.pts === other.pts &&
-      m.day === other.day
+      m.day === other.day &&
+      m.cheers === other.cheers
     );
   });
 
@@ -678,6 +679,12 @@ export function createEngine(
       const weekStart = week ? mondayOf(week) : null;
       const memberIds = people.map((p) => p.id).filter((id) => id !== userId);
       const friendRows = weekStart ? await wire.pullFriendTasks(memberIds, weekStart) : [];
+      // A third wave, for the same reason the second is one: it can only ask
+      // about rows the feed has just named.
+      const cheers = await wire.pullCheerCounts(
+        friendRows.map((row) => String(row.id)),
+        userId,
+      );
 
       const merge: ServerMerge = {};
       // No rows is the common answer, and a dispatch that changes nothing still
@@ -693,7 +700,7 @@ export function createEngine(
       // honestly: `profiles_select` exposes the profiles of people who share a
       // circle with you and nobody else, so a global feed of `aud='everyone'`
       // rows from strangers would be a list of people all called "Someone".
-      const moments = friendRows.map((row) => taskRowToMoment(row));
+      const moments = friendRows.map((row) => taskRowToMoment(row, undefined, cheers[String(row.id)] ?? 0));
       if (!sameMoments(lastFeed, moments)) {
         merge.moments = moments;
         lastFeed = moments;

@@ -157,7 +157,11 @@ export function relativeTime(iso: unknown, now: number = Date.now()): string {
  * a real person's week. Not `'ask'` either: nothing on a task row says a person
  * is asking for company, and guessing would put words in their mouth.
  */
-export function taskRowToMoment(row: Record<string, unknown>, now?: number): Moment {
+export function taskRowToMoment(
+  row: Record<string, unknown>,
+  now?: number,
+  cheers?: number,
+): Moment {
   const task = rowToTask(row);
   return {
     id: task.id,
@@ -168,6 +172,7 @@ export function taskRowToMoment(row: Record<string, unknown>, now?: number): Mom
     day: task.day,
     title: task.title,
     pts: task.pts,
+    cheers,
     // Notes on someone else's task are not pulled — `pullNotes` answers for
     // your own rows and your own inbox. What is here is what this device wrote.
     cmts: [],

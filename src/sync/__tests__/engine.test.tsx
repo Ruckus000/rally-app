@@ -129,6 +129,8 @@ function Probe() {
       <Text testID="circle">{store.state.circle?.inviteCode ?? ''}</Text>
       {/* Other people's weeks, and the thread this device has left on them. */}
       <Text testID="feed">{store.state.moments.map((m) => m.title ?? '').join(',')}</Text>
+      {/* Other people's cheers, per moment — never including your own. */}
+      <Text testID="cheers">{store.state.moments.map((m) => String(m.cheers ?? '')).join(',')}</Text>
       <Text testID="feedNotes">
         {store.state.moments.flatMap((m) => (m.cmts ?? []).map((c) => c.t)).join(',')}
       </Text>
@@ -459,6 +461,62 @@ describe('other people’s weeks', () => {
     // that merely differed — including the right answer for the wrong reason.
     expect(screen.getByTestId('feed')).toHaveTextContent(/Swim 2k/);
     expect(screen.getByTestId('feed')).not.toHaveTextContent(/Not your business/);
+  });
+
+  it('brings back how many other people cheered', async () => {
+    mount();
+    await settle();
+    const me = currentUserId() as string;
+    inACircleWith(me);
+    mayaStakes();
+    fakeSupabase.seed({
+      profiles: [{ id: STRANGER, handle: 'nana', name: 'Nana' }],
+      reactions: [
+        {
+          actor_id: OTHER,
+          target_type: 'task',
+          target_id: '99999999-9999-4999-8999-999999999999',
+          kind: 'cheer',
+        },
+        {
+          actor_id: STRANGER,
+          target_type: 'task',
+          target_id: '99999999-9999-4999-8999-999999999999',
+          kind: 'cheer',
+        },
+      ],
+    });
+
+    await settle(60_000);
+
+    expect(screen.getByTestId('cheers')).toHaveTextContent('2');
+  });
+
+  it('leaves your own cheer out of the count, so the screen can add it once', async () => {
+    mount();
+    await settle();
+    const me = currentUserId() as string;
+    inACircleWith(me);
+    mayaStakes();
+    await settle(60_000);
+
+    // Cheer it, and let the push land. The server now holds your reaction —
+    // the count must still say nobody else has, or the card reads 2 for what
+    // is one cheer, yours.
+    act(() =>
+      dispatch({
+        type: 'ACT',
+        id: '99999999-9999-4999-8999-999999999999',
+        kind: 'cheer',
+        toast: 'x',
+      }),
+    );
+    await settle(10_000);
+    expect(fakeSupabase.rows('reactions')).toHaveLength(1);
+
+    await settle(60_000);
+
+    expect(screen.getByTestId('cheers')).toHaveTextContent('0');
   });
 
   it('does not re-render every minute for a feed that has not moved', async () => {

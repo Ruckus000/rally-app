@@ -61,6 +61,7 @@ export type Transport = {
   pullCircle(userId: string): Promise<Person[]>;
   pullMyCircle(userId: string): Promise<CircleRef | null>;
   pullFriendTasks(memberIds: string[], weekStart: string): Promise<Record<string, unknown>[]>;
+  pullCheerCounts(taskIds: string[], userId: string): Promise<Record<string, number>>;
   pullReactions(userId: string): Promise<ReactionRef[]>;
   pullNotes(userId: string): Promise<PulledNote[]>;
 };
@@ -442,6 +443,38 @@ export function supabaseTransport(): Transport {
   };
 
   /**
+   * How many *other* people have cheered each of these tasks.
+   *
+   * Deliberately excludes you. The obvious shape — a total including your own
+   * cheer — forces every caller to work out whether the server has heard about
+   * your tap yet, and to add one when it hasn't; get that wrong in either
+   * direction and the number is off by one for exactly as long as the queue is
+   * busy. Asking for everyone else's makes the screen's job addition: this,
+   * plus the cheer it already knows you made.
+   */
+  const pullCheerCounts = async (
+    taskIds: string[],
+    userId: string,
+  ): Promise<Record<string, number>> => {
+    if (taskIds.length === 0) return {};
+    const { data, error } = await getSupabase()
+      .from('reactions')
+      .select('target_id')
+      .eq('target_type', TARGET_TYPE)
+      .eq('kind', 'cheer')
+      .neq('actor_id', userId)
+      .in('target_id', taskIds);
+    if (error) fail(error);
+
+    const counts: Record<string, number> = {};
+    for (const row of data ?? []) {
+      const id = String((row as { target_id: unknown }).target_id);
+      counts[id] = (counts[id] ?? 0) + 1;
+    }
+    return counts;
+  };
+
+  /**
    * The circle you are in — deliberately a different question from `pullCircle`,
    * which answers "who shares a circle with me". Same first hop, different shape
    * and different consumers, and one function that answered both would be one
@@ -558,6 +591,7 @@ export function supabaseTransport(): Transport {
     pullCircle,
     pullMyCircle,
     pullFriendTasks,
+    pullCheerCounts,
     pullReactions,
     pullNotes,
   };

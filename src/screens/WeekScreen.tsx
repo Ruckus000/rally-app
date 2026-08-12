@@ -282,7 +282,11 @@ function MomentItem({ moment: m }: { moment: Moment }) {
       quote={m.quote}
       isAsk={isAsk}
       cheered={cheered}
-      cheerCount={cheered ? 1 : 0}
+      // Everyone else's, plus your own tap. `pullCheerCounts` deliberately
+      // excludes you, so this is addition rather than a guess about whether the
+      // server has heard about your cheer yet — which would be off by one for
+      // as long as the queue was busy, in whichever direction it guessed wrong.
+      cheerCount={(m.cheers ?? 0) + (cheered ? 1 : 0)}
       commentCount={m.cmts?.length ?? 0}
       onOpen={openSheet}
       onCheer={cheer}
