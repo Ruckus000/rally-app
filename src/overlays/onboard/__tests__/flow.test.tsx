@@ -17,7 +17,6 @@ import { __resetSupabaseForTests } from '../../../lib/supabase';
 import { __resetSessionForTests } from '../../../sync/session';
 import { __resetOutboxForTests, pending } from '../../../sync/outbox';
 
-
 let back: ReturnType<typeof captureBackPress>;
 
 beforeEach(() => {
@@ -243,6 +242,44 @@ describe('the onboarding flow', () => {
 
       fireEvent.press(screen.getByLabelText('Me'));
       expect(screen.getByText('Maya Chen')).toBeTruthy();
+    });
+
+    /**
+     * Joining by code gets you a uuid, not a name, and the celebration screen
+     * wants a name: the value it prints sits under the label "your circle". A
+     * placeholder standing in for the name read "your circle / your circle",
+     * and announced "Your circle, your circle." to a screen reader.
+     */
+    it('names the circle you joined, rather than calling it "your circle"', async () => {
+      // Somebody else's circle, seeded rather than created through a second
+      // session: the fake holds one session at a time.
+      const HOST = '55555555-5555-4555-8555-555555555555';
+      const CODE = 'the-basement-a1b2c3d4e5f60718';
+      fakeSupabase.seed({
+        profiles: [{ id: HOST, handle: 'dre', name: 'Dre Okafor' }],
+        circles: [
+          {
+            id: '66666666-6666-4666-8666-666666666666',
+            name: 'The Basement',
+            invite_code: CODE,
+            created_by: HOST,
+          },
+        ],
+      });
+
+      await reachTheCircle();
+      press('I have an invite. A friend sent you a circle code');
+      fireEvent.changeText(screen.getByLabelText('Circle code'), CODE);
+      await act(async () => {
+        press('Join');
+      });
+      press('Maybe later');
+
+      // Joining answers with a uuid, so the name can only come from the pull
+      // `kickSync` started — which is the whole reason this screen prefers
+      // `state.circle` over anything onboarding could invent for it.
+      expect(screen.getByLabelText(/Your circle, The Basement\./)).toBeTruthy();
+      expect(screen.queryByLabelText(/[Yy]our circle, your circle/)).toBeNull();
     });
 
     it('says so when the code names nothing, and stays on the step', async () => {
