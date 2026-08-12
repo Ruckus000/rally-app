@@ -8,12 +8,12 @@ import { ScrollView, TextInput, View } from 'react-native';
 import { color, shadows } from '../../theme/tokens';
 import { Icon } from '../../components/Icon';
 import { Bri, Caps, Sans, Tap, fill, row } from '../../components/primitives';
+import { CIRCLE_NAME_MAX } from '../../state/store';
 import { ExpandingCard, PillButton } from './kit';
 
 /** Short enough to catch a typo, loose enough to accept 'RALLY-7Q2M' or '7Q2M'. */
 const MIN_CODE = 4;
-/** `circles_name_length` in the schema. Mirrored so the field cannot overrun it. */
-const CIRCLE_NAME_MAX = 80;
+
 
 export function CircleScreen({
   onJoin,

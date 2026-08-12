@@ -6,7 +6,16 @@
  * hardware back through <Overlay>.
  */
 import React, { useEffect, useState } from 'react';
-import { Animated, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
+import {
+  Animated,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  Share,
+  TextInput,
+  View,
+} from 'react-native';
 import { color, radius } from '../theme/tokens';
 import {
   AUDIENCE_LABEL,
@@ -17,13 +26,15 @@ import {
   PERSON_TASKS,
   Task,
 } from '../data/fixtures';
-import { useStore } from '../state/store';
+import { CIRCLE_NAME_MAX, useStore } from '../state/store';
 import { myStats } from '../state/selectors';
 import { SHEET_DURATION, sheetEasing, useReducedMotion } from '../theme/motion';
 import { Avatar } from '../components/Avatar';
 import { Icon } from '../components/Icon';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
 import { Overlay } from './Overlay';
+import { createCircle } from '../sync/transport';
+import { kickSync } from '../sync/useSyncEngine';
 import type { PersonId } from '../data/people';
 
 export function DetailSheet({ bottomInset }: { bottomInset: number }) {
@@ -421,10 +432,140 @@ function PersonSheet({ who }: { who: PersonId }) {
 
 /* ── invite ─────────────────────────────────────────────────────────────── */
 
+/**
+ * What a live account with no circle gets instead of an invite code.
+ *
+ * Riding solo through onboarding used to be permanent: this sheet was the only
+ * invite surface, onboarding was the only place a circle could be made, and
+ * neither could be reached again. One field and the call that already exists.
+ */
+function StartCircle() {
+  const { dispatch } = useStore();
+  const [name, setName] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [trouble, setTrouble] = React.useState<string | null>(null);
+
+  const create = async () => {
+    const trimmed = name.trim();
+    if (!trimmed || busy) return;
+    setBusy(true);
+    setTrouble(null);
+    try {
+      await createCircle(trimmed);
+      // The sheet reads `state.circle`, which only a pull can fill — so this is
+      // what turns this screen into the invite code rather than leaving it here.
+      kickSync();
+      dispatch({ type: 'TOAST', message: `${trimmed} is live` });
+    } catch {
+      setTrouble('Couldn’t reach Rally just now. Try again in a moment.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <ScrollView
+      style={{ flexShrink: 1 }}
+      contentContainerStyle={{ paddingTop: 6, paddingHorizontal: 18, paddingBottom: 20 }}
+    >
+      <Bri size={20} weight={800} tracking={-0.4}>
+        Start a circle
+      </Bri>
+      <Sans size={13} color={color.muted} style={{ marginTop: 6, lineHeight: 18.5 }}>
+        Name it, and you’ll get a code to send the people who should see your week.
+      </Sans>
+
+      <View style={[row, { gap: 8, marginTop: 14 }]}>
+        <TextInput
+          value={name}
+          onChangeText={setName}
+          onSubmitEditing={() => void create()}
+          maxLength={CIRCLE_NAME_MAX}
+          editable={!busy}
+          placeholder="e.g. The Basement"
+          placeholderTextColor={color.faintInk}
+          selectionColor={color.moss}
+          accessibilityLabel="Circle name"
+          style={{
+            ...fill,
+            height: 46,
+            borderRadius: radius.chip,
+            backgroundColor: color.card,
+            paddingHorizontal: 14,
+            fontFamily: 'InstrumentSans_600SemiBold',
+            fontSize: 14,
+            color: color.ink,
+          }}
+        />
+        <Tap
+          onPress={() => void create()}
+          accessibilityLabel="Create circle"
+          style={{
+            borderRadius: 999,
+            paddingHorizontal: 18,
+            minHeight: 46,
+            justifyContent: 'center',
+            backgroundColor: name.trim() && !busy ? color.ink : color.chip,
+          }}
+        >
+          <Sans size={12.5} weight={700} color={name.trim() && !busy ? color.lime : color.muted}>
+            {busy ? 'Creating…' : 'Create'}
+          </Sans>
+        </Tap>
+      </View>
+
+      {trouble ? (
+        <View
+          accessibilityRole="alert"
+          accessibilityLiveRegion="polite"
+          style={{
+            marginTop: 10,
+            borderRadius: radius.chip,
+            paddingHorizontal: 12,
+            paddingVertical: 9,
+            backgroundColor: color.chip,
+          }}
+        >
+          <Sans size={12} weight={600} lineHeight={16.5} color={color.ink}>
+            {trouble}
+          </Sans>
+        </View>
+      ) : null}
+    </ScrollView>
+  );
+}
+
 function InviteSheet() {
   const { state, dispatch, world, people } = useStore();
   const pending: PersonId[] = Object.keys(state.pending);
   const suggestions = world.inviteSuggestions.filter((k) => !state.pending[k]);
+
+  const live = state.account === 'live';
+  /**
+   * The demo keeps its fiction — everything on this screen is a fixture there,
+   * and `ME.inviteLink` is no more invented than "Alex Rivera". A live account
+   * gets the real thing: the code `create_circle` minted, which is the only
+   * string that will actually let anyone in.
+   */
+  const code = live ? (state.circle?.inviteCode ?? '') : ME.inviteLink;
+
+  /**
+   * The OS share sheet, not a clipboard. `Share` is core React Native, so this
+   * needs no native module and no rebuild — and sending a friend a code is the
+   * actual task, which a pasteboard only ever half-does.
+   */
+  const share = () => {
+    void Share.share({
+      message: live ? `Join my circle on Rally with the code ${code}` : code,
+    }).catch(() => dispatch({ type: 'TOAST', message: 'Couldn’t open the share sheet' }));
+  };
+
+  // A live account with no circle has, until now, had no way to make one after
+  // onboarding — this sheet was the end of the road. It reuses the same
+  // `createCircle` the onboarding step calls; there is no second creation path.
+  if (live && !state.circle) {
+    return <StartCircle />;
+  }
 
   return (
     <ScrollView
@@ -446,12 +587,19 @@ function InviteSheet() {
           marginTop: 12,
         }}
       >
-        <Sans size={13.5} color={color.muted} numberOfLines={1} style={fill}>
-          {ME.inviteLink}
+        <Sans
+          size={13.5}
+          color={color.muted}
+          numberOfLines={1}
+          selectable
+          style={fill}
+          accessibilityLabel={`Invite code ${code}`}
+        >
+          {code}
         </Sans>
         <Tap
-          onPress={() => dispatch({ type: 'TOAST', message: 'Link copied' })}
-          accessibilityLabel="Copy invite link"
+          onPress={share}
+          accessibilityLabel="Share invite code"
           style={{
             borderRadius: 999,
             paddingHorizontal: 14,
@@ -462,7 +610,7 @@ function InviteSheet() {
           }}
         >
           <Sans size={12.5} weight={700} color={color.lime}>
-            Copy
+            Share
           </Sans>
         </Tap>
       </View>
