@@ -11,8 +11,8 @@
  * narrowed back into its union rather than cast into one: a category the client
  * has never heard of must not reach `CATEGORY_POINTS[task.cat]`.
  */
-import type { Audience, Category, Task } from '../data/fixtures';
-import { personOf, type Person, type PersonId } from '../data/people';
+import type { Audience, Category, Moment, Task } from '../data/fixtures';
+import { personOf, type MemberStats, type Person, type PersonId } from '../data/people';
 import { dayIndexOf, type DayIndex, type WeekContext } from '../data/week';
 
 const CATEGORIES: readonly Category[] = ['Fitness', 'Work', 'Home', 'Mind', 'Quick log'];
@@ -132,4 +132,69 @@ export function rowToPerson(row: Record<string, unknown>): Person {
   const name = str(row.name).trim();
   const handle = str(row.handle).trim();
   return personOf(id, name || handle || 'Someone');
+}
+
+/**
+ * How long ago, in the shape the feed sorts and renders: `"6h"`, `"2d"`.
+ *
+ * The feed's only clock is `parseHours`, which reads exactly this format — so
+ * the conversion happens here rather than the `Moment` growing a timestamp
+ * field. That costs staleness between pulls, which is bounded by the pull
+ * interval and invisible at hour granularity.
+ */
+export function relativeTime(iso: unknown, now: number = Date.now()): string {
+  const at = asDate(iso)?.getTime();
+  if (at === undefined || !Number.isFinite(at)) return '0h';
+  const hours = Math.max(0, Math.floor((now - at) / 3_600_000));
+  return hours >= 24 ? `${Math.floor(hours / 24)}d` : `${hours}h`;
+}
+
+/**
+ * Someone else's task, as the feed renders it.
+ *
+ * Always `kind: 'normal'`. Not `'big'` — that card's entire stat row is the
+ * constant `BIG_CARD_STATS`, so emitting one would print invented numbers over
+ * a real person's week. Not `'ask'` either: nothing on a task row says a person
+ * is asking for company, and guessing would put words in their mouth.
+ */
+export function taskRowToMoment(row: Record<string, unknown>, now?: number): Moment {
+  const task = rowToTask(row);
+  return {
+    id: task.id,
+    who: str(row.owner_id),
+    kind: 'normal',
+    // Closing it is the news; staking it is when there was none yet.
+    time: relativeTime(row.done_at ?? row.created_at, now),
+    day: task.day,
+    title: task.title,
+    pts: task.pts,
+    // Notes on someone else's task are not pulled — `pullNotes` answers for
+    // your own rows and your own inbox. What is here is what this device wrote.
+    cmts: [],
+  };
+}
+
+/**
+ * A member's week, counted off the rows the feed just pulled.
+ *
+ * `ranking()` reads `Person.stats` and says "No week synced yet" without it,
+ * which is what the Circle screen shows for every live member today. Derived
+ * here rather than read from `week_rollups`, which nothing writes yet — and
+ * counting the rows we already have is both cheaper and current, where a rollup
+ * is only written when a week closes.
+ *
+ * `given` stays 0: cheers *given* by someone else are not something this client
+ * can see, and a fabricated number would rank people by it.
+ */
+export function memberStats(rows: Record<string, unknown>[]): Map<string, MemberStats> {
+  const byOwner = new Map<string, MemberStats>();
+  for (const row of rows) {
+    const owner = str(row.owner_id);
+    if (!owner) continue;
+    const stats = byOwner.get(owner) ?? { done: 0, total: 0, streak: 0, given: 0 };
+    stats.total += 1;
+    if (row.done_at !== null && row.done_at !== undefined) stats.done += 1;
+    byOwner.set(owner, stats);
+  }
+  return byOwner;
 }

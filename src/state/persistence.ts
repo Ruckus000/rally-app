@@ -10,7 +10,7 @@
  * discarded whole rather than half-restored.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AUDIENCES, CATEGORY_POINTS, Task } from '../data/fixtures';
+import { AUDIENCES, CATEGORY_POINTS, MOMENT_KINDS, Task } from '../data/fixtures';
 import { ACCOUNT_MODES } from '../data/seed';
 import { NAME_MAX } from '../data/people';
 import { DAY_NAMES } from '../data/week';
@@ -87,6 +87,28 @@ function tasksAreSound(value: unknown): value is Task[] {
   );
 }
 
+/**
+ * The crashing subset, exactly as `tasksAreSound` scopes itself — not a schema
+ * validator. `moments` used to be checked with a bare `Array.isArray`, which was
+ * fine while every one of them was a fixture written by this build. They are
+ * other people's rows now, so a `day` out of range or a `kind` this build has no
+ * card for arrives from the network and reaches the renderer unchecked.
+ */
+function momentsAreSound(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  return value.every(
+    (m) =>
+      m &&
+      typeof m === 'object' &&
+      typeof m.id === 'string' &&
+      typeof m.who === 'string' &&
+      (MOMENT_KINDS as readonly string[]).includes(m.kind) &&
+      Number.isInteger(m.day) &&
+      m.day >= 0 &&
+      m.day < DAY_NAMES.length,
+  );
+}
+
 /** History drives the year grid, Past weeks and the running totals. */
 function historyIsSound(value: unknown): boolean {
   if (!Array.isArray(value)) return false;
@@ -152,7 +174,7 @@ function isSound(data: unknown): data is Persisted {
   if (!data || typeof data !== 'object') return false;
   const d = data as Partial<Persisted>;
   if (!tasksAreSound(d.myTasks)) return false;
-  if (!Array.isArray(d.moments)) return false;
+  if (!momentsAreSound(d.moments)) return false;
   // Written against the tuple so a new account mode can never be silently
   // discarded here — that failure mode is a permanently forgetful app.
   if (d.account !== null && !(ACCOUNT_MODES as readonly string[]).includes(d.account as string))

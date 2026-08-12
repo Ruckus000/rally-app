@@ -60,6 +60,7 @@ export type Transport = {
   pullTasks(userId: string, weekStart: string): Promise<Task[]>;
   pullCircle(userId: string): Promise<Person[]>;
   pullMyCircle(userId: string): Promise<CircleRef | null>;
+  pullFriendTasks(memberIds: string[], weekStart: string): Promise<Record<string, unknown>[]>;
   pullReactions(userId: string): Promise<ReactionRef[]>;
   pullNotes(userId: string): Promise<PulledNote[]>;
 };
@@ -418,6 +419,29 @@ export function supabaseTransport(): Transport {
   };
 
   /**
+   * Other people's weeks — the read that makes this a circle rather than a
+   * synced private tracker.
+   *
+   * Scoped to the ids `pullCircle` just returned rather than to "everything the
+   * week holds". RLS decides *what* of theirs is visible — the audience rule
+   * lives there and is not restated here — and this decides *whose* to ask
+   * about, which is the part the client legitimately owns.
+   */
+  const pullFriendTasks = async (
+    memberIds: string[],
+    weekStart: string,
+  ): Promise<Record<string, unknown>[]> => {
+    if (memberIds.length === 0) return [];
+    const { data, error } = await getSupabase()
+      .from('tasks')
+      .select('*')
+      .in('owner_id', memberIds)
+      .eq('week_start', weekStart);
+    if (error) fail(error);
+    return (data ?? []) as Record<string, unknown>[];
+  };
+
+  /**
    * The circle you are in — deliberately a different question from `pullCircle`,
    * which answers "who shares a circle with me". Same first hop, different shape
    * and different consumers, and one function that answered both would be one
@@ -528,5 +552,13 @@ export function supabaseTransport(): Transport {
     });
   };
 
-  return { push, pullTasks, pullCircle, pullMyCircle, pullReactions, pullNotes };
+  return {
+    push,
+    pullTasks,
+    pullCircle,
+    pullMyCircle,
+    pullFriendTasks,
+    pullReactions,
+    pullNotes,
+  };
 }

@@ -508,3 +508,50 @@ describe('last-write-wins', () => {
     expect((await readTask(id)).done_at).not.toBeNull();
   });
 });
+
+/**
+ * The feed read, against real RLS. The client scopes *whose* tasks to ask
+ * about; the database decides *what* of theirs is visible — and that half is
+ * only honest here, since the in-memory fake models no policies at all.
+ */
+describe('reading a circle-mate’s week', () => {
+  const feed = async (handle: SeedHandle, owners: SeedHandle[]) => {
+    const { data } = await asUser(handle)
+      .from('tasks')
+      .select('title,aud,owner_id')
+      .in(
+        'owner_id',
+        owners.map((h) => idOf(h)),
+      );
+    return data ?? [];
+  };
+
+  // Note there is deliberately no "sofia cannot see it" case here: `friends`
+  // resolves through `shares_circle_with(owner_id)` and ignores
+  // `tasks.circle_id`, so sharing *any* circle is enough. That decision is
+  // pinned above, at the `canSee` matrix, and duplicating it here would mean
+  // two places to change if it is ever revisited.
+  it('shows dre what maya put on the line for her circle', async () => {
+    const rows = await feed('dre', ['maya']);
+
+    expect(rows.length).toBeGreaterThan(0);
+    // Never her private ones, whoever asked and however the client queried.
+    expect(rows.every((r) => r.aud !== 'private')).toBe(true);
+  });
+
+  it('shows jordan only what maya made public', async () => {
+    const rows = await feed('jordan', ['maya']);
+
+    expect(rows.every((r) => r.aud === 'everyone')).toBe(true);
+  });
+
+  it('does not let naming someone in the query grant anything — the control', async () => {
+    // Proof the filter is a scope and not a capability: jordan asking about
+    // maya by id gets exactly what RLS already allowed him.
+    const named = await feed('jordan', ['maya']);
+    const { data: all } = await asUser('jordan').from('tasks').select('owner_id');
+    const mayaRows = (all ?? []).filter((r) => r.owner_id === idOf('maya'));
+
+    expect(named).toHaveLength(mayaRows.length);
+  });
+});

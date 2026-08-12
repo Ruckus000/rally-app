@@ -325,6 +325,12 @@ export type ServerMerge = {
   reactions?: ReactionRef[];
   /** Notes on your tasks and notes addressed to you. Append-only, keyed by id. */
   notes?: PulledNote[];
+  /**
+   * Other people's weeks, as the feed renders them. Authoritative for the set —
+   * a task someone unstaked is an absence here, and a union would leave it on
+   * your screen forever — but never for the thread on one, which is local.
+   */
+  moments?: Moment[];
 };
 
 /**
@@ -864,6 +870,11 @@ export function reducer(state: State, action: Action): State {
         // Week-scoped. Everything else — who you are, what you've said to
         // people, your replies on public posts — carries forward.
         myTasks: carried,
+        // A live feed is one week of other people's rows, so carrying it over
+        // would show last week's tasks as this week's until the next pull. The
+        // demo's are fixtures with no pull to refill them, so they stay: the
+        // rule is "drop what the server will re-answer", not "drop moments".
+        moments: state.account === 'live' ? [] : state.moments,
         acted: {},
         notifRead: {},
         usedSugg: {},
@@ -1070,16 +1081,41 @@ export function reducer(state: State, action: Action): State {
       // is the only one there has ever been.
       const circle = action.merge.circle !== undefined ? action.merge.circle : state.circle;
 
+      /**
+       * The feed. The server owns which rows are in it; this device owns the
+       * thread it has written on them, which `pullNotes` does not answer for —
+       * so a note you just left on a friend's task is carried across rather
+       * than blinked away by the next poll.
+       */
+      let moments = state.moments;
+      if (action.merge.moments) {
+        const threads = new Map(state.moments.map((m) => [m.id, m.cmts]));
+        const next = action.merge.moments.map((m) => {
+          const kept = threads.get(m.id);
+          return kept?.length ? { ...m, cmts: kept } : m;
+        });
+        // Same rows in the same order is the common answer, and returning the
+        // old array is what lets the identity check below skip the render.
+        const unchanged =
+          next.length === state.moments.length &&
+          next.every((m, i) => {
+            const was = state.moments[i];
+            return !!was && was.id === m.id && was.title === m.title && was.cmts === m.cmts;
+          });
+        if (!unchanged) moments = next;
+      }
+
       if (
         people === state.people &&
         myTasks === state.myTasks &&
         acted === state.acted &&
         personNotes === state.personNotes &&
-        circle === state.circle
+        circle === state.circle &&
+        moments === state.moments
       ) {
         return state;
       }
-      return { ...state, people, myTasks, acted, personNotes, circle };
+      return { ...state, people, myTasks, acted, personNotes, circle, moments };
     }
 
     default:

@@ -10,7 +10,14 @@
  */
 import type { Task } from '../../data/fixtures';
 import { buildWeekContext, FIXTURE_WEEK, type WeekContext } from '../../data/week';
-import { mondayOf, rowToPerson, rowToTask, taskToRow } from '../mappers';
+import {
+  memberStats,
+  mondayOf,
+  rowToPerson,
+  rowToTask,
+  taskRowToMoment,
+  taskToRow,
+} from '../mappers';
 
 const AT = Date.parse('2026-08-13T09:30:00.000Z');
 
@@ -169,5 +176,71 @@ describe('rowToPerson', () => {
   it('falls back to the handle rather than rendering a blank avatar', () => {
     expect(rowToPerson({ id: 'u2', handle: 'anon_9f2', name: '  ' }).name).toBe('anon_9f2');
     expect(rowToPerson({ id: 'u3' }).name).toBe('Someone');
+  });
+});
+
+describe('someone else’s task, as the feed renders it', () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: 'aaaaaaaa-0000-4000-8000-000000000001',
+    owner_id: '22222222-2222-4222-8222-222222222222',
+    week_start: '2026-08-10',
+    day: 2,
+    title: 'Swim 2k',
+    category: 'Fitness',
+    points: 40,
+    aud: 'friends',
+    source: 'staked',
+    done_at: null,
+    created_at: '2026-08-12T09:00:00.000Z',
+    ...over,
+  });
+
+  const NOW = Date.parse('2026-08-12T15:00:00.000Z');
+
+  it('carries the real task id, which is what makes it cheerable', () => {
+    // A fixture id like `f1` fails the uuid gate in `diffActed`, so a cheer on
+    // it is silently dropped. This id is why the feed became interactive.
+    expect(taskRowToMoment(row(), NOW).id).toBe('aaaaaaaa-0000-4000-8000-000000000001');
+  });
+
+  it('is always an ordinary card', () => {
+    // Never 'big': that card's stat row is the constant BIG_CARD_STATS, so one
+    // would print invented numbers over a real person's week.
+    expect(taskRowToMoment(row(), NOW).kind).toBe('normal');
+    expect(taskRowToMoment(row({ done_at: '2026-08-12T14:00:00.000Z' }), NOW).kind).toBe('normal');
+  });
+
+  it('reports age in the shape the feed sorts on', () => {
+    expect(taskRowToMoment(row(), NOW).time).toBe('6h');
+    expect(taskRowToMoment(row({ created_at: '2026-08-09T15:00:00.000Z' }), NOW).time).toBe('3d');
+    // Closing it is the news; staking it is when there was none yet.
+    expect(taskRowToMoment(row({ done_at: '2026-08-12T14:00:00.000Z' }), NOW).time).toBe('1h');
+  });
+
+  it('survives a row with no timestamps at all', () => {
+    // `parseHours` returns 999 for an unreadable value, which sorts a moment to
+    // the bottom rather than throwing on a screen.
+    expect(taskRowToMoment(row({ created_at: null, done_at: null }), NOW).time).toBe('0h');
+  });
+});
+
+describe('a member’s week, counted off the feed', () => {
+  const task = (owner: string, done: boolean) => ({
+    id: `id-${owner}-${done}`,
+    owner_id: owner,
+    done_at: done ? '2026-08-12T14:00:00.000Z' : null,
+  });
+
+  it('counts done against total, per person', () => {
+    const stats = memberStats([task('a', true), task('a', false), task('b', false)]);
+
+    expect(stats.get('a')).toEqual({ done: 1, total: 2, streak: 0, given: 0 });
+    expect(stats.get('b')).toEqual({ done: 0, total: 1, streak: 0, given: 0 });
+  });
+
+  it('says nothing about someone with no rows', () => {
+    // `ranking()` renders a missing week as "No week synced yet". A zeroed one
+    // would read as a person who staked nothing, which is a different claim.
+    expect(memberStats([]).get('a')).toBeUndefined();
   });
 });
