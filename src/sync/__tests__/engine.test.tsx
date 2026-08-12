@@ -31,6 +31,8 @@ const TARGET = '55555555-5555-4555-8555-555555555555';
 const SERVER_TASK = '66666666-6666-4666-8666-666666666666';
 const NOTE_ON_TASK = '77777777-7777-4777-8777-777777777777';
 const NOTE_TO_ME = '88888888-8888-4888-8888-888888888888';
+/** In no circle with us, but staking in the same week. */
+const STRANGER = '44444444-4444-4444-8444-444444444444';
 
 /**
  * A channel that records rather than connects.
@@ -125,6 +127,18 @@ function Probe() {
       <Text testID="myname">{store.state.people[store.state.selfId]?.name ?? ''}</Text>
       {/* The invite code, which is the only string that lets anyone in. */}
       <Text testID="circle">{store.state.circle?.inviteCode ?? ''}</Text>
+      {/* Other people's weeks, and the thread this device has left on them. */}
+      <Text testID="feed">{store.state.moments.map((m) => m.title ?? '').join(',')}</Text>
+      <Text testID="feedNotes">
+        {store.state.moments.flatMap((m) => (m.cmts ?? []).map((c) => c.t)).join(',')}
+      </Text>
+      {/* What `ranking()` reads for everyone who is not you. */}
+      <Text testID="stats">
+        {Object.values(store.state.people)
+          .filter((p) => p && p.id !== store.state.selfId && p.stats)
+          .map((p) => `${p!.id}:${p!.stats!.done}/${p!.stats!.total}`)
+          .join(',')}
+      </Text>
       <Text testID="tasks">{store.state.myTasks.map((t) => t.title).join(',')}</Text>
       {/* The ids are minted in the reducer, so a note or a cheer aimed at a real
           row has to read them back off state rather than invent one. */}
@@ -352,6 +366,140 @@ it('keeps the name on screen when a pull races the push', async () => {
 
   expect(screen.getByTestId('myname')).toHaveTextContent('Maya Chen');
   expect(nameOnServer(me)).toBe('Maya Chen');
+});
+
+describe('other people’s weeks', () => {
+  /** One of Maya's tasks, in the week the app is showing. */
+  const mayaStakes = (over: Record<string, unknown> = {}) =>
+    fakeSupabase.seed({
+      tasks: [
+        {
+          id: '99999999-9999-4999-8999-999999999999',
+          owner_id: OTHER,
+          week_start: weekOnScreen(),
+          day: 2,
+          title: 'Swim 2k',
+          category: 'Fitness',
+          points: 40,
+          aud: 'friends',
+          source: 'staked',
+          ...over,
+        },
+      ],
+    });
+
+  it('puts a circle member’s task in the feed', async () => {
+    mount();
+    await settle();
+    inACircleWith(currentUserId() as string);
+    mayaStakes();
+
+    await settle(60_000);
+
+    expect(screen.getByTestId('feed')).toHaveTextContent('Swim 2k');
+    // Ranking reads `Person.stats`, and renders "No week synced yet" without
+    // it — so the Circle screen was empty for every live member until now.
+    expect(screen.getByTestId('stats')).toHaveTextContent(`${OTHER}:0/1`);
+  });
+
+  it('counts a closed task as done', async () => {
+    mount();
+    await settle();
+    inACircleWith(currentUserId() as string);
+    mayaStakes({ done_at: new Date().toISOString() });
+
+    await settle(60_000);
+
+    expect(screen.getByTestId('stats')).toHaveTextContent(`${OTHER}:1/1`);
+  });
+
+  it('shows nothing when you are in no circle', async () => {
+    mount();
+    await settle();
+    fakeSupabase.seed({ profiles: [{ id: OTHER, handle: 'maya', name: 'Maya' }] });
+    mayaStakes();
+
+    await settle(60_000);
+
+    expect(screen.getByTestId('feed')).toHaveTextContent('');
+    expect(writesTo('tasks')).toHaveLength(0);
+  });
+
+  it('leaves out someone who staked the same week but shares no circle', async () => {
+    // The real control for the scoping. The test above passes on the early
+    // return for an empty member list, so it holds even if the read stops
+    // filtering by owner entirely — this one is in a circle, so the query
+    // actually runs, and the fake models no RLS. What keeps a stranger out of
+    // the feed here is the client asking only about members.
+    mount();
+    await settle();
+    inACircleWith(currentUserId() as string);
+    mayaStakes();
+    fakeSupabase.seed({
+      profiles: [{ id: STRANGER, handle: 'jordan', name: 'Jordan' }],
+      tasks: [
+        {
+          id: 'aaaaaaaa-1111-4111-8111-111111111111',
+          owner_id: STRANGER,
+          week_start: weekOnScreen(),
+          day: 3,
+          title: 'Not your business',
+          category: 'Work',
+          points: 20,
+          aud: 'friends',
+          source: 'staked',
+        },
+      ],
+    });
+
+    await settle(60_000);
+
+    // Regexes, not strings: this matcher compares whole text content, so
+    // `not.toHaveTextContent('Not your business')` would pass against any feed
+    // that merely differed — including the right answer for the wrong reason.
+    expect(screen.getByTestId('feed')).toHaveTextContent(/Swim 2k/);
+    expect(screen.getByTestId('feed')).not.toHaveTextContent(/Not your business/);
+  });
+
+  it('does not re-render every minute for a feed that has not moved', async () => {
+    mount();
+    await settle();
+    inACircleWith(currentUserId() as string);
+    mayaStakes();
+    await settle(60_000);
+
+    const renders = rendered.count;
+    await settle(60_000);
+
+    // `time` is recomputed from the clock on every pull, so a comparison that
+    // included it would report a change every cycle, forever.
+    expect(rendered.count).toBe(renders);
+  });
+
+  it('keeps a note you left on a friend’s task when the feed refreshes', async () => {
+    mount();
+    await settle();
+    inACircleWith(currentUserId() as string);
+    mayaStakes();
+    await settle(60_000);
+
+    say('99999999-9999-4999-8999-999999999999', 'proud of you');
+    await settle(10_000);
+    expect(screen.getByTestId('feedNotes')).toHaveTextContent('proud of you');
+
+    // Maya stakes something else, so the feed genuinely moves and the merge
+    // rebuilds the list. Without this the poll finds nothing changed, dispatches
+    // no merge at all, and the note survives for a reason this test is not
+    // about — which is how it passed with the carry-over deleted.
+    mayaStakes({ id: 'bbbbbbbb-2222-4222-8222-222222222222', title: 'Long ride' });
+    await settle(60_000);
+
+    expect(screen.getByTestId('feed')).toHaveTextContent(/Long ride/);
+    // `pullNotes` answers for your own tasks and your own inbox, so the server's
+    // version of a friend's row carries no thread. An assignment would blink
+    // the note away a minute after it was written.
+    expect(screen.getByTestId('feedNotes')).toHaveTextContent('proud of you');
+  });
 });
 
 it('learns which circle it is in, and stops asking once it knows', async () => {

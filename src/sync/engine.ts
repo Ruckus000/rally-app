@@ -16,11 +16,11 @@
  * is identical is a row that was not touched.
  */
 import type { Dispatch } from 'react';
-import type { Note, Task } from '../data/fixtures';
-import type { PersonId } from '../data/people';
+import type { Moment, Note, Task } from '../data/fixtures';
+import type { Person, PersonId } from '../data/people';
 import type { WeekContext } from '../data/week';
 import type { Action, CircleRef, ServerMerge, State } from '../state/store';
-import { mondayOf } from './mappers';
+import { memberStats, mondayOf, taskRowToMoment } from './mappers';
 import { noteKey, syncableNote, type NoteSite, type SyncableNote } from './notes';
 import {
   ackedTaskIds,
@@ -129,6 +129,40 @@ function queueTransport(wire: Transport): QueueTransport {
     },
   };
 }
+
+/**
+ * Field-wise, and only over what the feed renders. Every pull mints new objects,
+ * and `time` is recomputed from the clock each time — so comparing by reference
+ * (or including `time`) would report a change every minute and re-render every
+ * screen for nothing.
+ */
+const sameMoments = (a: Moment[], b: Moment[]): boolean =>
+  a.length === b.length &&
+  a.every((m, i) => {
+    const other = b[i];
+    return (
+      !!other &&
+      m.id === other.id &&
+      m.who === other.who &&
+      m.title === other.title &&
+      m.pts === other.pts &&
+      m.day === other.day
+    );
+  });
+
+/**
+ * The members, carrying the week the feed just counted for them. Whoever the
+ * rows say nothing about keeps `undefined` rather than gaining a zeroed week —
+ * `ranking()` renders that as "No week synced yet", which is the truth, where
+ * 0 of 0 would read as a person who staked nothing.
+ */
+const withStats = (people: Person[], rows: Record<string, unknown>[]): Person[] => {
+  const stats = memberStats(rows);
+  return people.map((p) => {
+    const week = stats.get(p.id);
+    return week ? { ...p, stats: week } : p;
+  });
+};
 
 /** Field-wise, because every pull mints a new object for the same circle. */
 const sameCircle = (a: CircleRef | null, b: CircleRef | null): boolean =>
@@ -452,6 +486,13 @@ export function createEngine(
    * has to be field-wise anyway, since every pull builds a new object.
    */
   let lastCircle: CircleRef | null = null;
+  /**
+   * The feed the last pull answered with. Its own baseline rather than
+   * `lastMoments`, which is `observe`'s note-diffing reference — one variable
+   * doing both jobs would make a note appearing on screen look like the server
+   * changing its mind about the feed.
+   */
+  let lastFeed: Moment[] = [];
   let pullTimer: ReturnType<typeof setInterval> | null = null;
   let pulling = false;
   let unsubscribeSession: (() => void) | null = null;
@@ -630,11 +671,33 @@ export function createEngine(
         wire.pullNotes(userId),
       ]);
 
+      // The feed is a second wave rather than a fifth entry in the one above:
+      // it can only ask about people `pullCircle` has just named, and asking
+      // the membership question twice in parallel would cost the same round
+      // trip while making the two answers able to disagree.
+      const weekStart = week ? mondayOf(week) : null;
+      const memberIds = people.map((p) => p.id).filter((id) => id !== userId);
+      const friendRows = weekStart ? await wire.pullFriendTasks(memberIds, weekStart) : [];
+
       const merge: ServerMerge = {};
       // No rows is the common answer, and a dispatch that changes nothing still
       // runs the reducer for every screen. Not dispatching is cheaper than
       // relying on SERVER_MERGE's identity bail-out.
-      if (people.length > 0) merge.people = people;
+      //
+      // Stats ride along on the people rows rather than arriving as a slice of
+      // their own: `ranking()` already reads `Person.stats`, and a second place
+      // to look would be a second thing to keep in step.
+      if (people.length > 0) merge.people = withStats(people, friendRows);
+
+      // Circle members only, which is also every moment this build can render
+      // honestly: `profiles_select` exposes the profiles of people who share a
+      // circle with you and nobody else, so a global feed of `aud='everyone'`
+      // rows from strangers would be a list of people all called "Someone".
+      const moments = friendRows.map((row) => taskRowToMoment(row));
+      if (!sameMoments(lastFeed, moments)) {
+        merge.moments = moments;
+        lastFeed = moments;
+      }
 
       // Two questions, both answered by folding the rows here first. Would this
       // merge move `myTasks` at all — and may it? A rollover during the round
@@ -680,6 +743,7 @@ export function createEngine(
         !merge.tasks &&
         !merge.reactions &&
         !merge.notes &&
+        !merge.moments &&
         merge.circle === undefined
       ) {
         return;

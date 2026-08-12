@@ -174,7 +174,14 @@ export const MY_TASKS: Task[] = [
   },
 ];
 
-export type MomentKind = 'big' | 'ask' | 'quiet' | 'quietwin' | 'normal';
+/**
+ * Written as a tuple so the soundness check in `persistence.ts` can test
+ * against the same list the type is built from — a second, hand-kept copy is
+ * how a payload gets discarded for holding a kind this build actually renders.
+ */
+export const MOMENT_KINDS = ['big', 'ask', 'quiet', 'quietwin', 'normal'] as const;
+
+export type MomentKind = (typeof MOMENT_KINDS)[number];
 
 export type Moment = {
   id: string;
