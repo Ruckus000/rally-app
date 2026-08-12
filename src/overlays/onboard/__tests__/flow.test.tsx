@@ -7,11 +7,15 @@
  * only exists once the store and the app behind it are in the picture.
  */
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import { App } from '../../../App';
 import * as supabaseModule from '../../../lib/supabase';
 import { captureBackPress } from '../../../test/backPress';
+import { fakeSupabase } from '../../../__mocks__/@supabase/supabase-js';
+import { __resetSupabaseForTests } from '../../../lib/supabase';
+import { __resetSessionForTests } from '../../../sync/session';
+import { __resetOutboxForTests } from '../../../sync/outbox';
 
 let back: ReturnType<typeof captureBackPress>;
 
@@ -136,7 +140,7 @@ describe('the onboarding flow', () => {
     expect(screen.getByLabelText('In bed by 11, ×5 nights, 40 points')).toBeTruthy();
   });
 
-  it('sends the primary action to live mode, and is honest about circles there', () => {
+  it('sends the primary action to live mode', () => {
     // `sync={false}` keeps the session effect out of it: what's asserted is
     // that the tap flips the account, which is the only thing that starts a
     // sign-in — there is no second path.
@@ -148,17 +152,81 @@ describe('the onboarding flow', () => {
     press('Morning walk, every day, 35 points');
     press('Stake 35 pts');
 
-    press('I have an invite. A friend sent you a circle code');
-    fireEvent.changeText(screen.getByLabelText('Circle code'), 'RALLY-7Q2M');
-    press('Join');
-    expect(screen.getByText(/Circles aren’t open on live accounts yet/)).toBeTruthy();
-    // …and the door that does work still works.
+    // The circle step has its own suite below — it is the one screen in this
+    // flow that waits on a server, so it cannot be asserted with sync off.
     press('Ride solo for now');
     press('Maybe later');
     press('Enter your week');
 
     fireEvent.press(screen.getByLabelText('Me'));
     expect(screen.getByText('Live')).toBeTruthy();
+  });
+
+  /**
+   * The circle step on a live account, against the strict fake. It is the only
+   * screen in the flow that waits on a server, so it is the only one where the
+   * server's answer — including a refusal — is part of the behaviour.
+   */
+  describe('the circle step, live', () => {
+    const reachTheCircle = async () => {
+      render(<App persist sync />);
+      fireEvent.press(screen.getByLabelText('Get started'));
+      // The session has to land before a SECURITY DEFINER call can name a caller.
+      await act(async () => {});
+      press('Skip');
+      fireEvent.changeText(screen.getByLabelText('Your name'), 'Maya Chen');
+      press('Continue');
+      press('Morning walk, every day, 35 points');
+      press('Stake 35 pts');
+    };
+
+    beforeEach(() => {
+      process.env.EXPO_PUBLIC_SUPABASE_URL = 'http://127.0.0.1:55321';
+      process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
+      fakeSupabase.reset();
+      __resetSupabaseForTests();
+      __resetSessionForTests();
+      __resetOutboxForTests();
+    });
+
+    afterEach(() => {
+      delete process.env.EXPO_PUBLIC_SUPABASE_URL;
+      delete process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+    });
+
+    it('creates a real circle and carries its name to the last screen', async () => {
+      await reachTheCircle();
+
+      press('Start a circle. Name it, then invite your people');
+      fireEvent.changeText(screen.getByLabelText('Circle name'), 'The Basement');
+      await act(async () => {
+        press('Create');
+      });
+
+      // A row, with the caller in it — not a message saying circles are closed.
+      expect(fakeSupabase.rows('circles')).toHaveLength(1);
+      expect(fakeSupabase.rows('circle_members')).toHaveLength(1);
+
+      press('Maybe later');
+      // The name you gave it, announced as one sentence — not "solo for now".
+      expect(screen.getByLabelText(/Your circle, The Basement/)).toBeTruthy();
+    });
+
+    it('says so when the code names nothing, and stays on the step', async () => {
+      await reachTheCircle();
+
+      press('I have an invite. A friend sent you a circle code');
+      fireEvent.changeText(screen.getByLabelText('Circle code'), 'basement-0000000000000000');
+      await act(async () => {
+        press('Join');
+      });
+
+      expect(screen.getByText(/didn’t work/)).toBeTruthy();
+      // Still on the circle step: advancing would mean telling someone they had
+      // joined a circle that does not exist.
+      expect(screen.getByLabelText('Ride solo for now')).toBeTruthy();
+      expect(fakeSupabase.rows('circle_members')).toHaveLength(0);
+    });
   });
 
   it('reaches the demo without ever building a supabase client', () => {

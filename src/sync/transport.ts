@@ -203,6 +203,60 @@ function fail(err: WireError): never {
   throw e;
 }
 
+/**
+ * The two circle calls, and why they are not outbox ops.
+ *
+ * Everything else this client writes is a fact the reducer has already applied
+ * and the queue merely owes the server. These are the opposite: the answer is
+ * the point. A code is either real or it isn't, and only the server knows —
+ * queueing a join would mean telling someone they were in a circle and finding
+ * out minutes later that they never were. They are also not replayable in the
+ * way an idempotent upsert is: `create_circle` mints a new circle every call.
+ *
+ * So: direct, online, awaited, with the failure shown on the screen that asked.
+ */
+
+/** A code that names no circle. Its own type because it is the one failure the user can fix. */
+export class UnknownInviteCode extends Error {
+  constructor() {
+    super('That code didn’t work.');
+    this.name = 'UnknownInviteCode';
+  }
+}
+
+/**
+ * `P0002` is what `join_circle_by_code` raises for a code that matches nothing.
+ * Deliberately the same answer for "no such circle" as for a typo — the function
+ * is an oracle for guessing codes, so it must not confirm that one exists.
+ */
+const NO_SUCH_CODE = 'P0002';
+
+export async function createCircle(name: string): Promise<{ id: string; inviteCode: string }> {
+  const { data, error } = await getSupabase().rpc('create_circle', { circle_name: name });
+  if (error) fail(error);
+  // `returns table(...)`, so PostgREST answers with an array of one row.
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | { id?: unknown; invite_code?: unknown }
+    | undefined;
+  if (!row?.id) throw new Error('create_circle returned no circle');
+  return { id: String(row.id), inviteCode: String(row.invite_code ?? '') };
+}
+
+export async function joinCircleByCode(code: string): Promise<string> {
+  // Every generated code is lowercase — a slug from `lower(name)` and lowercase
+  // hex — but the field that takes it is a shouty one, and the match is exact.
+  // Without this a correctly-typed code fails every time, and the error sends
+  // the user hunting for a typo that is not there.
+  const normalised = code.trim().toLowerCase();
+  const { data, error } = await getSupabase().rpc('join_circle_by_code', { code: normalised });
+  if (error) {
+    if ((error as WireError).code === NO_SUCH_CODE) throw new UnknownInviteCode();
+    fail(error);
+  }
+  if (!data) throw new UnknownInviteCode();
+  return String(data);
+}
+
 export function supabaseTransport(): Transport {
   /**
    * `owner_id` comes from `userId`, which comes from the session. Never from the

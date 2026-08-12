@@ -9,10 +9,17 @@
  */
 import type { Audience, Task } from '../../data/fixtures';
 import { fakeSupabase } from '../../__mocks__/@supabase/supabase-js';
-import { __resetSupabaseForTests } from '../../lib/supabase';
 import type { NoteTarget, SyncableNote } from '../notes';
 import type { ReactionKind } from '../reactions';
-import { supabaseTransport, type WireOp, type Transport } from '../transport';
+import {
+  createCircle,
+  joinCircleByCode,
+  supabaseTransport,
+  UnknownInviteCode,
+  type WireOp,
+  type Transport,
+} from '../transport';
+import { getSupabase, __resetSupabaseForTests } from '../../lib/supabase';
 
 const ME = '11111111-1111-4111-8111-111111111111';
 const SOMEONE_ELSE = '22222222-2222-4222-8222-222222222222';
@@ -89,6 +96,80 @@ beforeEach(() => {
     ],
   });
   transport = supabaseTransport();
+});
+
+describe('the circle calls', () => {
+  // Both go through SECURITY DEFINER functions, so being signed in is the whole
+  // authorisation story — the fake refuses them without a session exactly as
+  // the real ones do.
+  const signedIn = async () => {
+    const { data } = await getSupabase().auth.signInAnonymously();
+    return data.session?.user.id as string;
+  };
+
+  it('creates a circle and puts the caller in it', async () => {
+    const me = await signedIn();
+
+    const { id, inviteCode } = await createCircle('The Basement');
+
+    expect(fakeSupabase.rows('circles')).toHaveLength(1);
+    // One call, one transaction: a circle that exists with no members is a
+    // state `create_circle` was written to make impossible.
+    expect(fakeSupabase.rows('circle_members')).toEqual([
+      expect.objectContaining({ circle_id: id, profile_id: me }),
+    ]);
+    // The entropy the schema insists on — `circles_invite_code_entropy`.
+    expect(inviteCode).toMatch(/-[0-9a-f]{16}$/);
+  });
+
+  it('joins by code, and is idempotent about it', async () => {
+    await signedIn();
+    const { id, inviteCode } = await createCircle('The Basement');
+    await getSupabase().auth.signOut();
+    const other = await signedIn();
+
+    expect(await joinCircleByCode(inviteCode)).toBe(id);
+    expect(await joinCircleByCode(inviteCode)).toBe(id);
+
+    const mine = fakeSupabase.rows('circle_members').filter((m) => m.profile_id === other);
+    expect(mine).toHaveLength(1);
+  });
+
+  it('accepts the code as the field actually produces it — shouted', async () => {
+    await signedIn();
+    const { id, inviteCode } = await createCircle('The Basement');
+    await getSupabase().auth.signOut();
+    await signedIn();
+
+    // The input uppercases what you type (`autoCapitalize="characters"`, and the
+    // value itself is uppercased), while every generated code is lowercase and
+    // the match is exact. Without normalising, a correctly-typed code fails
+    // every single time — and `fireEvent.changeText` in the flow tests bypasses
+    // the keyboard, so no screen-level test would ever notice.
+    expect(await joinCircleByCode(inviteCode.toUpperCase())).toBe(id);
+  });
+
+  it('reports a code that names nothing as something the user can fix', async () => {
+    await signedIn();
+
+    // Not a generic failure: this is the one error with an obvious next step,
+    // and it must stay indistinguishable from "no such circle" so the function
+    // cannot be used to enumerate codes.
+    await expect(joinCircleByCode('basement-0000000000000000')).rejects.toBeInstanceOf(
+      UnknownInviteCode,
+    );
+  });
+
+  it('does not dress a dead network up as a bad code', async () => {
+    await signedIn();
+    fakeSupabase.goOffline();
+
+    // Telling someone their code is wrong when the truth is that the radio is
+    // off sends them hunting for a typo that isn't there.
+    await expect(joinCircleByCode('basement-0000000000000000')).rejects.not.toBeInstanceOf(
+      UnknownInviteCode,
+    );
+  });
 });
 
 describe('the profile name', () => {

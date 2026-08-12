@@ -12,6 +12,8 @@ import { ExpandingCard, PillButton } from './kit';
 
 /** Short enough to catch a typo, loose enough to accept 'RALLY-7Q2M' or '7Q2M'. */
 const MIN_CODE = 4;
+/** `circles_name_length` in the schema. Mirrored so the field cannot overrun it. */
+const CIRCLE_NAME_MAX = 80;
 
 export function CircleScreen({
   onJoin,
@@ -125,6 +127,9 @@ export function CircleScreen({
                 onChangeText={setName}
                 onSubmitEditing={() => canCreate && onCreate(name.trim())}
                 autoFocus
+                // `circles_name_length`. The call is awaited on this screen, so
+                // going over would surface as a bare failure on the card.
+                maxLength={CIRCLE_NAME_MAX}
                 returnKeyType="go"
                 editable={!busy}
                 placeholder="e.g. The Basement"
