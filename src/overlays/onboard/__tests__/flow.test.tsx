@@ -15,7 +15,8 @@ import { captureBackPress } from '../../../test/backPress';
 import { fakeSupabase } from '../../../__mocks__/@supabase/supabase-js';
 import { __resetSupabaseForTests } from '../../../lib/supabase';
 import { __resetSessionForTests } from '../../../sync/session';
-import { __resetOutboxForTests } from '../../../sync/outbox';
+import { __resetOutboxForTests, pending } from '../../../sync/outbox';
+
 
 let back: ReturnType<typeof captureBackPress>;
 
@@ -210,6 +211,38 @@ describe('the onboarding flow', () => {
       press('Maybe later');
       // The name you gave it, announced as one sentence — not "solo for now".
       expect(screen.getByLabelText(/Your circle, The Basement/)).toBeTruthy();
+    });
+
+    /**
+     * The regression from the two-device run. Both accounts came out of
+     * onboarding called "Someone", because creating a circle kicks a pull and
+     * the merge it produced overwrote the typed name before anything had queued
+     * it. Driven through the real screens rather than raw dispatches, since the
+     * bug was in *when* the flow queues, which a dispatch cannot reproduce.
+     */
+    it('keeps the name you typed even though creating a circle kicks a pull', async () => {
+      await reachTheCircle();
+
+      press('Start a circle. Name it, then invite your people');
+      fireEvent.changeText(screen.getByLabelText('Circle name'), 'The Basement');
+      await act(async () => {
+        press('Create');
+      });
+      press('Maybe later');
+      await act(async () => {
+        press('Enter your week');
+      });
+
+      // Queued, not merely typed. The push itself needs a drain cycle and this
+      // suite runs on real timers — engine.test.tsx owns what happens on the
+      // wire. What this layer owns is *when* the flow tells the queue, and that
+      // the merge racing it cannot take the name back.
+      expect(pending().filter((e) => e.op === 'profile.update')).toEqual([
+        expect.objectContaining({ payload: { name: 'Maya Chen' } }),
+      ]);
+
+      fireEvent.press(screen.getByLabelText('Me'));
+      expect(screen.getByText('Maya Chen')).toBeTruthy();
     });
 
     it('says so when the code names nothing, and stays on the step', async () => {

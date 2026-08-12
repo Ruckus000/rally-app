@@ -6,6 +6,7 @@ import { Alert, TextInput, View } from 'react-native';
 import { color, onDark, radius, shadows, yearLevelColor } from '../theme/tokens';
 import { CIRCLE_NAME, ME, weekPointsLabel } from '../data/fixtures';
 import { NAME_MAX } from '../data/people';
+import { queueProfileName } from '../sync/engine';
 import { nextWeekAfter, useStore } from '../state/store';
 import { allTasksDone, cheersGiven, weekPoints } from '../state/selectors';
 import { Avatar } from '../components/Avatar';
@@ -46,6 +47,8 @@ export function MeScreen() {
     if (!renaming) return;
     setRenaming(false);
     dispatch({ type: 'RENAME_SELF', name: draftName });
+    // Same tick as the dispatch — see `queueProfileName`.
+    queueProfileName(draftName);
   };
   const won = allTasksDone(state);
   const gave = cheersGiven(state);

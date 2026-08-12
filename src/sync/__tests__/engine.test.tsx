@@ -18,12 +18,14 @@ import { liveWeek, weekAfter } from '../../data/week';
 import { Action, StoreProvider, useStore } from '../../state/store';
 import { mondayOf } from '../mappers';
 import { __resetOutboxForTests, deadLetters, pending } from '../outbox';
+import { queueProfileName } from '../engine';
 import {
   __resetRealtimeForTests,
   __setRealtimeClientForTests,
   type RealtimeChannelLike,
 } from '../realtime';
 import { __resetSessionForTests, currentUserId } from '../session';
+import { personOf } from '../../data/people';
 
 const OTHER = '22222222-2222-4222-8222-222222222222';
 const CIRCLE = '33333333-3333-4333-8333-333333333333';
@@ -286,8 +288,11 @@ const inACircleWith = (me: string) =>
 const nameOnServer = (id: string) =>
   fakeSupabase.rows('profiles').find((r) => r.id === id)?.name;
 
-const finishOnboarding = (name: string) =>
-  act(() => dispatch({ type: 'FINISH_ONBOARD', name, stakes: [], aud: 'friends' }));
+/** Exactly what `OnboardOverlay.finish()` does on a live account. */
+const finishOnboarding = (name: string) => {
+  dispatch({ type: 'FINISH_ONBOARD', name, stakes: [], aud: 'friends' });
+  queueProfileName(name);
+};
 
 it('sends the name you typed in onboarding', async () => {
   mount();
@@ -297,26 +302,87 @@ it('sends the name you typed in onboarding', async () => {
   // change rather than a value that was already there.
   expect(nameOnServer(me)).toBe('Someone');
 
-  finishOnboarding('Maya Chen');
+  act(() => finishOnboarding('Maya Chen'));
   await settle(10_000);
 
   expect(nameOnServer(me)).toBe('Maya Chen');
   expect(pending()).toHaveLength(0);
 });
 
-it('pushes a rename made long after onboarding, with no sync code of its own', async () => {
+/**
+ * The race the two-device run found, in both of the orders it can happen.
+ *
+ * Creating a circle calls `kickSync()`, so a pull is in flight while the last
+ * two onboarding screens are being tapped through — and React batches, so the
+ * merge it produces can share a commit with `FINISH_ONBOARD`. One commit means
+ * one observation, and the name is lost in whichever direction they land:
+ *
+ * The codebase already documents this failure mode for tasks, at `observe`:
+ * "if a tap lands in the same React commit as the merge, one observation covers
+ * both, and the user's edit is adopted as though the server had sent it."
+ * Tasks solve it by adopting per id. The profile adopted all-or-nothing.
+ */
+describe('a merge landing in the same commit as onboarding', () => {
+  const inACircleAlready = async () => {
+    mount();
+    await settle();
+    const me = currentUserId() as string;
+    inACircleWith(me);
+    // One pull, so the directory already holds the server's placeholder — which
+    // is what makes the merge below carry a *different* name to the typed one.
+    await settle(60_000);
+    expect(nameOnServer(me)).toBe('Someone');
+    return me;
+  };
+
+  const serverSaysSomeone = (me: string) => ({
+    type: 'SERVER_MERGE' as const,
+    merge: { people: [personOf(me, 'Someone')] },
+  });
+
+  it('sends the name when the merge is applied first', async () => {
+    const me = await inACircleAlready();
+
+    act(() => {
+      dispatch(serverSaysSomeone(me));
+      finishOnboarding('Maya Chen');
+    });
+    await settle(10_000);
+
+    expect(screen.getByTestId('myname')).toHaveTextContent('Maya Chen');
+    expect(nameOnServer(me)).toBe('Maya Chen');
+  });
+
+  it('sends the name when the merge is applied second', async () => {
+    const me = await inACircleAlready();
+
+    act(() => {
+      finishOnboarding('Maya Chen');
+      dispatch(serverSaysSomeone(me));
+    });
+    await settle(10_000);
+
+    expect(screen.getByTestId('myname')).toHaveTextContent('Maya Chen');
+    expect(nameOnServer(me)).toBe('Maya Chen');
+  });
+});
+
+it('pushes a rename made long after onboarding', async () => {
   mount();
   await settle();
   const me = currentUserId() as string;
-  finishOnboarding('Maya Chen');
+  act(() => finishOnboarding('Maya Chen'));
   await settle(10_000);
 
-  // The point of this test: `RENAME_SELF` touches only the people directory.
-  // It calls no transport and enqueues nothing itself — the watcher Wave A
-  // added for onboarding is not onboarding-specific, so writing the name *is*
-  // queueing it. If that ever stops being true, this fails and the rename
-  // silently becomes local-only.
-  act(() => dispatch({ type: 'RENAME_SELF', name: 'Maya C.' }));
+  // Renaming is two calls in one tick — the reducer for the screen, the queue
+  // for the server — and this is the pair `MeScreen.commitRename` makes. They
+  // are deliberately not one action: a reducer that enqueued would be a reducer
+  // with a side effect, and an `observe` that watched the directory is what the
+  // race above was.
+  act(() => {
+    dispatch({ type: 'RENAME_SELF', name: 'Maya C.' });
+    queueProfileName('Maya C.');
+  });
   await settle(10_000);
 
   expect(nameOnServer(me)).toBe('Maya C.');
@@ -330,7 +396,7 @@ it('takes a rename from another device without sending it back', async () => {
   const me = currentUserId() as string;
   inACircleWith(me);
 
-  finishOnboarding('Maya Chen');
+  act(() => finishOnboarding('Maya Chen'));
   await settle(10_000);
   expect(writesTo('profiles')).toHaveLength(1);
 
@@ -361,7 +427,7 @@ it('keeps the name on screen when a pull races the push', async () => {
   // Offline, so the rename is stuck in the queue while the pull still answers
   // from the row the trigger wrote. This is the race the dirty guard is for.
   fakeSupabase.goOffline();
-  finishOnboarding('Maya Chen');
+  act(() => finishOnboarding('Maya Chen'));
   await settle(60_000);
   fakeSupabase.goOnline();
   await settle(60_000);

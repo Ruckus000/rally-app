@@ -24,6 +24,7 @@ import { OnboardStake, useStore } from '../state/store';
 import { Overlay } from './Overlay';
 import { createCircle, joinCircleByCode, UnknownInviteCode } from '../sync/transport';
 import { kickSync } from '../sync/useSyncEngine';
+import { queueProfileName } from '../sync/engine';
 import { OnboardHeader } from './onboard/kit';
 import { IntentId, SUGG, Suggestion, pool } from './onboard/data';
 import { WelcomeScreen } from './onboard/WelcomeScreen';
@@ -144,6 +145,11 @@ export function OnboardOverlay({
       pts: r.pts,
     }));
     dispatch({ type: 'FINISH_ONBOARD', stakes, aud: effectiveAudience, name: flow.name });
+    // Queued in the same tick as the dispatch, not on the next observation: a
+    // pull is very likely in flight right now — creating a circle two screens
+    // ago kicked one — and a merge that lands before the queue hears about the
+    // name overwrites it with the placeholder the signup trigger wrote.
+    if (live) queueProfileName(flow.name);
   };
 
   /**
