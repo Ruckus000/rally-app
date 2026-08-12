@@ -73,6 +73,51 @@ describe('profiles writes', () => {
 
     await asUser('nana').from('profiles').update({ name: SEED_USERS.nana.name }).eq('id', idOf('nana'));
   });
+
+  /**
+   * The client clamps to 80 too, but the client is the layer an attacker gets
+   * to replace. This is the one that holds — and it has to, because the victim
+   * is not the sender: an over-long name is persisted by everyone who shares a
+   * circle with them, and it fails `peopleAreSound` on the *next launch*,
+   * discarding the whole payload. A wiped week with no error and nothing to
+   * blame is the outcome this constraint prevents.
+   */
+  it('refuses a display name long enough to wipe every circle-mate', async () => {
+    const { error } = await asUser('nana')
+      .from('profiles')
+      .update({ name: 'A'.repeat(81) })
+      .eq('id', idOf('nana'));
+
+    expect(error?.code).toBe('23514');
+    expect(error?.message).toContain('profiles_name_length');
+
+    // Refused, not partially applied.
+    const { data } = await asUser('nana').from('profiles').select('name').eq('id', idOf('nana'));
+    expect(data?.[0]?.name).toBe(SEED_USERS.nana.name);
+  });
+
+  it('refuses an empty one, which renders as a nameless row', async () => {
+    const { error } = await asUser('nana')
+      .from('profiles')
+      .update({ name: '' })
+      .eq('id', idOf('nana'));
+
+    expect(error?.code).toBe('23514');
+  });
+
+  it('accepts a name exactly at the bound — the control', async () => {
+    // Without this, a constraint of `char_length(name) = 0` would pass both of
+    // the tests above while refusing every real name in the app.
+    const exact = 'A'.repeat(80);
+    const { error } = await asUser('nana')
+      .from('profiles')
+      .update({ name: exact })
+      .eq('id', idOf('nana'));
+
+    expect(error).toBeNull();
+
+    await asUser('nana').from('profiles').update({ name: SEED_USERS.nana.name }).eq('id', idOf('nana'));
+  });
 });
 
 describe('a brand-new anonymous user', () => {

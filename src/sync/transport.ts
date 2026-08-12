@@ -37,7 +37,8 @@ export type WireOp =
   | { id: string; at: number; op: 'task.delete'; taskId: string }
   | { id: string; at: number; op: 'reaction.add'; targetId: string; kind: ReactionKind }
   | { id: string; at: number; op: 'reaction.remove'; targetId: string; kind: ReactionKind }
-  | { id: string; at: number; op: 'note.add'; note: SyncableNote };
+  | { id: string; at: number; op: 'note.add'; note: SyncableNote }
+  | { id: string; at: number; op: 'profile.update'; name: string };
 
 /** A `notes` row on the way back, narrowed into the shape the client can place. */
 export type PulledNote = {
@@ -265,6 +266,22 @@ export function supabaseTransport(): Transport {
         target_id: entry.targetId,
         kind: entry.kind,
       });
+      if (error) throw error;
+      return;
+    }
+
+    if (entry.op === 'profile.update') {
+      // An UPDATE, never an upsert. `profiles` is granted `select, update` only
+      // and has no INSERT policy — the row is made by the `on_auth_user_created`
+      // trigger — so an upsert that had to fall back to inserting would be a
+      // permanent 42501 sitting at the head of the queue forever.
+      //
+      // `handle` is deliberately not written. It is unique, so a collision is a
+      // 23505 that no retry can clear, and the generated one is already valid.
+      const { error } = await supabase
+        .from('profiles')
+        .update({ name: entry.name })
+        .eq('id', userId);
       if (error) throw error;
       return;
     }

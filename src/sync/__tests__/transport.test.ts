@@ -91,6 +91,47 @@ beforeEach(() => {
   transport = supabaseTransport();
 });
 
+describe('the profile name', () => {
+  const rename = (name = 'Maya Chen'): WireOp => ({
+    id: 'entry-6',
+    at: AT,
+    op: 'profile.update',
+    name,
+  });
+
+  const profile = (id: string) => fakeSupabase.rows('profiles').find((r) => r.id === id);
+
+  it('writes the name onto the row the session names', async () => {
+    expect(await transport.push(rename(), ME)).toEqual({ ok: true });
+
+    // The handle is untouched: it is unique, and rewriting it is a 23505 no
+    // retry can clear.
+    expect(profile(ME)).toMatchObject({ handle: 'alexr', name: 'Maya Chen' });
+  });
+
+  it('never touches anyone else, whatever the payload says', async () => {
+    // The payload cannot name its own subject — the id comes from the session.
+    // If it ever could, this is the test that would notice.
+    await transport.push(rename('Impostor'), SOMEONE_ELSE);
+
+    expect(profile(ME)).toMatchObject({ name: 'Alex Rivera' });
+    expect(profile(SOMEONE_ELSE)).toMatchObject({ name: 'Impostor' });
+  });
+
+  it('is safe to replay — the second write says the same thing', async () => {
+    await transport.push(rename(), ME);
+    await transport.push(rename(), ME);
+
+    expect(fakeSupabase.rows('profiles')).toHaveLength(2);
+  });
+
+  it('reports a dead connection as retryable rather than losing the rename', async () => {
+    fakeSupabase.goOffline();
+
+    expect(await transport.push(rename(), ME)).toMatchObject({ ok: false, retryable: true });
+  });
+});
+
 describe('push', () => {
   it('writes the task, stamping owner_id from the session', async () => {
     expect(await transport.push(upsert(), ME)).toEqual({ ok: true });

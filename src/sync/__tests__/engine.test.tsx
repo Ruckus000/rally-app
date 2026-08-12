@@ -110,6 +110,9 @@ function Probe() {
   return (
     <>
       <Text testID="people">{Object.keys(store.state.people).sort().join(',')}</Text>
+      {/* Your own name as a screen would draw it — the thing that used to read
+          "Someone" no matter what you typed. */}
+      <Text testID="myname">{store.state.people[store.state.selfId]?.name ?? ''}</Text>
       <Text testID="tasks">{store.state.myTasks.map((t) => t.title).join(',')}</Text>
       {/* The ids are minted in the reducer, so a note or a cheer aimed at a real
           row has to read them back off state rather than invent one. */}
@@ -236,6 +239,86 @@ it('sends a stake made offline, once, after the network comes back', async () =>
   // once-a-second-forever.
   await settle(30_000);
   expect(upserts()).toHaveLength(1);
+});
+
+/** The circle that makes your own `profiles` row come back on a pull. */
+const inACircleWith = (me: string) =>
+  fakeSupabase.seed({
+    profiles: [{ id: OTHER, handle: 'maya', name: 'Maya' }],
+    circles: [
+      { id: CIRCLE, name: 'The Basement', invite_code: 'basement-0123456789abcdef', created_by: me },
+    ],
+    circle_members: [
+      { circle_id: CIRCLE, profile_id: me },
+      { circle_id: CIRCLE, profile_id: OTHER },
+    ],
+  });
+
+const nameOnServer = (id: string) =>
+  fakeSupabase.rows('profiles').find((r) => r.id === id)?.name;
+
+const finishOnboarding = (name: string) =>
+  act(() => dispatch({ type: 'FINISH_ONBOARD', name, stakes: [], aud: 'friends' }));
+
+it('sends the name you typed in onboarding', async () => {
+  mount();
+  await settle();
+  const me = currentUserId() as string;
+  // What the signup trigger left. Asserted so the rename below is visibly a
+  // change rather than a value that was already there.
+  expect(nameOnServer(me)).toBe('Someone');
+
+  finishOnboarding('Maya Chen');
+  await settle(10_000);
+
+  expect(nameOnServer(me)).toBe('Maya Chen');
+  expect(pending()).toHaveLength(0);
+});
+
+it('takes a rename from another device without sending it back', async () => {
+  mount();
+  await settle();
+  const me = currentUserId() as string;
+  inACircleWith(me);
+
+  finishOnboarding('Maya Chen');
+  await settle(10_000);
+  expect(writesTo('profiles')).toHaveLength(1);
+
+  // Your other phone renames you. The merge that delivers it *must* differ from
+  // what this device holds — otherwise the diff below reports nothing whether
+  // the echo guard is there or not, and this test proves only that two equal
+  // strings are equal.
+  await act(async () => {
+    await getSupabase().from('profiles').update({ name: 'Maya C.' }).eq('id', me);
+  });
+  const written = writesTo('profiles').length;
+
+  await settle(60_000);
+
+  // On screen, and not queued straight back — which would then arrive again on
+  // the next pull, forever.
+  expect(screen.getByTestId('myname')).toHaveTextContent('Maya C.');
+  expect(writesTo('profiles')).toHaveLength(written);
+  expect(pending()).toHaveLength(0);
+});
+
+it('keeps the name on screen when a pull races the push', async () => {
+  mount();
+  await settle();
+  const me = currentUserId() as string;
+  inACircleWith(me);
+
+  // Offline, so the rename is stuck in the queue while the pull still answers
+  // from the row the trigger wrote. This is the race the dirty guard is for.
+  fakeSupabase.goOffline();
+  finishOnboarding('Maya Chen');
+  await settle(60_000);
+  fakeSupabase.goOnline();
+  await settle(60_000);
+
+  expect(screen.getByTestId('myname')).toHaveTextContent('Maya Chen');
+  expect(nameOnServer(me)).toBe('Maya Chen');
 });
 
 it('does not write anything back when a circle merge arrives', async () => {

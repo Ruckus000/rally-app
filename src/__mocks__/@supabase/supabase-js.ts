@@ -106,6 +106,10 @@ const SCHEMA: Record<string, TableSpec> = {
         name: 'profiles_handle_check',
         ok: (r) => typeof r.handle === 'string' && /^[a-z0-9_.]{3,30}$/.test(r.handle),
       },
+      {
+        name: 'profiles_name_length',
+        ok: (r) => typeof r.name === 'string' && r.name.length >= 1 && r.name.length <= 80,
+      },
     ],
   },
 
@@ -316,7 +320,7 @@ class Refusal extends Error {
 }
 
 const keyOf = (row: Row, cols: string[]): string =>
-  cols.map((c) => JSON.stringify(row[c] ?? null)).join(' ');
+  cols.map((c) => JSON.stringify(row[c] ?? null)).join('\u0000');
 
 const describeKey = (row: Row, cols: string[]): string =>
   `Key (${cols.join(', ')})=(${cols.map((c) => String(row[c])).join(', ')})`;

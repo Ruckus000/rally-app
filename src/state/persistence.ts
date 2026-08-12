@@ -12,6 +12,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AUDIENCES, CATEGORY_POINTS, Task } from '../data/fixtures';
 import { ACCOUNT_MODES } from '../data/seed';
+import { NAME_MAX } from '../data/people';
 import { DAY_NAMES } from '../data/week';
 import type { State } from './store';
 
@@ -120,11 +121,14 @@ function weekIsSound(value: unknown): boolean {
  */
 /**
  * A display name is the one string an outsider controls that reaches every
- * screen and every accessibility label, so it is bounded here rather than
- * trusted and truncated at each of the dozens of render sites. 80 is far more
- * than any real name and far less than enough to break a layout.
+ * screen and every accessibility label, so it is bounded rather than trusted
+ * and truncated at each of the dozens of render sites.
+ *
+ * Imported rather than repeated: this check discards the entire payload, and
+ * `personOf` clamps to the same number on the way in. Two spellings that drifted
+ * apart would mean rows that pass one and fail the other — which reads as the
+ * app forgetting everything, at launch, with no error.
  */
-const NAME_MAX = 80;
 
 const isBoundedString = (v: unknown, max = NAME_MAX): boolean =>
   typeof v === 'string' && v.length <= max;

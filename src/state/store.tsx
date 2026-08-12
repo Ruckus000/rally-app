@@ -65,7 +65,13 @@ import { reconcileTasks } from '../sync/reconcile';
 // `reconcileActed` and `mergeNotes` live there for the same reason
 // `reconcileTasks` lives in reconcile.ts: folding a pull is sync's judgement,
 // and the reducer only has to apply the answer.
-import { dirtyReactionKeys, dirtyTaskIds, mergeNotes, reconcileActed } from '../sync/engine';
+import {
+  dirtyProfile,
+  dirtyReactionKeys,
+  dirtyTaskIds,
+  mergeNotes,
+  reconcileActed,
+} from '../sync/engine';
 import type { PulledNote } from '../sync/transport';
 import type { ReactionRef } from '../sync/reactions';
 import { pauseRealtime, resumeRealtime, teardownRealtime } from '../sync/realtime';
@@ -853,21 +859,29 @@ export function reducer(state: State, action: Action): State {
       }));
       /**
        * The name goes into the people directory, which is where every screen
-       * already resolves a name and initials from. It was briefly left
-       * uncommitted on the grounds that a live profile name has to be written
-       * through a `profiles` push the client does not have yet — true, but the
-       * consequence was that the flow asked you to type your name and then
-       * rendered you as "?". Asking and discarding is worse than not asking.
-       * Live mode overwrites this the moment profiles sync; until then it is
-       * the honest local answer.
+       * already resolves a name and initials from — and on a live account the
+       * engine watches that entry and pushes it to `profiles.name`, so this is
+       * also the moment the rename is queued.
+       *
+       * It was once written here as the literal 'You' with the typed string
+       * discarded, which made the flow ask for your name and then render you as
+       * "Someone" the first time a pull answered. See `profileName.test.ts`.
        */
       const named = action.name.trim();
+      /**
+       * Demo keeps the fixture convention — the self row is called 'You', and
+       * every screen that greets you renders that. A live account cannot: this
+       * string is pushed to `profiles.name`, which is what everyone *else* sees
+       * beside your week, and a circle full of people called "You" is the bug
+       * that convention would cause.
+       */
+      const selfName = state.account === 'live' ? named : 'You';
       const people = named
         ? {
             ...indexPeople(Object.values(state.people).filter((p): p is Person => !!p)),
             [state.selfId]: {
               ...(state.people[state.selfId] ?? { id: state.selfId }),
-              name: 'You',
+              name: selfName,
               first: named.split(/\s+/)[0] || named,
               initials: initialsFromName(named),
             },
@@ -902,7 +916,30 @@ export function reducer(state: State, action: Action): State {
       // anyone as you — and every write would then go out under an id this
       // device never proved it owned.
       const selfId = next.status === 'ready' ? next.userId : state.selfId;
-      return { ...state, session: next, selfId };
+
+      /**
+       * Onboarding runs before the anonymous session has necessarily resolved,
+       * and `SET_ACCOUNT` pins `selfId` to the demo sentinel until it does. So
+       * a name typed in that window is filed under `'you'`, and this line used
+       * to strand it: the lookup for the new uuid missed, `stranger()` answered,
+       * and the app called you "Someone" without ever touching the network.
+       *
+       * Carried only from the sentinel. Two real ids in succession is a
+       * different account, and that name belongs to whoever typed it.
+       */
+      let people = state.people;
+      if (selfId !== state.selfId && state.selfId === SELF_DEMO_ID) {
+        const carried = state.people[state.selfId];
+        if (carried) {
+          people = indexPeople(
+            Object.values(state.people)
+              .filter((p): p is Person => !!p && p.id !== state.selfId)
+              .concat({ ...carried, id: selfId }),
+          );
+        }
+      }
+
+      return { ...state, session: next, selfId, people };
     }
 
     case 'SERVER_MERGE': {
@@ -912,7 +949,14 @@ export function reducer(state: State, action: Action): State {
       let people = state.people;
       let draft: Record<PersonId, Person> | null = null;
 
+      // Your own row is in the answer like anyone else's, and until the queued
+      // rename lands it still says whatever the signup trigger defaulted it to.
+      // Merging that back would overwrite the name you just typed with
+      // "Someone" — and because a merge is authoritative, it would stay.
+      const selfIsDirty = dirtyProfile();
+
       for (const p of action.merge.people ?? []) {
+        if (selfIsDirty && p.id === state.selfId) continue;
         const known = people[p.id];
         if (known && samePerson(known, p)) continue;
         // Copied once, on the first row that actually differs, and with a null
