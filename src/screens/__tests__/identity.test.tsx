@@ -185,6 +185,15 @@ describe('the cheer exchange line', () => {
     expect(screen.getByText(/^1 cheer behind\./)).toBeTruthy();
   });
 
+  it('does not promise a cheer reaches someone’s phone', () => {
+    // There is no push. A cheer arrives in the app, carrying your name — the
+    // trigger puts it in the payload — and that is what the line may claim.
+    exchange(1);
+
+    expect(screen.queryByText(/on their phone/i)).toBeNull();
+    expect(screen.getByText(/shows up in their week, with your name on it/)).toBeTruthy();
+  });
+
   it('says "cheers" for more than one — the control', () => {
     exchange(3);
 

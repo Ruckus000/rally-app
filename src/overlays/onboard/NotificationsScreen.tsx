@@ -3,9 +3,17 @@
  *
  * "Allow notifications" does NOT request permission. expo-notifications isn't
  * installed and push needs a paid Apple developer programme we don't have, so
- * there is nothing to ask. Both buttons simply continue the flow; the screen
- * makes the promise, and the ask gets wired when push actually exists rather
- * than mocked into a prompt that would teach the user the wrong thing.
+ * there is nothing to ask. Both buttons simply continue the flow, and the ask
+ * gets wired when push actually exists rather than mocked into a prompt that
+ * would teach the user the wrong thing.
+ *
+ * The copy no longer promises one either. Cheers do arrive now — a trigger
+ * writes them and the bell shows them — but they wait in the app rather than
+ * reaching a locked phone, so the line says that instead of "right when you
+ * close a task". What is still unhonest here is the CTA: a button labelled
+ * "Allow notifications" that allows nothing. Changing it is a design decision
+ * about this screen's shape, not a copy fix, so it is flagged rather than
+ * taken.
  */
 import React, { useEffect, useState } from 'react';
 import { Animated, View, ViewStyle } from 'react-native';
@@ -44,7 +52,7 @@ export function NotificationsScreen({
         Cheers land here.
       </Bri>
       <Sans size={13.5} color={color.muted} lineHeight={20} style={{ marginTop: 8 }}>
-        One line from a friend, right when you close a task. No spam. No streak-shame.
+        One line from a friend, waiting when you open Rally. No spam. No streak-shame.
       </Sans>
 
       <Pop style={{ marginTop: 34 }}>
