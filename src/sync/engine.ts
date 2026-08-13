@@ -20,7 +20,7 @@ import type { Moment, Note, Task } from '../data/fixtures';
 import type { Person, PersonId } from '../data/people';
 import type { WeekContext } from '../data/week';
 import type { Action, CircleRef, ServerMerge, State } from '../state/store';
-import { memberStats, mondayOf, rowToNotification, taskRowToMoment } from './mappers';
+import { batchCheers, memberStats, mondayOf, rowToNotification, taskRowToMoment } from './mappers';
 import { noteKey, syncableNote, type NoteSite, type SyncableNote } from './notes';
 import {
   ackedTaskIds,
@@ -715,7 +715,9 @@ export function createEngine(
       // Your feed. Compared on ids alone: `time` is recomputed from the clock
       // on every pull, so comparing the rendered shape would report a change
       // every minute and re-render every screen for nothing.
-      const feed = notifications.map((row) => rowToNotification(row));
+      // Grouped before it reaches state, so every consumer — the overlay, the
+      // badge, "mark all read" — sees the same feed the user does.
+      const feed = batchCheers(notifications.map((row) => rowToNotification(row)));
       const feedIds = feed.map((n) => n.id).join(',');
       if (feedIds !== lastNotificationIds) {
         merge.notifications = feed;

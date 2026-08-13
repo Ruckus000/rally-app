@@ -11,6 +11,7 @@
 import type { Task } from '../../data/fixtures';
 import { buildWeekContext, FIXTURE_WEEK, type WeekContext } from '../../data/week';
 import {
+  batchCheers,
   memberStats,
   mondayOf,
   rowToPerson,
@@ -242,5 +243,91 @@ describe('a member’s week, counted off the feed', () => {
     // `ranking()` renders a missing week as "No week synced yet". A zeroed one
     // would read as a person who staked nothing, which is a different claim.
     expect(memberStats([]).get('a')).toBeUndefined();
+  });
+});
+
+describe('several cheers on one task, as one row', () => {
+  const cheer = (id: string, who: string, name: string, task = 'task-1') => ({
+    id,
+    tier: 'circle' as const,
+    kind: 'cheer' as const,
+    who: who as never,
+    name,
+    text: 'cheered “Morning walk”',
+    time: '1h ago',
+    sheetId: task,
+  });
+
+  it('leaves a single cheer exactly as it was', () => {
+    const [only] = batchCheers([cheer('n1', 'dre', 'Dre Okafor')]);
+
+    expect(only).toMatchObject({ id: 'n1', name: 'Dre Okafor' });
+  });
+
+  it('names two', () => {
+    const [group] = batchCheers([cheer('n2', 'dre', 'Dre Okafor'), cheer('n1', 'maya', 'Maya Chen')]);
+
+    // First names, which is the shape the design ships.
+    expect(group.name).toBe('Dre and Maya');
+    expect(group.faces).toEqual(['dre', 'maya']);
+  });
+
+  it('names three, the way the design draws it', () => {
+    const [group] = batchCheers([
+      cheer('n3', 'dre', 'Dre Okafor'),
+      cheer('n2', 'maya', 'Maya Chen'),
+      cheer('n1', 'nana', 'Nana Rosa'),
+    ]);
+
+    expect(group.name).toBe('Dre, Maya and Nana');
+  });
+
+  it('counts the rest past three', () => {
+    const [group] = batchCheers([
+      cheer('n4', 'dre', 'Dre Okafor'),
+      cheer('n3', 'maya', 'Maya Chen'),
+      cheer('n2', 'nana', 'Nana Rosa'),
+      cheer('n1', 'sofia', 'Sofia Park'),
+    ]);
+
+    expect(group.name).toBe('Dre, Maya and 2 others');
+    // The stack stays three deep however many cheered; the sentence carries it.
+    expect(group.faces).toHaveLength(3);
+  });
+
+  it('keeps cheers on different tasks apart', () => {
+    const feed = batchCheers([
+      cheer('n2', 'dre', 'Dre Okafor', 'task-1'),
+      cheer('n1', 'maya', 'Maya Chen', 'task-2'),
+    ]);
+
+    // Two people cheering two different things is two pieces of news.
+    expect(feed).toHaveLength(2);
+  });
+
+  it('takes the newest member’s place in the feed', () => {
+    const other = { ...cheer('x', 'nana', 'Nana Rosa'), kind: 'due' as const, sheetId: undefined };
+    const feed = batchCheers([
+      cheer('n2', 'dre', 'Dre Okafor'),
+      other,
+      cheer('n1', 'maya', 'Maya Chen'),
+    ]);
+
+    // The group sits where its newest cheer was, and everything else holds its
+    // position — the feed is ordered by when things happened.
+    expect(feed.map((n) => n.kind)).toEqual(['cheer', 'due']);
+  });
+
+  it('re-lights when a new cheer joins a group you have read', () => {
+    const before = batchCheers([cheer('n1', 'dre', 'Dre Okafor'), cheer('n0', 'maya', 'Maya Chen')]);
+    const after = batchCheers([
+      cheer('n2', 'nana', 'Nana Rosa'),
+      cheer('n1', 'dre', 'Dre Okafor'),
+      cheer('n0', 'maya', 'Maya Chen'),
+    ]);
+
+    // Read state is keyed on the id, so a group keyed only by task would stay
+    // read forever once opened, and a fourth cheer would arrive silently.
+    expect(after[0].id).not.toBe(before[0].id);
   });
 });

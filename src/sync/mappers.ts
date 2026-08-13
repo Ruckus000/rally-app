@@ -234,3 +234,62 @@ export function rowToNotification(row: Record<string, unknown>, now?: number): N
     sheetId: str(payload.task_id) || undefined,
   };
 }
+
+/** First token only: "Dre, Maya and Nana" is the design's shape, not their full names. */
+const firstNameOf = (name: string): string => name.trim().split(/\s+/)[0] || name;
+
+/**
+ * Several cheers on one task, as one row.
+ *
+ * The screen has always promised this — the design ships a fixture reading
+ * "Dre, Maya and Nana cheered your run" — and until now the feed gave you three
+ * separate lines saying the same thing about the same task.
+ *
+ * Grouped here rather than in the trigger. A row per cheer is the honest record:
+ * withdrawing one deletes exactly that row, and the group shrinks by itself. A
+ * trigger that merged them would have to un-merge on delete, editing a jsonb
+ * array under concurrency to answer a question the client can answer by reading.
+ *
+ * Only cheers, and only ones that name a task. Everything else passes through
+ * in place — the order of the feed is the order it arrived.
+ */
+export function batchCheers(items: Notification[]): Notification[] {
+  const groups = new Map<string, Notification[]>();
+  for (const item of items) {
+    if (item.kind !== 'cheer' || !item.sheetId) continue;
+    const members = groups.get(item.sheetId);
+    if (members) members.push(item);
+    else groups.set(item.sheetId, [item]);
+  }
+
+  const emitted = new Set<string>();
+  return items.flatMap((item) => {
+    const members = item.sheetId ? groups.get(item.sheetId) : undefined;
+    if (!members) return [item];
+    // The group takes the position of its newest member and appears once.
+    if (emitted.has(item.sheetId!)) return [];
+    emitted.add(item.sheetId!);
+    if (members.length === 1) return [item];
+
+    const names = members.map((m) => firstNameOf(m.name ?? ''));
+    return [
+      {
+        ...item,
+        // Keyed on the newest member so a cheer arriving after you have read
+        // the group makes it unread again — which is the whole point of the row.
+        id: `cheer:${item.sheetId}:${item.id}`,
+        name: joinNames(names),
+        // The stack is three deep in the design; the sentence carries the rest.
+        faces: members.slice(0, 3).flatMap((m) => (m.who ? [m.who] : [])),
+      },
+    ];
+  });
+}
+
+/** "Dre", "Dre and Maya", "Dre, Maya and Nana", "Dre, Maya and 2 others". */
+export function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`;
+  return `${names[0]}, ${names[1]} and ${names.length - 2} others`;
+}
