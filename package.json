@@ -47,6 +47,7 @@
     "db:start": "supabase start",
     "db:reset": "supabase db reset --local",
     "db:types": "supabase gen types typescript --local > src/lib/database.types.ts",
+    "db:bots": "node scripts/seed-bots.mjs",
     "typecheck": "tsc --noEmit",
     "sim": "./scripts/sim.sh",
     "sim:build": "./scripts/sim.sh --build",
