@@ -915,6 +915,25 @@ describe('week rollover', () => {
     expect(record.points).toBe(90);
   });
 
+  it('starts the new week with nobody having cheered it yet', () => {
+    // The count is this week's rows, so carrying it over would credit the new
+    // week with last week's cheers until the next pull corrected it.
+    const live = { ...base, account: 'live' as const, profile: { ...base.profile, cheersReceived: 6 } };
+    const closed = run(live, { type: 'TOGGLE_TASK', id: 'm2' }, detected);
+
+    expect(reducer(closed, { type: 'COMMIT_ROLLOVER', carryIds: [] }).profile.cheersReceived).toBe(0);
+  });
+
+  it('leaves the demo’s cheer count alone — the control', () => {
+    // The demo's is a fixture with no pull behind it, so clearing it would
+    // empty a number the seeded account is supposed to show.
+    const closed = run(base, { type: 'TOGGLE_TASK', id: 'm2' }, detected);
+
+    expect(reducer(closed, { type: 'COMMIT_ROLLOVER', carryIds: [] }).profile.cheersReceived).toBe(
+      base.profile.cheersReceived,
+    );
+  });
+
   it('advances the running totals', () => {
     const closed = run(base, { type: 'TOGGLE_TASK', id: 'm2' }, detected);
     const s = reducer(closed, { type: 'COMMIT_ROLLOVER', carryIds: [] });

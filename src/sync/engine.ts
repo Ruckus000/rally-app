@@ -510,6 +510,8 @@ export function createEngine(
    * changing its mind about the feed.
    */
   let lastFeed: Moment[] = [];
+  /** The cheer count the last pull answered with, so an unchanged one is silent. */
+  let lastReceived = 0;
   let pullTimer: ReturnType<typeof setInterval> | null = null;
   let pulling = false;
   let unsubscribeSession: (() => void) | null = null;
@@ -677,9 +679,15 @@ export function createEngine(
       const memberIds = people.map((p) => p.id).filter((id) => id !== userId);
       const friendRows = weekStart ? await wire.pullFriendTasks(memberIds, weekStart) : [];
       // A third wave, for the same reason the second is one: it can only ask
-      // about rows the feed has just named.
+      // about rows the first two have just named.
+      //
+      // One call for both feeds' worth of ids — the tasks you can see, and your
+      // own. `pullCheerCounts` excludes you either way, which is exactly right
+      // in both directions: not your own cheer on a friend's row, and not your
+      // own cheer on your own row, which is not a cheer you received.
+      const myIds = (rows ?? []).map((t) => t.id);
       const cheers = await wire.pullCheerCounts(
-        friendRows.map((row) => String(row.id)),
+        [...friendRows.map((row) => String(row.id)), ...myIds],
         userId,
       );
 
@@ -698,6 +706,16 @@ export function createEngine(
       // circle with you and nobody else, so a global feed of `aud='everyone'`
       // rows from strangers would be a list of people all called "Someone".
       const moments = friendRows.map((row) => taskRowToMoment(row, undefined, cheers[String(row.id)] ?? 0));
+      // Cheers landing on your week, which had no read at all: `pullCheerCounts`
+      // answered for the tasks in your feed, and your own are not in it. The Me
+      // screen has always rendered `profile.cheersReceived` — until now nothing
+      // ever wrote it, so a live account read 0 however many people cheered.
+      const received = myIds.reduce((sum, id) => sum + (cheers[id] ?? 0), 0);
+      if (received !== lastReceived) {
+        merge.cheersReceived = received;
+        lastReceived = received;
+      }
+
       if (!sameMoments(lastFeed, moments)) {
         merge.moments = moments;
         lastFeed = moments;
@@ -748,6 +766,7 @@ export function createEngine(
         !merge.reactions &&
         !merge.notes &&
         !merge.moments &&
+        merge.cheersReceived === undefined &&
         merge.circle === undefined
       ) {
         return;

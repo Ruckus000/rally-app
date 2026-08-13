@@ -326,6 +326,12 @@ export type ServerMerge = {
   /** Notes on your tasks and notes addressed to you. Append-only, keyed by id. */
   notes?: PulledNote[];
   /**
+   * How many cheers landed on your week, from anyone but you. Authoritative:
+   * a cheer taken back on someone else's phone is a smaller number here, and
+   * a max() would leave it lit forever.
+   */
+  cheersReceived?: number;
+  /**
    * Other people's weeks, as the feed renders them. Authoritative for the set —
    * a task someone unstaked is an absence here, and a union would leave it on
    * your screen forever — but never for the thread on one, which is local.
@@ -866,6 +872,10 @@ export function reducer(state: State, action: Action): State {
           mostTasksClosed: Math.max(state.profile.mostTasksClosed, done.length),
           perfectWeeks: state.profile.perfectWeeks + (perfect ? 1 : 0),
           currentStreak,
+          // Week-scoped, like `acted` below: it counts the cheers this week's
+          // rows collected. The next pull refills it, so only a live account
+          // clears — the demo's is a fixture with nothing to refill it.
+          cheersReceived: state.account === 'live' ? 0 : state.profile.cheersReceived,
         },
         // Week-scoped. Everything else — who you are, what you've said to
         // people, your replies on public posts — carries forward.
@@ -1081,6 +1091,14 @@ export function reducer(state: State, action: Action): State {
       // is the only one there has ever been.
       const circle = action.merge.circle !== undefined ? action.merge.circle : state.circle;
 
+      // Same reasoning, one field over. Nothing local has ever written this —
+      // it was a seed constant the Me screen rendered and no code updated.
+      const profile =
+        action.merge.cheersReceived !== undefined &&
+        action.merge.cheersReceived !== state.profile.cheersReceived
+          ? { ...state.profile, cheersReceived: action.merge.cheersReceived }
+          : state.profile;
+
       /**
        * The feed. The server owns which rows are in it; this device owns the
        * thread it has written on them, which `pullNotes` does not answer for —
@@ -1111,11 +1129,12 @@ export function reducer(state: State, action: Action): State {
         acted === state.acted &&
         personNotes === state.personNotes &&
         circle === state.circle &&
-        moments === state.moments
+        moments === state.moments &&
+        profile === state.profile
       ) {
         return state;
       }
-      return { ...state, people, myTasks, acted, personNotes, circle, moments };
+      return { ...state, people, myTasks, acted, personNotes, circle, moments, profile };
     }
 
     default:

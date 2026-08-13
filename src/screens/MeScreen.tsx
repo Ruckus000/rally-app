@@ -269,7 +269,8 @@ export function MeScreen() {
             ? 'Nothing exchanged yet. A cheer is one tap.'
             : gave >= got
               ? 'You give more than you get. That is a good problem.'
-              : `${got - gave} cheers behind. Nobody is counting except this bar.`}
+              : `${got - gave} ${got - gave === 1 ? 'cheer' : 'cheers'} behind. ` +
+                'Nobody is counting except this bar.'}
         </Sans>
         <Sans size={11} color={color.muted} style={{ marginTop: 4, opacity: 0.8 }}>
           Every cheer lands on their phone, with your name on it.
