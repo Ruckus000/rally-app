@@ -61,7 +61,8 @@ export type Transport = {
   pullCircle(userId: string): Promise<Person[]>;
   pullMyCircle(userId: string): Promise<CircleRef | null>;
   pullNotifications(userId: string, limit: number): Promise<Record<string, unknown>[]>;
-  pullFriendTasks(memberIds: string[], weekStart: string): Promise<Record<string, unknown>[]>;
+  pullTasksByOwners(ownerIds: string[], weekStart: string): Promise<Record<string, unknown>[]>;
+  pullBots(): Promise<Person[]>;
   pullCheerCounts(taskIds: string[], userId: string): Promise<Record<string, number>>;
   pullReactions(userId: string): Promise<ReactionRef[]>;
   pullNotes(userId: string): Promise<PulledNote[]>;
@@ -422,25 +423,44 @@ export function supabaseTransport(): Transport {
 
   /**
    * Other people's weeks — the read that makes this a circle rather than a
-   * synced private tracker.
+   * synced private tracker, and the same read the Global feed needs.
    *
-   * Scoped to the ids `pullCircle` just returned rather than to "everything the
+   * Scoped to ids the caller has just been given rather than to "everything the
    * week holds". RLS decides *what* of theirs is visible — the audience rule
    * lives there and is not restated here — and this decides *whose* to ask
-   * about, which is the part the client legitimately owns.
+   * about, which is the part the client legitimately owns. Whose changes with
+   * the feed: circle-mates for Friends, bots for Global. The query does not.
    */
-  const pullFriendTasks = async (
-    memberIds: string[],
+  const pullTasksByOwners = async (
+    ownerIds: string[],
     weekStart: string,
   ): Promise<Record<string, unknown>[]> => {
-    if (memberIds.length === 0) return [];
+    if (ownerIds.length === 0) return [];
     const { data, error } = await getSupabase()
       .from('tasks')
       .select('*')
-      .in('owner_id', memberIds)
+      .in('owner_id', ownerIds)
       .eq('week_start', weekStart);
     if (error) fail(error);
     return (data ?? []) as Record<string, unknown>[];
+  };
+
+  /**
+   * The Oz bots, who are openly not people.
+   *
+   * `profiles_select` names `is_bot` explicitly, so these are the only rows
+   * anybody can read without sharing a circle — which is what lets a brand-new
+   * account render a name instead of "Someone". Asked for as its own hop for
+   * the reason `pullCircle` is three: an embedded select is a PostgREST-only
+   * shape no test double can honestly reproduce.
+   */
+  const pullBots = async (): Promise<Person[]> => {
+    const { data, error } = await getSupabase()
+      .from('profiles')
+      .select('id,handle,name')
+      .eq('is_bot', true);
+    if (error) fail(error);
+    return (data ?? []).map((row) => rowToPerson(row as Record<string, unknown>));
   };
 
   /**
@@ -611,7 +631,8 @@ export function supabaseTransport(): Transport {
     pullCircle,
     pullMyCircle,
     pullNotifications,
-    pullFriendTasks,
+    pullTasksByOwners,
+    pullBots,
     pullCheerCounts,
     pullReactions,
     pullNotes,

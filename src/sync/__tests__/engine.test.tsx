@@ -131,6 +131,15 @@ function Probe() {
       <Text testID="circle">{store.state.circle?.inviteCode ?? ''}</Text>
       {/* Other people's weeks, and the thread this device has left on them. */}
       <Text testID="feed">{store.state.moments.map((m) => m.title ?? '').join(',')}</Text>
+      {/* The Oz bots' week — the Global tab, and a different set of owners
+          answered by the same query as the feed above. */}
+      <Text testID="globals">{store.state.globalPosts.map((m) => m.title ?? '').join(',')}</Text>
+      <Text testID="globalCheers">
+        {store.state.globalPosts.map((m) => String(m.cheers ?? '')).join(',')}
+      </Text>
+      <Text testID="globalNotes">
+        {store.state.globalPosts.flatMap((m) => (m.cmts ?? []).map((c) => c.t)).join(',')}
+      </Text>
       {/* The bell's feed: who did what, as the overlay draws it. */}
       <Text testID="notifs">
         {store.state.notifications.map((n) => `${n.name} ${n.text}`).join(',')}
@@ -288,6 +297,29 @@ const inACircleWith = (me: string) =>
     circle_members: [
       { circle_id: CIRCLE, profile_id: me },
       { circle_id: CIRCLE, profile_id: OTHER },
+    ],
+  });
+
+/** An Oz bot with a week on it, which is what the Global tab is made of. */
+const BOT = '00000000-0000-4000-8000-0000000000b0';
+const BOT_TASK = '88888888-8888-4888-8888-888888888888';
+
+const aBotStakes = (over: Record<string, unknown> = {}) =>
+  fakeSupabase.seed({
+    profiles: [{ id: BOT, handle: 'dorothy.gale', name: 'Dorothy Gale', is_bot: true }],
+    tasks: [
+      {
+        id: BOT_TASK,
+        owner_id: BOT,
+        week_start: weekOnScreen(),
+        day: 1,
+        title: 'Walked the whole way',
+        category: 'Fitness',
+        points: 20,
+        aud: 'everyone',
+        source: 'staked',
+        ...over,
+      },
     ],
   });
 
@@ -952,6 +984,115 @@ it('enqueues nothing for a cheer on a public post', async () => {
 
   expect(pending()).toHaveLength(0);
   expect(writesTo('reactions')).toHaveLength(0);
+});
+
+/**
+ * The Global feed, once it is made of rows.
+ *
+ * The behavioural hinge of the whole change is at the bottom of this block: a
+ * cheer on a bot's post is a cheer on a real task with a uuid, so it enqueues —
+ * where the identical tap on a demo post is dropped, three tests above.
+ */
+describe('the Oz bots', () => {
+  it('arrive in their own feed, not the circle’s', async () => {
+    mount();
+    await settle();
+    aBotStakes();
+
+    await settle(60_000);
+
+    expect(screen.getByTestId('globals')).toHaveTextContent('Walked the whole way');
+    // Not in `moments`. They share no circle with you, and a bot in the Friends
+    // feed would be a stranger sitting among your people.
+    expect(screen.getByTestId('feed')).toHaveTextContent('');
+  });
+
+  it('land in the directory, so the card has a name to draw', async () => {
+    mount();
+    await settle();
+    aBotStakes();
+
+    await settle(60_000);
+
+    // Without this every Global card reads "Someone", which is the state the
+    // feed was in for as long as it was made of real rows.
+    expect(screen.getByTestId('people')).toHaveTextContent(BOT);
+    // `withStats` counts their week off the same rows — the card's stat line.
+    expect(screen.getByTestId('stats')).toHaveTextContent(`${BOT}:0/1`);
+  });
+
+  it('bring their cheer counts, minus your own', async () => {
+    mount();
+    await settle();
+    const me = currentUserId() as string;
+    inACircleWith(me);
+    aBotStakes();
+    fakeSupabase.seed({
+      reactions: [
+        { actor_id: OTHER, target_type: 'task', target_id: BOT_TASK, kind: 'cheer' },
+        { actor_id: me, target_type: 'task', target_id: BOT_TASK, kind: 'cheer' },
+      ],
+    });
+
+    await settle(60_000);
+
+    // One, not two: the screen adds your own tap, exactly as it does on the
+    // Friends feed. Counting it here would double it.
+    expect(screen.getByTestId('globalCheers')).toHaveTextContent('1');
+  });
+
+  it('take a cheer that a demo post could never send', async () => {
+    mount();
+    await settle();
+    aBotStakes();
+    await settle(60_000);
+
+    act(() => dispatch({ type: 'ACT', id: BOT_TASK, kind: 'cheer' }));
+    await settle(10_000);
+
+    // The hinge. `parseActedKey` gates on the id being a uuid, so the same tap
+    // on `g1` is dropped and this one is a row Dorothy's ledger can hold.
+    expect(fakeSupabase.rows('reactions')).toHaveLength(1);
+    expect(pending()).toHaveLength(0);
+  });
+
+  it('take a note, for the same reason', async () => {
+    mount();
+    await settle();
+    aBotStakes();
+    await settle(60_000);
+
+    act(() => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'task', id: BOT_TASK } }));
+    act(() => dispatch({ type: 'SET_NOTE', value: 'Respect.' }));
+    act(() => dispatch({ type: 'SEND_NOTE' }));
+    await settle(10_000);
+
+    expect(screen.getByTestId('globalNotes')).toHaveTextContent('Respect.');
+    expect(fakeSupabase.rows('notes')).toHaveLength(1);
+    expect(fakeSupabase.rows('notes')[0]?.body).toBe('Respect.');
+  });
+
+  it('keep a note you left when their feed refreshes', async () => {
+    mount();
+    await settle();
+    aBotStakes();
+    await settle(60_000);
+
+    act(() => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'task', id: BOT_TASK } }));
+    act(() => dispatch({ type: 'SET_NOTE', value: 'Respect.' }));
+    act(() => dispatch({ type: 'SEND_NOTE' }));
+    await settle(10_000);
+
+    // The pull answers for the rows, not for the thread this device wrote on
+    // them — so a merge that did not carry it would blink the note away. Poked
+    // directly rather than re-seeded: it has to be the *same* row coming back
+    // changed, which is what a refresh is.
+    const row = fakeSupabase.rows('tasks').find((r) => r.id === BOT_TASK);
+    if (row) row.done_at = new Date().toISOString();
+    await settle(60_000);
+
+    expect(screen.getByTestId('globalNotes')).toHaveTextContent('Respect.');
+  });
 });
 
 it('enqueues nothing for sharing your own win', async () => {

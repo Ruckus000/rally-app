@@ -19,7 +19,6 @@ import {
 import { color, radius } from '../theme/tokens';
 import {
   AUDIENCE_LABEL,
-  GLOBAL_POSTS,
   ME,
   Note,
   PERSON_NOTES,
@@ -130,24 +129,27 @@ function TaskSheet({ id }: { id: string }) {
   const { state, dispatch, people } = useStore();
 
   const mine = state.myTasks.find((x) => x.id === id);
-  const moment = state.moments.find((x) => x.id === id);
-  const global = GLOBAL_POSTS.find((x) => x.id === id);
-  const raw = mine ?? moment ?? global;
+  // One chain, three feeds. A post on the Global tab is a moment like any
+  // other now — it used to be a fourth lookup into a fixture, with a `@handle`
+  // and an avatar tint that came from nowhere else in the app.
+  const moment =
+    state.moments.find((x) => x.id === id) ?? state.globalPosts.find((x) => x.id === id);
+  const raw = mine ?? moment;
   if (!raw) return null;
 
   const who = mine ? state.selfId : moment?.who;
-  const name = global?.name ?? (who ? people.name(who) : '');
-  const initials = global?.ini ?? (who ? people.initials(who) : '?');
-  const tintColor = global?.tint ?? (who ? people.tint(who) : color.chip);
-  const first = global ? global.name.replace('@', '') : who ? people.first(who) : '';
-  // A public post has no thread of its own — what we can show is what you said.
+  const name = who ? people.name(who) : '';
+  const initials = who ? people.initials(who) : '?';
+  const tintColor = who ? people.tint(who) : color.chip;
+  const first = who ? people.first(who) : '';
+  // A demo post has no thread of its own — what we can show is what you said.
   const cmts: Note[] = (mine?.cmts ?? moment?.cmts ?? state.globalNotes[id] ?? []) as Note[];
   const pts = mine?.pts ?? moment?.pts;
   const title = 'title' in raw ? (raw.title ?? '') : '';
 
   const meta = mine
     ? `${mine.cat}${mine.aud !== 'friends' ? ` · ${AUDIENCE_LABEL[mine.aud]}` : ''}`
-    : `${(moment ?? global)?.time} ago`;
+    : `${moment?.time} ago`;
 
   const isAsk = moment?.kind === 'ask';
   const actions = mine
@@ -166,7 +168,7 @@ function TaskSheet({ id }: { id: string }) {
       keyboardShouldPersistTaps="handled"
     >
       <View style={[row, { gap: 11 }]}>
-        <Avatar who={global ? undefined : who} initials={initials} tint={tintColor} label={name} size={42} />
+        <Avatar who={who} initials={initials} tint={tintColor} label={name} size={42} />
         <View style={fill}>
           <Sans size={15} weight={600}>
             {name}

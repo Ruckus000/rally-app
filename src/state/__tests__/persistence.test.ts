@@ -277,6 +277,41 @@ describe('the notification feed', () => {
   });
 });
 
+describe('the Global feed', () => {
+  const post = {
+    id: '77777777-7777-4777-8777-777777777777',
+    who: '00000000-0000-4000-8000-0000000000b0',
+    kind: 'normal' as const,
+    time: '2h',
+    day: 1 as const,
+    title: 'Walked the whole way',
+    pts: 20,
+    cheers: 3,
+  };
+
+  it('survives a relaunch, because it is the tab you land on', async () => {
+    save({ ...base, account: 'live', globalPosts: [post] });
+    await flush();
+
+    expect((await load())?.globalPosts).toEqual([post]);
+  });
+
+  it('is checked like the feed it is — same shape, same rules', async () => {
+    // `momentsAreSound` is reused rather than restated. A `day` outside the
+    // week crashes the same `DAY_NAMES` lookup wherever the row is rendered.
+    const bad = { ...pick(base), globalPosts: [{ ...post, day: 9 }] };
+    await AsyncStorage.setItem(KEY, envelope(bad));
+    expect(await load()).toBeNull();
+  });
+
+  it('restores a payload written before it was persisted', async () => {
+    const old: Record<string, unknown> = { ...pick(base) };
+    delete old.globalPosts;
+    await AsyncStorage.setItem(KEY, envelope(old));
+    expect(await load()).toMatchObject({ account: 'seeded' });
+  });
+});
+
 describe('a hostile directory', () => {
   it('discards a person whose display name is unbounded', async () => {
     // A name reaches every screen and every accessibility label, so the bound

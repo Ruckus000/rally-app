@@ -98,6 +98,10 @@ const SCHEMA: Record<string, TableSpec> = {
       id: { notNull: true },
       handle: { notNull: true },
       name: { notNull: true },
+      // Openly fictional accounts, readable by everyone. Defaulted here for the
+      // same reason the column is defaulted in the schema: every profile that
+      // predates the Oz bots is a person.
+      is_bot: { default: () => false },
       joined_at: { default: () => now() },
     },
     unique: [{ name: 'profiles_handle_key', cols: ['handle'] }],

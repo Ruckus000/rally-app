@@ -445,6 +445,12 @@ function placedNotes(state: State): PlacedNote[] {
   for (const moment of state.moments) {
     for (const note of moment.cmts ?? []) out.push({ note, site: 'moment', targetId: moment.id });
   }
+  // A bot's post is somebody's task, so a note on one is a note on a task. The
+  // demo's posts never reach here: `globalPosts` is the live slice, and
+  // `syncableNote` would refuse their non-uuid ids anyway.
+  for (const post of state.globalPosts) {
+    for (const note of post.cmts ?? []) out.push({ note, site: 'moment', targetId: post.id });
+  }
   return out;
 }
 
@@ -472,9 +478,10 @@ export function createEngine(
    * seen once can never become news again, and this is the whole diff.
    */
   let seenNotes: Set<string> = new Set();
-  /** The two note-bearing slices `myTasks` does not cover. Reference-compared. */
+  /** The three note-bearing slices `myTasks` does not cover. Reference-compared. */
   let lastPersonNotes: State['personNotes'] | null = null;
   let lastMoments: State['moments'] | null = null;
+  let lastGlobalPosts: State['globalPosts'] | null = null;
   /**
    * The week the last observation was showing. A pull has to name a week, and
    * the only week it may name is the one on screen: rows for any other week,
@@ -513,6 +520,7 @@ export function createEngine(
    * changing its mind about the feed.
    */
   let lastFeed: Moment[] = [];
+  let lastGlobal: Moment[] = [];
   /** The cheer count the last pull answered with, so an unchanged one is silent. */
   let lastReceived = 0;
   /** The feed's ids, joined. See the comparison in `pull` for why not the rows. */
@@ -543,6 +551,7 @@ export function createEngine(
       lastActed = state.acted;
       lastPersonNotes = state.personNotes;
       lastMoments = state.moments;
+      lastGlobalPosts = state.globalPosts;
       for (const placed of placedNotes(state)) {
         if (placed.note.id) seenNotes.add(placed.note.id);
       }
@@ -628,7 +637,16 @@ export function createEngine(
     // walk is guarded by the three references that can carry one: a keystroke in
     // the composer moves `note`, not these, and must not cost a walk of every
     // thread on the device.
-    if (tasksMoved || state.personNotes !== lastPersonNotes || state.moments !== lastMoments) {
+    if (
+      tasksMoved ||
+      state.personNotes !== lastPersonNotes ||
+      state.moments !== lastMoments ||
+      // A bot's post is a task like any other, so a note left on one has a row
+      // to write. Without this slice in the guard the walk never runs for it and
+      // the note stays on the device — which is what a demo post's note does,
+      // for a reason that does not apply here.
+      state.globalPosts !== lastGlobalPosts
+    ) {
       for (const { note, site, targetId } of placedNotes(state)) {
         // No id: a fixture, or a note restored from a payload written before the
         // id existed. It stays on screen and never becomes a row.
@@ -646,6 +664,7 @@ export function createEngine(
       }
       lastPersonNotes = state.personNotes;
       lastMoments = state.moments;
+      lastGlobalPosts = state.globalPosts;
     }
 
     lastTasks = tasks;
@@ -668,8 +687,9 @@ export function createEngine(
       // The week is whatever the last observation saw. Without one there is no
       // week to ask for, and guessing is worse than waiting a cycle.
       const week = lastWeek;
-      const [people, myCircle, notifications, rows, reactions, notes] = await Promise.all([
+      const [people, bots, myCircle, notifications, rows, reactions, notes] = await Promise.all([
         wire.pullCircle(userId),
+        wire.pullBots(),
         wire.pullMyCircle(userId),
         wire.pullNotifications(userId, NOTIFICATION_MAX),
         week ? wire.pullTasks(userId, mondayOf(week)) : Promise.resolve(null),
@@ -683,7 +703,16 @@ export function createEngine(
       // trip while making the two answers able to disagree.
       const weekStart = week ? mondayOf(week) : null;
       const memberIds = people.map((p) => p.id).filter((id) => id !== userId);
-      const friendRows = weekStart ? await wire.pullFriendTasks(memberIds, weekStart) : [];
+      const botIds = bots.map((b) => b.id);
+      // Two feeds, one query, one round trip: `pullTasksByOwners` does not care
+      // whose ids these are, and splitting them again afterwards is cheaper
+      // than asking the same question twice.
+      const ownerRows = weekStart
+        ? await wire.pullTasksByOwners([...memberIds, ...botIds], weekStart)
+        : [];
+      const isBot = new Set(botIds);
+      const friendRows = ownerRows.filter((row) => !isBot.has(String(row.owner_id)));
+      const botRows = ownerRows.filter((row) => isBot.has(String(row.owner_id)));
       // A third wave, for the same reason the second is one: it can only ask
       // about rows the first two have just named.
       //
@@ -693,7 +722,7 @@ export function createEngine(
       // own cheer on your own row, which is not a cheer you received.
       const myIds = (rows ?? []).map((t) => t.id);
       const cheers = await wire.pullCheerCounts(
-        [...friendRows.map((row) => String(row.id)), ...myIds],
+        [...ownerRows.map((row) => String(row.id)), ...myIds],
         userId,
       );
 
@@ -705,13 +734,21 @@ export function createEngine(
       // Stats ride along on the people rows rather than arriving as a slice of
       // their own: `ranking()` already reads `Person.stats`, and a second place
       // to look would be a second thing to keep in step.
-      if (people.length > 0) merge.people = withStats(people, friendRows);
+      // Bots ride in the same directory as everyone else. They have to: every
+      // avatar, name and initial on the Global feed is resolved through
+      // `people`, and a card whose author is missing from it renders as
+      // "Someone" — which is the whole thing this replaced.
+      const directory = [...people, ...bots];
+      if (directory.length > 0) merge.people = withStats(directory, ownerRows);
 
-      // Circle members only, which is also every moment this build can render
-      // honestly: `profiles_select` exposes the profiles of people who share a
-      // circle with you and nobody else, so a global feed of `aud='everyone'`
-      // rows from strangers would be a list of people all called "Someone".
-      const moments = friendRows.map((row) => taskRowToMoment(row, undefined, cheers[String(row.id)] ?? 0));
+      // Circle members only. `profiles_select` exposes the profiles of people
+      // who share a circle with you, plus the bots — so a feed of `everyone`
+      // rows from *human* strangers would still be a list of people all called
+      // "Someone", and is still not attempted.
+      const asMoment = (row: Record<string, unknown>) =>
+        taskRowToMoment(row, undefined, cheers[String(row.id)] ?? 0);
+      const moments = friendRows.map(asMoment);
+      const globalPosts = botRows.map(asMoment);
       // Your feed. Compared on ids alone: `time` is recomputed from the clock
       // on every pull, so comparing the rendered shape would report a change
       // every minute and re-render every screen for nothing.
@@ -737,6 +774,11 @@ export function createEngine(
       if (!sameMoments(lastFeed, moments)) {
         merge.moments = moments;
         lastFeed = moments;
+      }
+
+      if (!sameMoments(lastGlobal, globalPosts)) {
+        merge.globalPosts = globalPosts;
+        lastGlobal = globalPosts;
       }
 
       // Two questions, both answered by folding the rows here first. Would this
@@ -784,6 +826,7 @@ export function createEngine(
         !merge.reactions &&
         !merge.notes &&
         !merge.moments &&
+        !merge.globalPosts &&
         !merge.notifications &&
         merge.cheersReceived === undefined &&
         merge.circle === undefined

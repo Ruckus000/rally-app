@@ -5,7 +5,7 @@
 import React from 'react';
 import { TextInput, View } from 'react-native';
 import { color, radius, shadows } from '../theme/tokens';
-import { GLOBAL_POSTS, Moment, parseHours } from '../data/fixtures';
+import { Moment, parseHours } from '../data/fixtures';
 import { useStore } from '../state/store';
 import {
   allTasksDone,
@@ -307,49 +307,34 @@ function MomentItem({ moment: m }: { moment: Moment }) {
 
 /* ── global ─────────────────────────────────────────────────────────────── */
 
+/**
+ * The Oz bots' weeks.
+ *
+ * The cards are `MomentItem`s — the same component the Friends feed uses, on
+ * rows of the same shape. This used to be a second renderer over a second
+ * type, which is how it came to carry a pre-rendered `@handle` and a cheer
+ * count with nothing behind it. What is public about this feed is now the only
+ * thing that distinguishes it: whose rows it asks for.
+ */
 function GlobalFeed() {
   const { state, dispatch } = useStore();
   const alone = circleMembers(state).length < 2;
+  const posts = state.globalPosts;
 
   return (
     <>
-      {GLOBAL_POSTS.map((g) => {
-        const cheered = !!state.acted[`${g.id}:cheer`];
-        const openSheet = () => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'task', id: g.id } });
-        return (
-          <SocialCard
-            key={g.id}
-            initials={g.ini}
-            tint={g.tint}
-            name={g.name}
-            time={g.time}
-            title={g.title}
-            quote={g.quote || undefined}
-            statLabel={g.statLabel}
-            cheered={cheered}
-            cheerCount={g.cheers + (cheered ? 1 : 0)}
-            commentCount={g.comments + (state.globalNotes[g.id]?.length ?? 0)}
-            onOpen={openSheet}
-            onCheer={() =>
-              dispatch({
-                type: 'ACT',
-                id: g.id,
-                kind: 'cheer',
-                toast: `${g.name.replace('@', '')} heard that`,
-              })
-            }
-            onComment={openSheet}
-          />
-        );
-      })}
+      {posts.map((m) => (
+        <MomentItem key={m.id} moment={m} />
+      ))}
 
       {/* The global feed is public, so a brand-new account sees it too — but
-          without a circle it's a wall of strangers. Say why, and offer the way out. */}
+          without a circle it's a wall of people you do not know. Say why, and
+          offer the way out. */}
       {alone ? (
         <View style={{ alignItems: 'center', paddingTop: 22, paddingBottom: 6, paddingHorizontal: 20 }}>
           <Sans size={13} lineHeight={18} color={color.muted} style={{ textAlign: 'center' }}>
-            These are strangers, and they’re doing fine without you. Your circle is the part that
-            counts.
+            These four are not real, and they’re doing fine without you. Your circle is the part
+            that counts.
           </Sans>
           <Tap
             onPress={() => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'invite', id: null } })}

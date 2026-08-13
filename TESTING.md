@@ -145,5 +145,5 @@ Driving the app on a second platform and writing render tests each turned up def
 
 - **Simulator only.** Running on a physical iPhone needs an Apple developer team for signing, which I can't set up for you. Once you add one in Xcode, `npx expo run:ios --device` will do it.
 - **Android is verified but less exercised.** I built the release APK, walked Join → Plan → Week → Me on a Pixel 9 Pro emulator and fixed the two platform bugs it surfaced (above), but I didn't drive every screen there the way I did on iOS.
-- **The global feed stays populated on a fresh account** — it's public, so a brand-new user would genuinely see it. It now closes with a line explaining the strangers and an invite CTA.
+- **The global feed stays populated on a fresh account** — it's public, so a brand-new user genuinely sees it, and it is where a new account lands. The four accounts on it are the Oz bots: openly fictional, readable by everyone, and real rows rather than a fixture on a live account. It closes with a line saying they are not real and an invite CTA.
 - **Not encrypted at rest** beyond what iOS and Android do themselves. It is kept out of both platforms' backups. See the README for what to do before this holds real content.

@@ -44,6 +44,9 @@ function openFresh() {
   back.press();
 }
 
+/** The first Oz post, spelled once. */
+const OZ_POST = 'Walked the whole way instead of taking the bus';
+
 const goToPersonal = () => fireEvent.press(screen.getByText('Personal'));
 const goToFriends = () => fireEvent.press(screen.getByText('Friends'));
 const goToGlobal = () => fireEvent.press(screen.getByText('Global'));
@@ -294,24 +297,32 @@ describe('reset', () => {
 
     // An emptied account opens on Global, because the two tabs that would be
     // about you have nothing in them yet.
-    expect(screen.getByText('Day 77 — still going')).toBeTruthy();
+    expect(screen.getByText(OZ_POST)).toBeTruthy();
     goToPersonal();
     expect(screen.getByText('Nothing staked yet')).toBeTruthy();
   });
 });
 
+/**
+ * The four accounts on the Global feed are openly fictional now — Oz
+ * characters rather than `@kwon.builds`, and rows of the same shape as any
+ * other week, so the feed is drawn by the component the Friends feed uses.
+ */
 describe('the global feed', () => {
   it('is public, so a fresh account still sees it', () => {
     openFresh();
     goToGlobal();
-    expect(screen.getByText('Day 77 — still going')).toBeTruthy();
+    expect(screen.getByText(OZ_POST)).toBeTruthy();
+    // Named, not "Someone": the demo directory carries the Oz cast for exactly
+    // this account, which knows nobody else at all.
+    expect(screen.getByText('Dorothy Gale')).toBeTruthy();
   });
 
   it('is where a brand-new account lands, with no tap at all', () => {
     // The two tabs that would be about you are empty on a first launch: no
     // week staked, no circle joined. This one has something in it.
     openFresh();
-    expect(screen.getByText('Day 77 — still going')).toBeTruthy();
+    expect(screen.getByText(OZ_POST)).toBeTruthy();
   });
 
   it('sits in the middle, so the landing tab is not across the row', () => {
@@ -322,10 +333,10 @@ describe('the global feed', () => {
     expect(within(tabs[2]).getByText('Friends')).toBeTruthy();
   });
 
-  it('explains the strangers and offers a way out when you have no circle', () => {
+  it('says they are not real, and offers a way out when you have no circle', () => {
     openFresh();
     goToGlobal();
-    expect(screen.getByText(/These are strangers/)).toBeTruthy();
+    expect(screen.getByText(/These four are not real/)).toBeTruthy();
     fireEvent.press(screen.getByText('Invite someone'));
     expect(screen.getByText('Grow the circle')).toBeTruthy();
   });
@@ -333,8 +344,8 @@ describe('the global feed', () => {
   it('drops the nudge once you have a circle', () => {
     open();
     goToGlobal();
-    expect(screen.getByText('Day 77 — still going')).toBeTruthy();
-    expect(screen.queryByText(/These are strangers/)).toBeNull();
+    expect(screen.getByText(OZ_POST)).toBeTruthy();
+    expect(screen.queryByText(/These four are not real/)).toBeNull();
   });
 
   // The arithmetic is pinned in selectors.test.ts; what this proves is that the
@@ -347,24 +358,30 @@ describe('the global feed', () => {
 
     fireEvent.press(screen.getByLabelText('Week'));
     goToGlobal();
-    fireEvent.press(screen.getByLabelText('@kwon.builds: Day 77 — still going'));
-    fireEvent.press(screen.getByText('Cheer kwon.builds'));
+    fireEvent.press(screen.getByLabelText(`Dorothy Gale: ${OZ_POST}`));
+    fireEvent.press(screen.getByText('Cheer Dorothy'));
     fireEvent.press(screen.getByLabelText('Close'));
 
     fireEvent.press(screen.getByLabelText('Me'));
     expect(screen.getByText('13')).toBeTruthy();
   });
 
-  it('keeps a note left on a stranger’s post, and counts it', () => {
+  it('keeps a note left on a bot’s post, and counts it on the card', () => {
     open();
     goToGlobal();
-    fireEvent.press(screen.getByLabelText('@kwon.builds: Day 77 — still going'));
+    fireEvent.press(screen.getByLabelText(`Dorothy Gale: ${OZ_POST}`));
     fireEvent.changeText(screen.getByLabelText('Say something…'), 'Respect.');
     fireEvent.press(screen.getByLabelText('Send note'));
 
     expect(screen.getByText('Respect.')).toBeTruthy();
     fireEvent.press(screen.getByLabelText('Close'));
-    // The public count moves the way the cheer count does: 12 -> 13.
-    expect(screen.getByText('13')).toBeTruthy();
+    // The count is the thread's real length now. It used to be a fixture's
+    // `comments: 12` with your note added on top — a number that counted
+    // eleven replies nobody ever wrote.
+    expect(screen.getByLabelText('1 notes')).toBeTruthy();
+
+    // And it is still there when you go back in, which is the "keeps" half.
+    fireEvent.press(screen.getByLabelText(`Dorothy Gale: ${OZ_POST}`));
+    expect(screen.getByText('Respect.')).toBeTruthy();
   });
 });

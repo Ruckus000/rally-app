@@ -55,6 +55,7 @@ const PERSISTED_KEYS = [
   'selfId',
   'people',
   'notifications',
+  'globalPosts',
 ] as const;
 
 export type Persisted = Pick<State, (typeof PERSISTED_KEYS)[number]>;
@@ -214,6 +215,8 @@ function isSound(data: unknown): data is Persisted {
   const d = data as Partial<Persisted>;
   if (!tasksAreSound(d.myTasks)) return false;
   if (!momentsAreSound(d.moments)) return false;
+  // Same shape, same rules — the Oz bots' rows are moments like any other.
+  if (d.globalPosts !== undefined && !momentsAreSound(d.globalPosts)) return false;
   if (!notificationsAreSound(d.notifications)) return false;
   // Written against the tuple so a new account mode can never be silently
   // discarded here — that failure mode is a permanently forgetful app.
