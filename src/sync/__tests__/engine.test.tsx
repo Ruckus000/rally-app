@@ -131,6 +131,8 @@ function Probe() {
       <Text testID="circle">{store.state.circle?.inviteCode ?? ''}</Text>
       {/* Other people's weeks, and the thread this device has left on them. */}
       <Text testID="feed">{store.state.moments.map((m) => m.title ?? '').join(',')}</Text>
+      {/* Cheers that landed on your own week — the Me screen's "you got". */}
+      <Text testID="received">{String(store.state.profile.cheersReceived)}</Text>
       {/* Other people's cheers, per moment — never including your own. */}
       <Text testID="cheers">{store.state.moments.map((m) => String(m.cheers ?? '')).join(',')}</Text>
       <Text testID="feedNotes">
@@ -527,6 +529,46 @@ describe('other people’s weeks', () => {
     // that merely differed — including the right answer for the wrong reason.
     expect(screen.getByTestId('feed')).toHaveTextContent(/Swim 2k/);
     expect(screen.getByTestId('feed')).not.toHaveTextContent(/Not your business/);
+  });
+
+  it('counts the cheers that landed on your own week', async () => {
+    // The gap the two-device run ended on: B cheered A's task, the row was in
+    // the database, and A's screen said 0. `pullCheerCounts` answered for the
+    // tasks in your feed, and your own are never in it.
+    mount();
+    await settle();
+    const me = currentUserId() as string;
+    inACircleWith(me);
+    stake('ride to the bridge');
+    await settle(10_000);
+    const mine = taskIds()[0] as string;
+
+    fakeSupabase.seed({
+      reactions: [
+        { actor_id: OTHER, target_type: 'task', target_id: mine, kind: 'cheer' },
+      ],
+    });
+    await settle(60_000);
+
+    expect(screen.getByTestId('received')).toHaveTextContent('1');
+  });
+
+  it('does not count cheering your own task as a cheer received', async () => {
+    mount();
+    await settle();
+    const me = currentUserId() as string;
+    inACircleWith(me);
+    stake('ride to the bridge');
+    await settle(10_000);
+    const mine = taskIds()[0] as string;
+
+    // The read excludes you in both directions, and this is the direction that
+    // would flatter: a number you can raise by cheering yourself is not a
+    // count of anything.
+    act(() => dispatch({ type: 'ACT', id: mine, kind: 'cheer', toast: 'x' }));
+    await settle(60_000);
+
+    expect(screen.getByTestId('received')).toHaveTextContent('0');
   });
 
   it('brings back how many other people cheered', async () => {
