@@ -572,6 +572,39 @@ describe('other people’s weeks', () => {
     expect(screen.getByTestId('notifs')).toHaveTextContent('Maya Chen cheered “ride to the bridge”');
   });
 
+  it('shows two cheers on one task as one line', async () => {
+    mount();
+    await settle();
+    const me = currentUserId() as string;
+    inACircleWith(me);
+    stake('ride to the bridge');
+    await settle(10_000);
+    const mine = taskIds()[0] as string;
+
+    const cheer = (id: string, actor: string, name: string) => ({
+      id,
+      recipient_id: me,
+      tier: 'circle',
+      kind: 'cheer',
+      payload: { actor_id: actor, actor_name: name, task_id: mine, task_title: 'ride to the bridge' },
+    });
+    fakeSupabase.seed({
+      notifications: [
+        cheer('aaaaaaaa-1111-4111-8111-111111111111', OTHER, 'Maya Chen'),
+        cheer('aaaaaaaa-2222-4222-8222-222222222222', STRANGER, 'Dre Okafor'),
+      ],
+    });
+    await settle(60_000);
+
+    // The screen has promised this since the design shipped: one line per
+    // thing that happened, not one per person who noticed.
+    // Either order — two cheers landing in the same second have no meaningful
+    // sequence, and pinning one would be pinning the fake's insertion order.
+    expect(screen.getByTestId('notifs')).toHaveTextContent(
+      /^(Maya and Dre|Dre and Maya) cheered “ride to the bridge”$/,
+    );
+  });
+
   it('leaves the feed alone when nothing new arrived', async () => {
     mount();
     await settle();
