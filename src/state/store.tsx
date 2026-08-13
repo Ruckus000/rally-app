@@ -231,7 +231,13 @@ const initialState: State = {
   profile: seedProfile(null),
   pendingRollover: null,
   tab: 'week',
-  scope: 'friends',
+  /**
+   * Global, not Friends. A brand-new account's circle is empty, and Friends
+   * opens on an empty state — the first screen after signing in should have
+   * something in it. `scope` is persisted, so this is the first launch only;
+   * whatever tab you last chose is the one you come back to.
+   */
+  scope: 'global',
   day: liveWeek().today,
   myTasks: [],
   moments: [],
@@ -810,8 +816,12 @@ export function reducer(state: State, action: Action): State {
 
     case 'SKIP_ONBOARD': {
       // Leaving the flow early keeps whatever account you'd already chosen —
-      // and grants an empty one if you never chose. Either way you land on your
-      // own week, the same place finishing properly puts you.
+      // and grants an empty one if you never chose.
+      //
+      // Global, where finishing properly lands you on Personal: skipping means
+      // nothing was staked and no circle was joined, so both of the other tabs
+      // are empty states. This is the one landing the app picks with nothing of
+      // yours to show, so it opens on the feed that has something in it.
       const mode = state.account ?? 'fresh';
       return {
         ...state,
@@ -819,7 +829,7 @@ export function reducer(state: State, action: Action): State {
         profile: state.account ? state.profile : seedProfile(mode),
         onboardStep: null,
         tab: 'week',
-        scope: 'personal',
+        scope: mode === 'seeded' ? 'personal' : 'global',
       };
     }
 
@@ -834,7 +844,10 @@ export function reducer(state: State, action: Action): State {
         ...seedFor(action.mode, week),
         onboardStep: null,
         tab: 'week',
-        scope: action.mode === 'seeded' ? 'friends' : 'personal',
+        // The seeded demo has a circle worth opening on. The other modes have
+        // neither a circle nor a staked week, so Global is the only tab with
+        // anything in it.
+        scope: action.mode === 'seeded' ? 'friends' : 'global',
       };
     }
 
@@ -973,6 +986,10 @@ export function reducer(state: State, action: Action): State {
         ...state,
         onboardStep: null,
         tab: 'week',
+        // The one landing that stays Personal, and the reason is on the button:
+        // "Enter your week". You have just staked one, so it is not empty and
+        // it is what you asked for — opening on strangers instead would be the
+        // app answering a question nobody asked.
         scope: 'personal',
         myTasks: [...state.myTasks, ...staked],
         people,

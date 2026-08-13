@@ -11,10 +11,17 @@ import type { Scope, State } from '../state/store';
 /** Includes you, which is what makes "1 person" the honest circle-of-one. */
 const memberCount = (state: State): number => circleMembers(state).length;
 
+/**
+ * Order is the reading order, and Global sits in the middle because it is where
+ * a new account lands: the tab you open on should not be the one you have to
+ * cross the row to reach. Personal stays first — it is your own week, and the
+ * one you come back to — and Friends keeps the far edge it can afford, because
+ * by the time it means anything you have a circle and know where it is.
+ */
 const SCOPES: { key: Scope; label: string }[] = [
   { key: 'personal', label: 'Personal' },
-  { key: 'friends', label: 'Friends' },
   { key: 'global', label: 'Global' },
+  { key: 'friends', label: 'Friends' },
 ];
 
 export function Header({ topInset }: { topInset: number }) {

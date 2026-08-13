@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import { Alert } from 'react-native';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { App } from '../App';
 import { liveWeek } from '../data/week';
 import { captureBackPress } from '../test/backPress';
@@ -292,6 +292,10 @@ describe('reset', () => {
     act(() => buttons.find((b) => b.text === 'Fresh start')?.onPress?.());
     spy.mockRestore();
 
+    // An emptied account opens on Global, because the two tabs that would be
+    // about you have nothing in them yet.
+    expect(screen.getByText('Day 77 — still going')).toBeTruthy();
+    goToPersonal();
     expect(screen.getByText('Nothing staked yet')).toBeTruthy();
   });
 });
@@ -301,6 +305,21 @@ describe('the global feed', () => {
     openFresh();
     goToGlobal();
     expect(screen.getByText('Day 77 — still going')).toBeTruthy();
+  });
+
+  it('is where a brand-new account lands, with no tap at all', () => {
+    // The two tabs that would be about you are empty on a first launch: no
+    // week staked, no circle joined. This one has something in it.
+    openFresh();
+    expect(screen.getByText('Day 77 — still going')).toBeTruthy();
+  });
+
+  it('sits in the middle, so the landing tab is not across the row', () => {
+    openFresh();
+    const tabs = screen.getAllByRole('tab');
+    expect(within(tabs[0]).getByText('Personal')).toBeTruthy();
+    expect(within(tabs[1]).getByText('Global')).toBeTruthy();
+    expect(within(tabs[2]).getByText('Friends')).toBeTruthy();
   });
 
   it('explains the strangers and offers a way out when you have no circle', () => {

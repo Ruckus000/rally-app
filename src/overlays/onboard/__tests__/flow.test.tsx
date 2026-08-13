@@ -97,7 +97,10 @@ describe('the onboarding flow', () => {
     press('Maybe later');
     press('Enter your week');
 
-    fireEvent.press(screen.getByText('Personal'));
+    // No tap on Personal: "Enter your week" names the destination, and a week
+    // you have just staked is the one thing on the app that is certainly not
+    // empty. Everywhere else the app picks for you it now picks Global —
+    // this is the exception, and it is the button that makes it one.
     expect(screen.getByLabelText('Run 5k')).toBeTruthy();
     expect(screen.getByLabelText('Call my sister')).toBeTruthy();
     expect(screen.getByText('0 of 2 done')).toBeTruthy();
