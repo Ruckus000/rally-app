@@ -273,7 +273,11 @@ export function MeScreen() {
                 'Nobody is counting except this bar.'}
         </Sans>
         <Sans size={11} color={color.muted} style={{ marginTop: 4, opacity: 0.8 }}>
-          Every cheer lands on their phone, with your name on it.
+          {/* Not "lands on their phone": there is no push, and a cheer that
+              claimed to buzz someone is a promise the build cannot keep. It
+              does arrive with your name on it — the trigger puts it in the
+              payload — so that half stays. */}
+          Every cheer shows up in their week, with your name on it.
         </Sans>
       </View>
 
