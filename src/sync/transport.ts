@@ -60,6 +60,7 @@ export type Transport = {
   pullTasks(userId: string, weekStart: string): Promise<Task[]>;
   pullCircle(userId: string): Promise<Person[]>;
   pullMyCircle(userId: string): Promise<CircleRef | null>;
+  pullNotifications(userId: string, limit: number): Promise<Record<string, unknown>[]>;
   pullFriendTasks(memberIds: string[], weekStart: string): Promise<Record<string, unknown>[]>;
   pullCheerCounts(taskIds: string[], userId: string): Promise<Record<string, number>>;
   pullReactions(userId: string): Promise<ReactionRef[]>;
@@ -475,6 +476,25 @@ export function supabaseTransport(): Transport {
   };
 
   /**
+   * Your notification feed. Yours alone — `notifications_select` is scoped to
+   * the recipient, not to the circle — and capped, because the bell shows a
+   * list rather than a history.
+   */
+  const pullNotifications = async (
+    userId: string,
+    limit: number,
+  ): Promise<Record<string, unknown>[]> => {
+    const { data, error } = await getSupabase()
+      .from('notifications')
+      .select('id,tier,kind,payload,read_at,created_at')
+      .eq('recipient_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) fail(error);
+    return (data ?? []) as Record<string, unknown>[];
+  };
+
+  /**
    * The circle you are in — deliberately a different question from `pullCircle`,
    * which answers "who shares a circle with me". Same first hop, different shape
    * and different consumers, and one function that answered both would be one
@@ -590,6 +610,7 @@ export function supabaseTransport(): Transport {
     pullTasks,
     pullCircle,
     pullMyCircle,
+    pullNotifications,
     pullFriendTasks,
     pullCheerCounts,
     pullReactions,

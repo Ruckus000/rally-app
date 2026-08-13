@@ -7,7 +7,7 @@
  * against that one index, so most of this file is about what it guarantees.
  */
 import { asAnon, asService, asUser, idOf } from '../support/clients';
-import { CIRCLE_IDS, type SeedHandle } from '../fixtures/world';
+import { CIRCLE_IDS, SEED_USERS, type SeedHandle } from '../fixtures/world';
 
 const MONDAY = '2026-08-10';
 const KINDS = ['cheer', 'in', 'cosign', 'nod', 'share'] as const;
@@ -284,5 +284,92 @@ describe('post reactions are knowingly unguarded', () => {
 
     const { data } = await asUser('jordan').from('reactions').select('id,target_type');
     expect(data).toEqual([]);
+  });
+});
+
+/**
+ * The notification a cheer leaves behind.
+ *
+ * Written by a trigger rather than the client, because `notifications` is
+ * granted `select, update` only and has no INSERT policy — a table one account
+ * can write into another's feed is a spam surface. These assert the row appears
+ * for the right person, carries what the screen renders, and goes away again.
+ */
+describe('cheering someone notifies them', () => {
+  let task: string;
+
+  beforeEach(async () => {
+    task = await makeTask('maya', 'friends');
+  });
+
+  const cheer = (from: SeedHandle) =>
+    asUser(from)
+      .from('reactions')
+      .insert({ actor_id: idOf(from), target_type: 'task', target_id: task, kind: 'cheer' });
+
+  const inbox = async (handle: SeedHandle) => {
+    const { data } = await asUser(handle)
+      .from('notifications')
+      .select('kind,tier,payload,read_at')
+      .order('created_at', { ascending: false });
+    return data ?? [];
+  };
+
+  it('lands on the task owner, carrying what the row renders', async () => {
+    await cheer('dre');
+
+    const [note] = await inbox('maya');
+    expect(note).toMatchObject({ kind: 'cheer', tier: 'circle', read_at: null });
+    // The payload is self-contained on purpose: a cheer can come from an
+    // `everyone` task, where the recipient may share no circle with the actor
+    // and so cannot read their profile at all.
+    expect(note.payload).toMatchObject({
+      actor_id: idOf('dre'),
+      actor_name: SEED_USERS.dre.name,
+      task_id: task,
+    });
+  });
+
+  it('does not notify you about your own cheer', async () => {
+    await cheer('maya');
+
+    expect(await inbox('maya')).toHaveLength(0);
+  });
+
+  it('goes away when the cheer is taken back', async () => {
+    await cheer('dre');
+    expect(await inbox('maya')).toHaveLength(1);
+
+    await asUser('dre').from('reactions').delete().match({
+      actor_id: idOf('dre'),
+      target_type: 'task',
+      target_id: task,
+      kind: 'cheer',
+    });
+
+    // A notification that outlives the cheer is a claim the ledger no longer
+    // supports.
+    expect(await inbox('maya')).toHaveLength(0);
+  });
+
+  it('is nobody else\u2019s to read', async () => {
+    await cheer('dre');
+
+    // `notifications_select` is scoped to the recipient — not to the circle.
+    expect(await inbox('dre')).toHaveLength(0);
+    expect(await inbox('nana')).toHaveLength(0);
+  });
+
+  it('cannot be written by a client — the whole reason it is a trigger', async () => {
+    const { error } = await asUser('dre').from('notifications').insert({
+      recipient_id: idOf('maya'),
+      tier: 'needs',
+      kind: 'cheer',
+      payload: {},
+    });
+
+    // 42501 specifically: refused by policy, not by a malformed payload that
+    // would have been refused whatever the policies said.
+    expect(error?.code).toBe('42501');
   });
 });

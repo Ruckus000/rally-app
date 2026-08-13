@@ -131,6 +131,10 @@ function Probe() {
       <Text testID="circle">{store.state.circle?.inviteCode ?? ''}</Text>
       {/* Other people's weeks, and the thread this device has left on them. */}
       <Text testID="feed">{store.state.moments.map((m) => m.title ?? '').join(',')}</Text>
+      {/* The bell's feed: who did what, as the overlay draws it. */}
+      <Text testID="notifs">
+        {store.state.notifications.map((n) => `${n.name} ${n.text}`).join(',')}
+      </Text>
       {/* Cheers that landed on your own week — the Me screen's "you got". */}
       <Text testID="received">{String(store.state.profile.cheersReceived)}</Text>
       {/* Other people's cheers, per moment — never including your own. */}
@@ -529,6 +533,57 @@ describe('other people’s weeks', () => {
     // that merely differed — including the right answer for the wrong reason.
     expect(screen.getByTestId('feed')).toHaveTextContent(/Swim 2k/);
     expect(screen.getByTestId('feed')).not.toHaveTextContent(/Not your business/);
+  });
+
+  it('tells you who cheered, and when', async () => {
+    // The gap this closes: the count went up and nothing said whose it was.
+    // The row is written by a trigger — the client has no INSERT on
+    // `notifications` — so this is seeded the way the database would leave it.
+    mount();
+    await settle();
+    const me = currentUserId() as string;
+    inACircleWith(me);
+    stake('ride to the bridge');
+    await settle(10_000);
+    const mine = taskIds()[0] as string;
+
+    fakeSupabase.seed({
+      notifications: [
+        {
+          id: 'aaaaaaaa-9999-4999-8999-999999999999',
+          recipient_id: me,
+          tier: 'circle',
+          kind: 'cheer',
+          payload: {
+            actor_id: OTHER,
+            actor_name: 'Maya Chen',
+            task_id: mine,
+            task_title: 'ride to the bridge',
+          },
+        },
+      ],
+    });
+    await settle(60_000);
+
+    // Everything the row renders comes off the payload: a cheer can arrive from
+    // an `everyone` task whose owner shares no circle with the actor, and a
+    // notification that had to join `profiles` would read "Someone" precisely
+    // when it mattered.
+    expect(screen.getByTestId('notifs')).toHaveTextContent('Maya Chen cheered “ride to the bridge”');
+  });
+
+  it('leaves the feed alone when nothing new arrived', async () => {
+    mount();
+    await settle();
+    inACircleWith(currentUserId() as string);
+    await settle(60_000);
+
+    const renders = rendered.count;
+    await settle(60_000);
+
+    // `time` is recomputed from the clock every pull, so a comparison over the
+    // rendered shape would report a change every minute forever.
+    expect(rendered.count).toBe(renders);
   });
 
   it('counts the cheers that landed on your own week', async () => {

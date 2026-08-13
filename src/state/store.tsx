@@ -18,6 +18,7 @@ import {
   ME,
   Moment,
   Note,
+  Notification,
   weekHeldStreak,
   weekLevel,
   NotifTier,
@@ -51,6 +52,7 @@ import {
   makePeople,
   personOf,
 } from '../data/people';
+import { notificationsFor } from './selectors';
 import { flush, load, save } from './persistence';
 import { hasSupabaseConfig } from '../lib/supabase';
 import {
@@ -146,6 +148,15 @@ export type State = {
    * work for nobody.
    */
   circle: CircleRef | null;
+  /**
+   * Your notification feed on a live account. Not persisted, for the reason
+   * `circle` is not: entirely server-derived and refetched on foreground, so
+   * persisting it would buy a soundness validator for one pull's worth of
+   * latency on a screen you open deliberately.
+   *
+   * The demo's live in `world.notifications`; `notificationsFor` picks.
+   */
+  notifications: Notification[];
   /** The week this state belongs to. Compared against the clock to spot rollover. */
   week: WeekContext;
   /** Closed weeks, newest first. */
@@ -207,6 +218,7 @@ const initialState: State = {
   account: null,
   selfId: SELF_DEMO_ID,
   circle: null,
+  notifications: [],
   session: { status: 'off' },
   people: seedPeople(null),
   week: liveWeek(),
@@ -331,6 +343,8 @@ export type ServerMerge = {
    * a max() would leave it lit forever.
    */
   cheersReceived?: number;
+  /** Your feed, newest first. Authoritative: a withdrawn cheer takes its row with it. */
+  notifications?: Notification[];
   /**
    * Other people's weeks, as the feed renders them. Authoritative for the set —
    * a task someone unstaked is an absence here, and a union would leave it on
@@ -400,6 +414,7 @@ const seedFor = (mode: AccountMode, week: WeekContext) =>
     // Server-derived, and the server it came from belongs to the account being
     // left behind. Cleared here for the reason the outbox is.
     circle: null,
+    notifications: [],
     people: seedPeople(mode),
     myTasks: seedTasks(mode),
     moments: seedMoments(mode),
@@ -752,7 +767,9 @@ export function reducer(state: State, action: Action): State {
     case 'READ_ALL_NOTIFS':
       return {
         ...state,
-        notifRead: getWorld(state.account).notifications.reduce<Record<string, true>>((acc, n) => {
+        // `notificationsFor`, not the world: on a live account the world's list
+        // is empty, so "mark all read" marked nothing and the badge stayed lit.
+        notifRead: notificationsFor(state).reduce<Record<string, true>>((acc, n) => {
           acc[n.id] = true;
           return acc;
         }, { ...state.notifRead }),
@@ -1091,6 +1108,9 @@ export function reducer(state: State, action: Action): State {
       // is the only one there has ever been.
       const circle = action.merge.circle !== undefined ? action.merge.circle : state.circle;
 
+      const notifications =
+        action.merge.notifications !== undefined ? action.merge.notifications : state.notifications;
+
       // Same reasoning, one field over. Nothing local has ever written this —
       // it was a seed constant the Me screen rendered and no code updated.
       const profile =
@@ -1130,11 +1150,22 @@ export function reducer(state: State, action: Action): State {
         personNotes === state.personNotes &&
         circle === state.circle &&
         moments === state.moments &&
-        profile === state.profile
+        profile === state.profile &&
+        notifications === state.notifications
       ) {
         return state;
       }
-      return { ...state, people, myTasks, acted, personNotes, circle, moments, profile };
+      return {
+        ...state,
+        people,
+        myTasks,
+        acted,
+        personNotes,
+        circle,
+        moments,
+        profile,
+        notifications,
+      };
     }
 
     default:
