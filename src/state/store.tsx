@@ -52,7 +52,8 @@ import {
   makePeople,
   personOf,
 } from '../data/people';
-import { notificationsFor } from './selectors';
+import { notificationsFor, stakedPoints } from './selectors';
+import { useWeekReminder } from '../lib/reminders';
 import { flush, load, save } from './persistence';
 import { hasSupabaseConfig } from '../lib/supabase';
 import {
@@ -1303,6 +1304,15 @@ export function StoreProvider({
    * React state, so nothing here re-renders on a timer.
    */
   useSyncEngine(state, dispatch, syncOn);
+
+  /**
+   * Keep Monday's reminder saying something true. It is a no-op until the user
+   * has actually granted permission, so this costs nothing for anyone who never
+   * tapped the button — and it belongs here rather than in the engine because a
+   * local notification is a device concern, not a synced one: the demo accounts
+   * get it too, and it must survive with no network at all.
+   */
+  useWeekReminder(state.week.number, stakedPoints(state));
 
   // Backgrounding is the last reliable moment before a force-quit. Coming back
   // is when the calendar may have moved on without us — and, in live mode, when
