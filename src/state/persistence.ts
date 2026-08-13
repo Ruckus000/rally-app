@@ -10,7 +10,7 @@
  * discarded whole rather than half-restored.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AUDIENCES, CATEGORY_POINTS, MOMENT_KINDS, Task } from '../data/fixtures';
+import { AUDIENCES, CATEGORY_POINTS, MOMENT_KINDS, NOTIF_TIERS, Task } from '../data/fixtures';
 import { ACCOUNT_MODES } from '../data/seed';
 import { NAME_MAX } from '../data/people';
 import { DAY_NAMES } from '../data/week';
@@ -54,6 +54,7 @@ const PERSISTED_KEYS = [
   'notifRead',
   'selfId',
   'people',
+  'notifications',
 ] as const;
 
 export type Persisted = Pick<State, (typeof PERSISTED_KEYS)[number]>;
@@ -106,6 +107,44 @@ function momentsAreSound(value: unknown): boolean {
       Number.isInteger(m.day) &&
       m.day >= 0 &&
       m.day < DAY_NAMES.length,
+  );
+}
+
+/**
+ * The bell's feed, which is why it persists at all: it is server-derived, and
+ * until now that meant every cold start showed "Nothing needs you" until the
+ * first pull came back — an empty state that reads as an answer rather than as
+ * a wait. The next pull is authoritative and replaces this wholesale, so what
+ * is on disk only has to be right for the second before it arrives.
+ *
+ * The crashing subset again, plus one bound. `text` and `time` are rendered as
+ * text nodes, so a non-string is a red screen. `tier` decides which section a
+ * row lands in; an unknown one renders nowhere, which is invisible rather than
+ * fatal, but a row that cannot be seen has no business surviving a relaunch.
+ *
+ * `name` is bounded because it is another account's display name, reaching
+ * every row and every accessibility label. `text` is not: it carries a task
+ * title, and the server puts no length limit on those — a bound here would let
+ * one long title discard the whole payload and take the user's week with it.
+ * Undefined passes: a payload written before this key existed is not corrupt.
+ */
+function notificationsAreSound(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value)) return false;
+  const tiers: readonly string[] = NOTIF_TIERS.map((t) => t.key);
+  return value.every(
+    (n) =>
+      n &&
+      typeof n === 'object' &&
+      typeof n.id === 'string' &&
+      tiers.includes(n.tier) &&
+      typeof n.text === 'string' &&
+      typeof n.time === 'string' &&
+      // Three first names and "and N others" at most — a legitimate one cannot
+      // reach this, because each name is bounded at the server.
+      (n.name === undefined || isBoundedString(n.name, NAME_MAX * 4)) &&
+      (n.faces === undefined ||
+        (Array.isArray(n.faces) && n.faces.every((f: unknown) => typeof f === 'string'))),
   );
 }
 
@@ -175,6 +214,7 @@ function isSound(data: unknown): data is Persisted {
   const d = data as Partial<Persisted>;
   if (!tasksAreSound(d.myTasks)) return false;
   if (!momentsAreSound(d.moments)) return false;
+  if (!notificationsAreSound(d.notifications)) return false;
   // Written against the tuple so a new account mode can never be silently
   // discarded here — that failure mode is a permanently forgetful app.
   if (d.account !== null && !(ACCOUNT_MODES as readonly string[]).includes(d.account as string))
