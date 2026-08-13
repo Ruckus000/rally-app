@@ -11,9 +11,12 @@
  * narrowed back into its union rather than cast into one: a category the client
  * has never heard of must not reach `CATEGORY_POINTS[task.cat]`.
  */
-import type { Audience, Category, Moment, Task } from '../data/fixtures';
+import type { Audience, Category, Moment, Notification, NotifTier, Task } from '../data/fixtures';
+import { NOTIF_TIERS } from '../data/fixtures';
 import { personOf, type MemberStats, type Person, type PersonId } from '../data/people';
 import { dayIndexOf, type DayIndex, type WeekContext } from '../data/week';
+
+const NOTIF_TIER_VALUES: readonly string[] = NOTIF_TIERS.map((t) => t.key);
 
 const CATEGORIES: readonly Category[] = ['Fitness', 'Work', 'Home', 'Mind', 'Quick log'];
 const AUDIENCES: readonly Audience[] = ['friends', 'everyone', 'private'];
@@ -202,4 +205,32 @@ export function memberStats(rows: Record<string, unknown>[]): Map<string, Member
     byOwner.set(owner, stats);
   }
   return byOwner;
+}
+
+/**
+ * A `notifications` row, as the feed renders it.
+ *
+ * Everything comes off `payload`, which the trigger built — deliberately, so
+ * this needs no second read. `notifications_select` is scoped to the recipient,
+ * but a *profile* is only readable when you share a circle, and a cheer can
+ * arrive from an `aud = 'everyone'` task where you share none. A row that had
+ * to be joined to `profiles` to be drawn would render as "Someone" exactly when
+ * it mattered most.
+ */
+export function rowToNotification(row: Record<string, unknown>, now?: number): Notification {
+  const payload = (row.payload ?? {}) as Record<string, unknown>;
+  const tier = str(row.tier) as NotifTier;
+  const title = str(payload.task_title);
+  return {
+    id: str(row.id),
+    tier: NOTIF_TIER_VALUES.includes(tier) ? tier : 'circle',
+    kind: 'cheer',
+    who: str(payload.actor_id) as PersonId,
+    name: str(payload.actor_name) || 'Someone',
+    text: title ? `cheered “${title}”` : 'cheered your task',
+    time: `${relativeTime(row.created_at, now)} ago`,
+    // Opening it opens the task it is about, which is the whole point of a
+    // notification you can act on.
+    sheetId: str(payload.task_id) || undefined,
+  };
 }

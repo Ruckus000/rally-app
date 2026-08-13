@@ -5,7 +5,7 @@
  * must be the metric the ranking uses — showing points there would imply a
  * different sort.
  */
-import { Task } from '../data/fixtures';
+import { Notification, Task } from '../data/fixtures';
 import { MemberStats, PersonId, makePeople } from '../data/people';
 import { getWorld } from '../data/seed';
 import type { State } from './store';
@@ -122,11 +122,19 @@ export const totalCheersExchanged = (state: State) =>
 export const circleMembers = (state: State): PersonId[] =>
   state.account === 'live' ? Object.keys(state.people) : getWorld(state.account).members;
 
+/**
+ * Your feed, from wherever it really lives. The demo's is a fixture world; a
+ * live account's arrives from `notifications`, written by a trigger. Same shape
+ * either way, so every consumer asks this and not the world directly —
+ * `world.notifications` on a live account is empty, which is how the bell came
+ * to be permanently silent.
+ */
+export const notificationsFor = (state: State): Notification[] =>
+  state.account === 'live' ? state.notifications : getWorld(state.account).notifications;
+
 /** Unread drives the bell badge, and only the "needs you" tier counts. */
 export const unreadNeedsCount = (state: State) =>
-  getWorld(state.account).notifications.filter(
-    (n) => n.tier === 'needs' && !state.notifRead[n.id],
-  ).length;
+  notificationsFor(state).filter((n) => n.tier === 'needs' && !state.notifRead[n.id]).length;
 
 /** Personal feed order: closed tasks first (latest day first), then STILL OPEN. */
 export function personalFeed(state: State) {

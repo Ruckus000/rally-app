@@ -20,7 +20,7 @@ import type { Moment, Note, Task } from '../data/fixtures';
 import type { Person, PersonId } from '../data/people';
 import type { WeekContext } from '../data/week';
 import type { Action, CircleRef, ServerMerge, State } from '../state/store';
-import { memberStats, mondayOf, taskRowToMoment } from './mappers';
+import { memberStats, mondayOf, rowToNotification, taskRowToMoment } from './mappers';
 import { noteKey, syncableNote, type NoteSite, type SyncableNote } from './notes';
 import {
   ackedTaskIds,
@@ -129,6 +129,9 @@ function queueTransport(wire: Transport): QueueTransport {
     },
   };
 }
+
+/** The bell shows a list, not a history. */
+const NOTIFICATION_MAX = 50;
 
 /**
  * Field-wise, and only over what the feed renders. Every pull mints new objects,
@@ -512,6 +515,8 @@ export function createEngine(
   let lastFeed: Moment[] = [];
   /** The cheer count the last pull answered with, so an unchanged one is silent. */
   let lastReceived = 0;
+  /** The feed's ids, joined. See the comparison in `pull` for why not the rows. */
+  let lastNotificationIds = '';
   let pullTimer: ReturnType<typeof setInterval> | null = null;
   let pulling = false;
   let unsubscribeSession: (() => void) | null = null;
@@ -663,9 +668,10 @@ export function createEngine(
       // The week is whatever the last observation saw. Without one there is no
       // week to ask for, and guessing is worse than waiting a cycle.
       const week = lastWeek;
-      const [people, myCircle, rows, reactions, notes] = await Promise.all([
+      const [people, myCircle, notifications, rows, reactions, notes] = await Promise.all([
         wire.pullCircle(userId),
         wire.pullMyCircle(userId),
+        wire.pullNotifications(userId, NOTIFICATION_MAX),
         week ? wire.pullTasks(userId, mondayOf(week)) : Promise.resolve(null),
         wire.pullReactions(userId),
         wire.pullNotes(userId),
@@ -706,6 +712,16 @@ export function createEngine(
       // circle with you and nobody else, so a global feed of `aud='everyone'`
       // rows from strangers would be a list of people all called "Someone".
       const moments = friendRows.map((row) => taskRowToMoment(row, undefined, cheers[String(row.id)] ?? 0));
+      // Your feed. Compared on ids alone: `time` is recomputed from the clock
+      // on every pull, so comparing the rendered shape would report a change
+      // every minute and re-render every screen for nothing.
+      const feed = notifications.map((row) => rowToNotification(row));
+      const feedIds = feed.map((n) => n.id).join(',');
+      if (feedIds !== lastNotificationIds) {
+        merge.notifications = feed;
+        lastNotificationIds = feedIds;
+      }
+
       // Cheers landing on your week, which had no read at all: `pullCheerCounts`
       // answered for the tasks in your feed, and your own are not in it. The Me
       // screen has always rendered `profile.cheersReceived` — until now nothing
@@ -766,6 +782,7 @@ export function createEngine(
         !merge.reactions &&
         !merge.notes &&
         !merge.moments &&
+        !merge.notifications &&
         merge.cheersReceived === undefined &&
         merge.circle === undefined
       ) {

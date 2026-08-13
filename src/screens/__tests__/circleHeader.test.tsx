@@ -57,3 +57,43 @@ describe('the circle header count', () => {
     expect(screen.getByText('7 people, ranked by follow-through')).toBeTruthy();
   });
 });
+
+/**
+ * The bell, and the two places that used to read the demo world on a live
+ * account: the badge count and "mark all read".
+ */
+describe('the notification bell', () => {
+  const needsYou = (id: string) => ({
+    id,
+    tier: 'needs' as const,
+    kind: 'cheer' as const,
+    text: 'cheered your task',
+    time: '1h ago',
+  });
+
+  it('badges a live account’s own notifications', () => {
+    render(
+      <StoreProvider
+        persist={false}
+        sync={false}
+        restored={{ account: 'live', selfId: ME, tab: 'circle', notifications: [needsYou('n1')] }}
+      >
+        <Header topInset={0} />
+      </StoreProvider>,
+    );
+
+    // `world.notifications` is empty on live, so the badge was permanently dark
+    // however many rows the server held.
+    expect(screen.getByLabelText('Notifications, 1 needing you')).toBeTruthy();
+  });
+
+  it('still badges the demo, whose feed is a fixture — the control', () => {
+    render(
+      <StoreProvider persist={false} sync={false} restored={{ account: 'seeded', tab: 'circle' }}>
+        <Header topInset={0} />
+      </StoreProvider>,
+    );
+
+    expect(screen.getByLabelText(/Notifications, \d+ needing you/)).toBeTruthy();
+  });
+});
