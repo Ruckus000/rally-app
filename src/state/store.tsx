@@ -150,10 +150,13 @@ export type State = {
    */
   circle: CircleRef | null;
   /**
-   * Your notification feed on a live account. Not persisted, for the reason
-   * `circle` is not: entirely server-derived and refetched on foreground, so
-   * persisting it would buy a soundness validator for one pull's worth of
-   * latency on a screen you open deliberately.
+   * Your notification feed on a live account. Persisted, unlike `circle` — the
+   * argument that covers the circle sheet does not survive contact with the
+   * bell. An empty circle sheet for one pull is a screen you opened knowing it
+   * had to load; an empty bell is an *answer*, and "Nothing needs you" is a
+   * confident one to give someone who has three cheers waiting. Restored rows
+   * are replaced wholesale by the next pull, so being a beat stale costs a
+   * `time` that reads a beat old.
    *
    * The demo's live in `world.notifications`; `notificationsFor` picks.
    */

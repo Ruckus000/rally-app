@@ -214,6 +214,69 @@ describe('write economy', () => {
   });
 });
 
+/**
+ * The bell is the one server-derived surface where an empty render is read as
+ * an answer rather than as a wait — "Nothing needs you", to someone with cheers
+ * waiting — so its rows survive the launch that would otherwise show that.
+ */
+describe('the notification feed', () => {
+  const cheer = {
+    id: 'cheer:t1:n9',
+    tier: 'circle' as const,
+    kind: 'cheer' as const,
+    who: 'kai',
+    name: 'Kai and Rae',
+    text: 'cheered “Gym session”',
+    time: '0h ago',
+    sheetId: 't1',
+  };
+
+  it('survives a relaunch, so a cold start is not an empty bell', async () => {
+    save({ ...base, account: 'live', notifications: [cheer] });
+    await flush();
+
+    const restored = await load();
+    expect(restored?.notifications).toEqual([cheer]);
+  });
+
+  it('is discarded whole when a row would render a non-string as text', async () => {
+    const bad = {
+      ...pick(base),
+      notifications: [{ ...cheer, text: { title: 'Gym session' } }],
+    };
+    await AsyncStorage.setItem(KEY, envelope(bad));
+    expect(await load()).toBeNull();
+  });
+
+  it('is discarded when a row lands in a tier nothing renders', async () => {
+    const bad = { ...pick(base), notifications: [{ ...cheer, tier: 'urgent' }] };
+    await AsyncStorage.setItem(KEY, envelope(bad));
+    expect(await load()).toBeNull();
+  });
+
+  it('is discarded when a name is unbounded, as a directory entry is', async () => {
+    const bad = { ...pick(base), notifications: [{ ...cheer, name: 'a'.repeat(1000) }] };
+    await AsyncStorage.setItem(KEY, envelope(bad));
+    expect(await load()).toBeNull();
+  });
+
+  it('keeps a long task title, which the server does not bound', async () => {
+    // The mirror of the test above, and the reason `text` has no length check:
+    // discarding here would take the user's week with it, over someone else's
+    // wordy task.
+    const long = { ...pick(base), notifications: [{ ...cheer, text: `cheered “${'a'.repeat(2000)}”` }] };
+    await AsyncStorage.setItem(KEY, envelope(long));
+    expect(await load()).not.toBeNull();
+  });
+
+  it('restores a payload written before the feed was persisted', async () => {
+    const old: Record<string, unknown> = { ...pick(base) };
+    delete old.notifications;
+    await AsyncStorage.setItem(KEY, envelope(old));
+    expect(await load()).toMatchObject({ account: 'seeded' });
+  });
+});
+
 describe('a hostile directory', () => {
   it('discards a person whose display name is unbounded', async () => {
     // A name reaches every screen and every accessibility label, so the bound
