@@ -6,7 +6,7 @@
  */
 import { asAnon, asUser, idOf, signInAnonymously } from '../support/clients';
 import { asRole } from '../support/reset';
-import { SEED_HANDLES, HANDLE_RE, SEED_USERS } from '../fixtures/world';
+import { SEED_HANDLES, HANDLE_RE, SEED_USERS, SEED_BOT } from '../fixtures/world';
 
 const handles = async (client: ReturnType<typeof asUser>) => {
   const { data, error } = await client.from('profiles').select('handle');
@@ -15,18 +15,27 @@ const handles = async (client: ReturnType<typeof asUser>) => {
 };
 
 describe('profiles visibility', () => {
+  // The bot is readable by everyone by design, so it is in every list below.
+  // That is the point of it, and `bots.test.ts` holds the line that it is the
+  // *only* row anyone gets for free.
   it('maya sees herself and both her circles, and nobody else', async () => {
     // basement: dre, nana · gym: sofia · jordan and tomas share nothing.
-    expect(await handles(asUser('maya'))).toEqual(['dre', 'maya', 'nana', 'sofia']);
+    expect(await handles(asUser('maya'))).toEqual([
+      SEED_BOT.handle,
+      'dre',
+      'maya',
+      'nana',
+      'sofia',
+    ]);
   });
 
   it('jordan sees only himself and his one circle-mate', async () => {
-    expect(await handles(asUser('jordan'))).toEqual(['jordan', 'tomas']);
+    expect(await handles(asUser('jordan'))).toEqual([SEED_BOT.handle, 'jordan', 'tomas']);
   });
 
   it('sharing a different circle is still sharing a circle', async () => {
     // sofia is in gym, not basement, but still sees maya.
-    expect(await handles(asUser('sofia'))).toEqual(['maya', 'sofia']);
+    expect(await handles(asUser('sofia'))).toEqual([SEED_BOT.handle, 'maya', 'sofia']);
   });
 
   it('a signed-out client cannot reach the table at all', async () => {
@@ -136,10 +145,15 @@ describe('a brand-new anonymous user', () => {
     expect(data?.[0]?.handle).toMatch(HANDLE_RE);
   });
 
-  it('sees only itself, because it is in no circle yet', async () => {
-    const { client } = await signInAnonymously();
-    const { data } = await client.from('profiles').select('handle');
-    expect(data).toHaveLength(1);
+  it('sees no person but itself, because it is in no circle yet', async () => {
+    const { client, id } = await signInAnonymously();
+    const { data } = await client.from('profiles').select('id,handle');
+
+    // The bot is here by design and `bots.test.ts` owns that claim. What this
+    // one still says — and what widening the policy must not have changed —
+    // is that none of the seeded people are reachable.
+    const rows = (data ?? []) as { id: string; handle: string }[];
+    expect(rows.filter((r) => r.id !== id).map((r) => r.handle)).toEqual([SEED_BOT.handle]);
   });
 });
 

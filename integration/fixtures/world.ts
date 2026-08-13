@@ -30,6 +30,21 @@ export const SEED_USERS = {
 
 export type SeedHandle = keyof typeof SEED_USERS;
 
+/**
+ * One Oz bot, seeded alongside the people.
+ *
+ * Deliberately outside `SEED_USERS`: everything in there gets signed in during
+ * `beforeAll`, and a bot has no password and no `auth.identities` row because
+ * nothing ever signs in as one. It exists to be *read* — by strangers, which
+ * is the whole of its purpose and the reason `profiles_select` names it.
+ */
+export const SEED_BOT = {
+  id: '00000000-0000-4000-8000-0000000000b0',
+  handle: 'dorothy.gale',
+  name: 'Dorothy Gale',
+  email: 'dorothy@rally.test',
+} as const;
+
 /** Fixed uuids so seed.sql and these tests can name the same rows. */
 export const CIRCLE_IDS = {
   basement: '11111111-1111-4111-8111-111111111111',
