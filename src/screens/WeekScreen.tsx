@@ -1,6 +1,6 @@
 /**
- * Week — three scopes. Personal is your own stakes, Friends is the circle's
- * moments, Global is the wider feed.
+ * Week — three scopes, in tab order: Personal is your own stakes, Global is the
+ * wider feed, Friends is the circle's moments.
  */
 import React from 'react';
 import { TextInput, View } from 'react-native';
@@ -36,8 +36,8 @@ export function WeekScreen() {
     <View>
       {scope === 'personal' ? <PersonalHeader /> : null}
       {scope === 'personal' ? <PersonalFeed /> : null}
-      {scope === 'friends' ? <FriendsFeed /> : null}
       {scope === 'global' ? <GlobalFeed /> : null}
+      {scope === 'friends' ? <FriendsFeed /> : null}
 
       {scope === 'friends' && state.moments.length ? (
         <Tap

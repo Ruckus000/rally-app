@@ -380,9 +380,11 @@ describe('accounts', () => {
     expect(s.yearLevels).toHaveLength(0);
     expect(s.profile.allTimePoints).toBe(0);
     expect(s.profile.currentStreak).toBe(0);
-    // Leaving early lands where finishing does: your own week.
+    // Nothing staked and no circle, so both of the other tabs are empty
+    // states — the one landing the app picks with nothing of yours to show
+    // opens on the feed that has something in it.
     expect(s.tab).toBe('week');
-    expect(s.scope).toBe('personal');
+    expect(s.scope).toBe('global');
   });
 
   it('does not downgrade an account that already chose the demo', () => {
@@ -450,7 +452,9 @@ describe('accounts', () => {
     expect(s.myTasks).toHaveLength(0);
     expect(s.acted).toEqual({});
     expect(s.onboardStep).toBeNull();
-    expect(s.scope).toBe('personal');
+    // An emptied account has no week and no circle; the demo below keeps
+    // Friends because it has one, which is the control on this.
+    expect(s.scope).toBe('global');
   });
 
   it('resets back to the demo', () => {
