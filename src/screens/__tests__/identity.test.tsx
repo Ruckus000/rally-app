@@ -16,6 +16,7 @@ import { Share } from 'react-native';
 import { StoreProvider, type CircleRef } from '../../state/store';
 import { indexPeople, personOf } from '../../data/people';
 import { ME } from '../../data/fixtures';
+import { seedProfile } from '../../data/seed';
 import { MeScreen } from '../MeScreen';
 import { DetailSheet } from '../../overlays/DetailSheet';
 
@@ -156,5 +157,37 @@ describe('the invite code', () => {
 
     expect(screen.getByText(ME.inviteLink)).toBeTruthy();
     expect(screen.queryByLabelText('Circle name')).toBeNull();
+  });
+});
+
+describe('the cheer exchange line', () => {
+  const exchange = (cheersReceived: number) =>
+    render(
+      <StoreProvider
+        persist={false}
+        sync={false}
+        restored={{
+          account: 'live',
+          selfId: ME_ID,
+          people: indexPeople([personOf(ME_ID, 'Maya Chen')]),
+          profile: { ...seedProfile('live'), cheersReceived },
+        }}
+      >
+        <MeScreen />
+      </StoreProvider>,
+    );
+
+  it('says "cheer" for one', () => {
+    // Only reachable now that cheers received are counted at all: the number
+    // was a seed constant, so this branch could never render a 1.
+    exchange(1);
+
+    expect(screen.getByText(/^1 cheer behind\./)).toBeTruthy();
+  });
+
+  it('says "cheers" for more than one — the control', () => {
+    exchange(3);
+
+    expect(screen.getByText(/^3 cheers behind\./)).toBeTruthy();
   });
 });
