@@ -33,6 +33,7 @@ import {
   World,
   getWorld,
   seedHistory,
+  seedGlobalPosts,
   seedMoments,
   seedPeople,
   seedProfile,
@@ -161,6 +162,16 @@ export type State = {
    * The demo's live in `world.notifications`; `notificationsFor` picks.
    */
   notifications: Notification[];
+  /**
+   * The Global feed: the Oz bots' weeks, as ordinary rows.
+   *
+   * Arranged exactly like `moments` — seeded from a fixture for the demo modes,
+   * replaced wholesale by the server for a live account — because it is the
+   * same question about a different set of owners. Persisted for the reason the
+   * notification feed is: this is the tab a new account lands on, and it exists
+   * to have something in it.
+   */
+  globalPosts: Moment[];
   /** The week this state belongs to. Compared against the clock to spot rollover. */
   week: WeekContext;
   /** Closed weeks, newest first. */
@@ -223,6 +234,7 @@ const initialState: State = {
   selfId: SELF_DEMO_ID,
   circle: null,
   notifications: [],
+  globalPosts: seedGlobalPosts(null),
   session: { status: 'off' },
   people: seedPeople(null),
   week: liveWeek(),
@@ -361,6 +373,11 @@ export type ServerMerge = {
    * your screen forever — but never for the thread on one, which is local.
    */
   moments?: Moment[];
+  /**
+   * The Oz bots' week. Authoritative for the whole set, like `moments` and for
+   * the same reason: a bot's task that went away has to leave the feed.
+   */
+  globalPosts?: Moment[];
 };
 
 /**
@@ -425,6 +442,7 @@ const seedFor = (mode: AccountMode, week: WeekContext) =>
     // left behind. Cleared here for the reason the outbox is.
     circle: null,
     notifications: [],
+    globalPosts: seedGlobalPosts(mode),
     people: seedPeople(mode),
     myTasks: seedTasks(mode),
     moments: seedMoments(mode),
@@ -446,6 +464,33 @@ const samePerson = (a: Person, b: Person): boolean =>
     a.tint === b.tint &&
     a.trend === b.trend &&
     sameStats(a.stats, b.stats));
+
+/**
+ * A merged feed, with this device's thread kept on it.
+ *
+ * The server owns which rows are in the feed; this device owns the notes it has
+ * written on them, which `pullNotes` does not answer for — so a note you just
+ * left is carried across rather than blinked away by the next poll.
+ *
+ * Returns `prev` by identity when nothing moved. Same rows in the same order is
+ * the common answer, and handing back the old array is what lets `SERVER_MERGE`
+ * skip the render for every screen.
+ */
+const carryThreads = (prev: Moment[], next?: Moment[]): Moment[] => {
+  if (!next) return prev;
+  const threads = new Map(prev.map((m) => [m.id, m.cmts]));
+  const merged = next.map((m) => {
+    const kept = threads.get(m.id);
+    return kept?.length ? { ...m, cmts: kept } : m;
+  });
+  const unchanged =
+    merged.length === prev.length &&
+    merged.every((m, i) => {
+      const was = prev[i];
+      return !!was && was.id === m.id && was.title === m.title && was.cmts === m.cmts;
+    });
+  return unchanged ? prev : merged;
+};
 
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -519,10 +564,15 @@ export function reducer(state: State, action: Action): State {
 
       const onTask = state.myTasks.some((x) => x.id === sh.id);
       const onMoment = state.moments.some((x) => x.id === sh.id);
+      // A live global post is a real row owned by a real profile, so a note on
+      // one is an ordinary note and syncs like one. The demo's posts are not,
+      // and fall through to `globalNotes` below.
+      const onGlobal = state.globalPosts.some((x) => x.id === sh.id);
 
-      // Neither means it's a public post. Without this the note was silently
-      // dropped — the field cleared and nothing landed.
-      if (!onTask && !onMoment) {
+      // None of the three means it's a demo post, whose id is not a uuid and
+      // so can never be written. Without this the note was silently dropped —
+      // the field cleared and nothing landed.
+      if (!onTask && !onMoment && !onGlobal) {
         return {
           ...state,
           note: '',
@@ -533,17 +583,17 @@ export function reducer(state: State, action: Action): State {
         };
       }
 
+      const withNote = (x: Moment) =>
+        x.id === sh.id ? { ...x, cmts: [...(x.cmts ?? []), mine] } : x;
+
       return {
         ...state,
         note: '',
         myTasks: onTask
           ? state.myTasks.map((x) => (x.id === sh.id ? { ...x, cmts: [...x.cmts, mine] } : x))
           : state.myTasks,
-        moments: onMoment
-          ? state.moments.map((x) =>
-              x.id === sh.id ? { ...x, cmts: [...(x.cmts ?? []), mine] } : x,
-            )
-          : state.moments,
+        moments: onMoment ? state.moments.map(withNote) : state.moments,
+        globalPosts: onGlobal ? state.globalPosts.map(withNote) : state.globalPosts,
       };
     }
 
@@ -1140,29 +1190,10 @@ export function reducer(state: State, action: Action): State {
           ? { ...state.profile, cheersReceived: action.merge.cheersReceived }
           : state.profile;
 
-      /**
-       * The feed. The server owns which rows are in it; this device owns the
-       * thread it has written on them, which `pullNotes` does not answer for —
-       * so a note you just left on a friend's task is carried across rather
-       * than blinked away by the next poll.
-       */
-      let moments = state.moments;
-      if (action.merge.moments) {
-        const threads = new Map(state.moments.map((m) => [m.id, m.cmts]));
-        const next = action.merge.moments.map((m) => {
-          const kept = threads.get(m.id);
-          return kept?.length ? { ...m, cmts: kept } : m;
-        });
-        // Same rows in the same order is the common answer, and returning the
-        // old array is what lets the identity check below skip the render.
-        const unchanged =
-          next.length === state.moments.length &&
-          next.every((m, i) => {
-            const was = state.moments[i];
-            return !!was && was.id === m.id && was.title === m.title && was.cmts === m.cmts;
-          });
-        if (!unchanged) moments = next;
-      }
+      const moments = carryThreads(state.moments, action.merge.moments);
+      // The same question about a different set of rows: the Oz bots' feed is
+      // the server's to own and yours to have replied to.
+      const globalPosts = carryThreads(state.globalPosts, action.merge.globalPosts);
 
       if (
         people === state.people &&
@@ -1171,6 +1202,7 @@ export function reducer(state: State, action: Action): State {
         personNotes === state.personNotes &&
         circle === state.circle &&
         moments === state.moments &&
+        globalPosts === state.globalPosts &&
         profile === state.profile &&
         notifications === state.notifications
       ) {
@@ -1184,6 +1216,7 @@ export function reducer(state: State, action: Action): State {
         personNotes,
         circle,
         moments,
+        globalPosts,
         profile,
         notifications,
       };

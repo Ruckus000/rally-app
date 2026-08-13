@@ -17,6 +17,7 @@ export const baseState: State = {
   selfId: SELF_DEMO_ID,
   circle: null,
   notifications: [],
+  globalPosts: [],
   // A demo account never signs in, so `off` is the only value it can hold.
   session: { status: 'off' },
   people: seedPeople('seeded'),

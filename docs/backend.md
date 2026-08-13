@@ -87,7 +87,8 @@ mutation that the server ultimately rejects. It is the larger half of the work.
 | `pending` | `invites` | |
 | `moments` | derived | A view over other members' `tasks` and `week_rollups` |
 | `world.members` | `circle_members` | |
-| `globalNotes` targets | *(unresolved)* | The global feed is fixtures; a real one needs a public-post table, which this schema does not attempt |
+| `globalPosts` | `tasks` where `owner_id` is a bot | The Oz bots' weeks. No public-post table: a bot's post *is* a task, `aud = 'everyone'` |
+| `globalNotes` | *(demo only)* | The two demo modes' posts have fixture ids, which `syncableNote` refuses. A note on a bot's post is an ordinary note |
 
 ## What stops being the client's job
 
@@ -144,8 +145,10 @@ Each phase leaves the app working.
 - **Auth method.** Email OTP works without an Apple developer account; Sign in
   with Apple needs the paid programme and is effectively required by the App
   Store once any social login exists.
-- **The global feed.** Genuinely public posts imply moderation, reporting and
-  abuse handling. Out of scope here, and not a small annexe.
+- **Humans on the global feed.** The feed is scoped to the Oz bots, who are
+  openly fictional and readable by everyone. Letting real users' `everyone`
+  tasks in implies moderation, reporting and abuse handling — out of scope
+  here, and not a small annexe.
 - **Cost.** The project sits in a separate Free-plan organisation, so it costs
   nothing. Free projects pause after 7 days of inactivity and restore within
   90; that is fine for development and is the thing to revisit before anyone

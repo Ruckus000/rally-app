@@ -147,12 +147,68 @@ export const indexPeople = (list: Person[]): PeopleIndex =>
     return acc;
   }, Object.create(null) as Record<PersonId, Person>);
 
-export const DEMO_INDEX: PeopleIndex = indexPeople(DEMO_PEOPLE);
+/**
+ * The Global feed's cast, and openly not people.
+ *
+ * The feed used to be four invented accounts with handles like `@kwon.builds`
+ * — names chosen to pass for real, attached to cheer counts no ledger backs.
+ * These are chosen to fail: nobody mistakes the Tin Man for a person they
+ * might know, and that is the point of the choice rather than a joke about it.
+ *
+ * On a live account the same characters arrive from the server as ordinary
+ * profile rows, so this list is what the two demo modes read instead. Their
+ * ids are not uuids, which is what keeps a demo cheer out of the outbox.
+ */
+export const OZ_PEOPLE: Person[] = [
+  {
+    id: 'dorothy',
+    name: 'Dorothy Gale',
+    first: 'Dorothy',
+    initials: 'DG',
+    tint: '#D8C9E0',
+    trend: 'up',
+    stats: { done: 5, total: 6, streak: 4, given: 11 },
+  },
+  {
+    id: 'scarecrow',
+    name: 'The Scarecrow',
+    first: 'Scarecrow',
+    initials: 'SC',
+    tint: '#E9E0C2',
+    trend: 'up',
+    stats: { done: 4, total: 4, streak: 2, given: 7 },
+  },
+  {
+    id: 'tinman',
+    name: 'Tin Man',
+    first: 'Tin',
+    initials: 'TM',
+    tint: '#C9DCE0',
+    trend: 'same',
+    stats: { done: 3, total: 6, streak: 1, given: 5 },
+  },
+  {
+    id: 'lion',
+    name: 'Cowardly Lion',
+    first: 'Lion',
+    initials: 'CL',
+    tint: '#E0D8C9',
+    trend: 'down',
+    stats: { done: 2, total: 5, streak: 0, given: 3 },
+  },
+];
 
-/** A fresh account knows exactly one person. */
-export const SELF_ONLY_INDEX: PeopleIndex = indexPeople(
-  DEMO_PEOPLE.filter((p) => p.id === SELF_DEMO_ID),
-);
+export const DEMO_INDEX: PeopleIndex = indexPeople([...DEMO_PEOPLE, ...OZ_PEOPLE]);
+
+/**
+ * A fresh account knows exactly one person — and the four who are not people.
+ * The Global feed is public, so it renders before you know anybody, which is
+ * precisely the account that has nothing else to look at.
+ */
+export const SELF_ONLY_INDEX: PeopleIndex = indexPeople([
+  ...DEMO_PEOPLE.filter((p) => p.id === SELF_DEMO_ID),
+  ...OZ_PEOPLE,
+]);
 
 export type People = {
   get(id: PersonId): Person;

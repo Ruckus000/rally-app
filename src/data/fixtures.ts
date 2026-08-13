@@ -263,67 +263,62 @@ export const MOMENTS: Moment[] = [
 export const BIG_CARD_STATS = { tasks: '7/7', pts: '285', streak: '5w' };
 export const BIG_CARD_BASE_CHEERS = 12;
 
-export type GlobalPost = {
-  id: string;
-  name: string;
-  ini: string;
-  tint: string;
-  time: string;
-  statLabel: string;
-  title: string;
-  quote: string;
-  cheers: number;
-  comments: number;
-};
-
-export const GLOBAL_POSTS: GlobalPost[] = [
+/**
+ * The Global feed, for the two demo modes.
+ *
+ * `Moment`, not a shape of its own. It used to be `GlobalPost` — its own type,
+ * its own card call and its own branch in the detail sheet, carrying a
+ * pre-rendered `@handle` and a cheer count with nothing behind it. A live
+ * account now reads real rows written by the Oz bots, and the one thing that
+ * makes that possible without a second renderer is that both worlds hand the
+ * screen the same shape.
+ *
+ * Ids stay `g1`–`g4`. They are not uuids, and that is load-bearing: it is what
+ * `parseActedKey` and `syncableNote` check, so a cheer or a note left on a
+ * demo post stays on the device instead of jamming the queue behind it.
+ */
+export const GLOBAL_MOMENTS: Moment[] = [
   {
     id: 'g1',
-    name: '@kwon.builds',
-    ini: 'K',
-    tint: '#D8C9E0',
+    who: 'dorothy',
+    kind: 'normal',
     time: '2h',
-    statLabel: '11w streak',
-    title: 'Day 77 — still going',
+    day: 2,
+    title: 'Walked the whole way instead of taking the bus',
+    pts: 20,
     quote: 'Some mornings I do not want to. Today was one of them.',
-    cheers: 142,
-    comments: 12,
+    cheers: 14,
   },
   {
     id: 'g2',
-    name: '@marisol_runs',
-    ini: 'M',
-    tint: '#C9DCE0',
+    who: 'scarecrow',
+    kind: 'normal',
     time: '4h',
-    statLabel: '19:48',
-    title: 'Finished a sub-20 5K this morning',
-    quote: '',
-    cheers: 98,
-    comments: 6,
+    day: 2,
+    title: 'Read forty pages before anything else',
+    pts: 25,
+    cheers: 9,
   },
   {
     id: 'g3',
-    name: '@task.goblin',
-    ini: 'G',
-    tint: '#E0D8C9',
+    who: 'tinman',
+    kind: 'normal',
     time: '6h',
-    statLabel: '9/9 tasks',
-    title: 'Clean sweep this week',
-    quote: 'Nothing rolled over. First time all year.',
-    cheers: 210,
-    comments: 24,
+    day: 1,
+    title: 'Called someone I had been putting off',
+    pts: 15,
+    quote: 'Rustier than I expected. Worth it anyway.',
+    cheers: 21,
   },
   {
     id: 'g4',
-    name: '@dailydozen',
-    ini: 'D',
-    tint: '#E9E0C2',
+    who: 'lion',
+    kind: 'normal',
     time: '9h',
-    statLabel: '6w streak',
-    title: 'Rebuilt the streak after a rough month',
-    quote: '',
-    cheers: 76,
-    comments: 9,
+    day: 1,
+    title: 'Said the thing in the meeting',
+    pts: 30,
+    cheers: 7,
   },
 ];
 

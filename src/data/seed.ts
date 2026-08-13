@@ -13,6 +13,7 @@
 import {
   HistoryWeek,
   INVITE_SUGGESTIONS,
+  GLOBAL_MOMENTS,
   MOMENTS,
   ME,
   MY_TASKS,
@@ -116,6 +117,18 @@ export const seedTasks = (mode: AccountMode | null): Task[] =>
 
 export const seedMoments = (mode: AccountMode | null): Moment[] =>
   mode === 'seeded' ? MOMENTS : [];
+
+/**
+ * The Global feed, which is public — so unlike the circle's, it is seeded for
+ * *every* demo mode. A fresh account knows nobody and has staked nothing; this
+ * is the one tab it can open on and find something.
+ *
+ * Live gets nothing, and the Oz bots' real rows arrive on the next pull. Same
+ * arrangement as `moments`, and deliberately so: one slice, seeded for the
+ * demo and replaced by the server, rather than a second way to ask.
+ */
+export const seedGlobalPosts = (mode: AccountMode | null): Moment[] =>
+  mode === 'live' ? [] : GLOBAL_MOMENTS;
 
 /**
  * Seeded history is labelled relative to whatever week it is now, so the demo

@@ -9,7 +9,6 @@ import {
   AUDIENCE_LABEL,
   BIG_CARD_BASE_CHEERS,
   BIG_CARD_STATS,
-  GlobalPost,
   Moment,
   Task,
 } from '../data/fixtures';
@@ -473,5 +472,3 @@ export function EmptyState({
     </View>
   );
 }
-
-export type { GlobalPost };

@@ -491,7 +491,9 @@ describe('accounts', () => {
 
 describe('hydration', () => {
   it('rebuilds the directory a payload predating it never had', () => {
-    expect(Object.keys(hydrate({ account: 'seeded' }).people)).toHaveLength(7);
+    // Seven people and the four Oz bots, who are in every demo directory
+    // because the Global feed renders before you know anybody.
+    expect(Object.keys(hydrate({ account: 'seeded' }).people)).toHaveLength(11);
   });
 
   it('refuses a stored selfId on a demo account', () => {
