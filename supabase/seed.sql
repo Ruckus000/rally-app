@@ -75,6 +75,37 @@ begin
   end loop;
 end $$;
 
+-- ─── the oz bot ───────────────────────────────────────────────────────────
+--
+-- An openly fictional account, readable by everyone — which is what makes it
+-- the control on `profiles_select`: if a stranger can read Dorothy but still
+-- cannot read Jordan, the policy was widened rather than opened.
+--
+-- No `auth.identities` row, because nothing ever signs in as one. The password
+-- column is left as the empty string gotrue writes for a user who cannot
+-- authenticate; there is no credential here to leak.
+
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password,
+  email_confirmed_at, created_at, updated_at,
+  raw_app_meta_data, raw_user_meta_data,
+  confirmation_token, recovery_token, email_change_token_new, email_change
+) values (
+  '00000000-0000-0000-0000-000000000000',
+  '00000000-0000-4000-8000-0000000000b0',
+  'authenticated', 'authenticated', 'dorothy@rally.test', '',
+  now(), now(), now(),
+  '{"provider":"email","providers":["email"]}'::jsonb,
+  '{"handle":"dorothy.gale","name":"Dorothy Gale"}'::jsonb,
+  '', '', '', ''
+)
+on conflict (id) do nothing;
+
+insert into public.profiles (id, handle, name, is_bot)
+values ('00000000-0000-4000-8000-0000000000b0', 'dorothy.gale', 'Dorothy Gale', true)
+on conflict (id) do update
+  set handle = excluded.handle, name = excluded.name, is_bot = excluded.is_bot;
+
 -- ─── circles ──────────────────────────────────────────────────────────────
 
 insert into public.circles (id, name, invite_code, created_by) values
