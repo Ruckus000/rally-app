@@ -1,19 +1,15 @@
 /**
  * Step 5 — Notifications. What a cheer looks like when it lands.
  *
- * "Allow notifications" does NOT request permission. expo-notifications isn't
- * installed and push needs a paid Apple developer programme we don't have, so
- * there is nothing to ask. Both buttons simply continue the flow, and the ask
- * gets wired when push actually exists rather than mocked into a prompt that
- * would teach the user the wrong thing.
+ * "Allow notifications" asks for real, and grants exactly one thing: the
+ * Monday reminder previewed second on this screen. That is a *local*
+ * notification, scheduled on the device, and needs neither APNs nor a paid
+ * Apple developer programme.
  *
- * The copy no longer promises one either. Cheers do arrive now — a trigger
- * writes them and the bell shows them — but they wait in the app rather than
- * reaching a locked phone, so the line says that instead of "right when you
- * close a task". What is still unhonest here is the CTA: a button labelled
- * "Allow notifications" that allows nothing. Changing it is a design decision
- * about this screen's shape, not a copy fix, so it is flagged rather than
- * taken.
+ * The first preview — a cheer landing the moment a friend sends it — still
+ * cannot happen: that is remote push. So the subtitle promises cheers wait in
+ * the app, which is what they do, and the button delivers the half that is
+ * genuinely deliverable rather than prompting for nothing.
  */
 import React, { useEffect, useState } from 'react';
 import { Animated, View, ViewStyle } from 'react-native';

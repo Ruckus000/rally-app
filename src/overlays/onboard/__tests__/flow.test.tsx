@@ -16,6 +16,10 @@ import { fakeSupabase } from '../../../__mocks__/@supabase/supabase-js';
 import { __resetSupabaseForTests } from '../../../lib/supabase';
 import { __resetSessionForTests } from '../../../sync/session';
 import { __resetOutboxForTests, pending } from '../../../sync/outbox';
+import {
+  fakeNotifications,
+  __resetForTests as __resetNotificationsForTests,
+} from '../../../__mocks__/expo-notifications';
 
 let back: ReturnType<typeof captureBackPress>;
 
@@ -160,6 +164,63 @@ describe('the onboarding flow', () => {
 
     fireEvent.press(screen.getByLabelText('Me'));
     expect(screen.getByText('Live')).toBeTruthy();
+  });
+
+  /**
+   * The button that used to allow nothing.
+   *
+   * It cannot promise the cheer above it — that needs remote push and a paid
+   * Apple programme — but the second preview on that screen is a Monday
+   * reminder, which is local and needs neither.
+   */
+  describe('allowing reminders', () => {
+    beforeEach(() => __resetNotificationsForTests());
+
+    const reachNotifications = () => {
+      render(<App persist={false} sync={false} />);
+      reachTheStake();
+      press('Run 5k, ×2 this week, 40 points');
+      press('Stake 40 pts');
+      press('Ride solo for now');
+    };
+
+    it('asks for real, and schedules Monday when granted', async () => {
+      fakeNotifications.grantOnAsk();
+      reachNotifications();
+
+      await act(async () => {
+        press('Allow notifications');
+      });
+
+      expect(fakeNotifications.prompts()).toBe(1);
+      const [pending] = fakeNotifications.scheduled();
+      expect(pending.content.body).toContain('You staked 40 pts');
+    });
+
+    it('carries on when the answer is no', async () => {
+      // Declining is an answer, not an error. Stopping to argue would be worse
+      // than the silence they just chose.
+      reachNotifications();
+
+      await act(async () => {
+        press('Allow notifications');
+      });
+
+      expect(fakeNotifications.scheduled()).toHaveLength(0);
+      expect(screen.getByText('STAKED')).toBeTruthy();
+    });
+
+    it('never asks when you tap Maybe later', async () => {
+      reachNotifications();
+
+      await act(async () => {
+        press('Maybe later');
+      });
+
+      // The whole point of the second button: no prompt at all.
+      expect(fakeNotifications.prompts()).toBe(0);
+      expect(screen.getByText('STAKED')).toBeTruthy();
+    });
   });
 
   /**

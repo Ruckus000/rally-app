@@ -25,6 +25,7 @@ import { Overlay } from './Overlay';
 import { createCircle, joinCircleByCode, UnknownInviteCode } from '../sync/transport';
 import { kickSync } from '../sync/useSyncEngine';
 import { queueProfileName } from '../sync/engine';
+import { askForReminders, scheduleWeekReminder } from '../lib/reminders';
 import { OnboardHeader } from './onboard/kit';
 import { IntentId, SUGG, Suggestion, pool } from './onboard/data';
 import { WelcomeScreen } from './onboard/WelcomeScreen';
@@ -164,6 +165,26 @@ export function OnboardOverlay({
     next();
   };
 
+  /**
+   * The button now does what it says. It cannot promise the cheer above it —
+   * that needs remote push and a paid Apple programme — but the second preview
+   * on this screen is a Monday reminder, which is a *local* notification and
+   * needs neither.
+   *
+   * The flow continues either way: someone who declines has still finished
+   * onboarding, and stopping to argue about it would be worse than the silence
+   * they just chose.
+   */
+  const allowReminders = () => {
+    void askForReminders().then((answer) => {
+      if (answer === 'granted') {
+        return scheduleWeekReminder(state.week.number, stakeSum);
+      }
+      return undefined;
+    });
+    next();
+  };
+
   const rideSolo = () => {
     if (!live) dispatch({ type: 'SET_ACCOUNT', mode: 'fresh' });
     patch({ circle: null, joined: false });
@@ -298,7 +319,7 @@ export function OnboardOverlay({
             stakeSum={stakeSum}
             hasPicks={picked.length > 0}
             weekNumber={state.week.number}
-            onAllow={next}
+            onAllow={allowReminders}
             onLater={next}
           />
         ) : null}
