@@ -165,7 +165,13 @@ export function NotificationsOverlay({ topInset }: { topInset: number }) {
           color={color.faintInk}
           style={{ textAlign: 'center', paddingHorizontal: 20, paddingTop: 2, paddingBottom: 6 }}
         >
-          {'Nudges only arrive when someone is actually waiting on you.\nCheers batch into one.'}
+          {/* "Cheers batch into one" was a promise the build does not keep: the
+              trigger writes one row per cheer, and grouping them by task and
+              window is work nobody has done. Replaced rather than deleted —
+              the line is reassurance about not being pestered, and that is
+              still true, for a different reason: none of this reaches a locked
+              phone. */}
+          {'Nudges only arrive when someone is actually waiting on you.\nCheers wait here until you look.'}
         </Sans>
       </ScrollView>
       </>
