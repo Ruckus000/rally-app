@@ -319,7 +319,10 @@ function MomentItem({ moment: m }: { moment: Moment }) {
 function GlobalFeed() {
   const { state, dispatch } = useStore();
   const alone = circleMembers(state).length < 2;
-  const posts = state.globalPosts;
+  // Newest first, exactly as the Friends feed orders itself. Unsorted, the feed
+  // came back grouped by owner — three cards from the Tin Man in a row, which
+  // reads as one person shouting rather than as four people having a week.
+  const posts = [...state.globalPosts].sort((a, b) => parseHours(a.time) - parseHours(b.time));
 
   return (
     <>

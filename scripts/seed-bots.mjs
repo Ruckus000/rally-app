@@ -163,7 +163,7 @@ try {
 }
 
 async function seed() {
-for (const bot of BOTS) {
+for (const [botIndex, bot] of BOTS.entries()) {
   const { id, created } = await ensureAccount(bot);
 
   // The signup trigger generates a handle; this replaces it with the readable
@@ -174,19 +174,27 @@ for (const bot of BOTS) {
     .eq('id', id);
   if (profileError) throw profileError;
 
-  const rows = bot.tasks.map(([taskId, day, title, category, points, done]) => ({
-    id: taskId,
-    owner_id: id,
-    week_start: monday,
-    day,
-    title,
-    category,
-    points,
-    aud: 'everyone',
-    source: 'staked',
-    done_at: done ? new Date().toISOString() : null,
-    updated_at: new Date().toISOString(),
-  }));
+  // Staggered, and interleaved across the cast. Everything written in one
+  // transaction is written at one instant, and the feed rendered as a wall of
+  // "0h ago" in four blocks of one name — a week's worth of other people's
+  // lives, all apparently happening while you watched.
+  const rows = bot.tasks.map(([taskId, day, title, category, points, done], i) => {
+    const at = new Date(Date.now() - (2 + i * 5 + botIndex) * 3600_000).toISOString();
+    return {
+      id: taskId,
+      owner_id: id,
+      week_start: monday,
+      day,
+      title,
+      category,
+      points,
+      aud: 'everyone',
+      source: 'staked',
+      created_at: at,
+      done_at: done ? at : null,
+      updated_at: at,
+    };
+  });
 
   const { error: taskError } = await db.from('tasks').upsert(rows, { onConflict: 'id' });
   if (taskError) throw taskError;

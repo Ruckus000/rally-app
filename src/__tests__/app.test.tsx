@@ -325,6 +325,18 @@ describe('the global feed', () => {
     expect(screen.getByText(OZ_POST)).toBeTruthy();
   });
 
+  it('reads newest first, not grouped by whoever posted', () => {
+    // On device it came back in four blocks of one name — three cards from the
+    // Tin Man in a row, which reads as one person shouting rather than as four
+    // people having a week. The Friends feed has always sorted; this did not.
+    openFresh();
+    goToGlobal();
+    const cards = screen.getAllByLabelText(/^(Dorothy Gale|The Scarecrow|Tin Man|Cowardly Lion): /);
+    const times = cards.map((c) => c.props.accessibilityLabel);
+    expect(times[0]).toContain('Dorothy Gale');
+    expect(times[times.length - 1]).toContain('Cowardly Lion');
+  });
+
   it('sits in the middle, so the landing tab is not across the row', () => {
     openFresh();
     const tabs = screen.getAllByRole('tab');
