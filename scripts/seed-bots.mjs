@@ -32,6 +32,19 @@ if (!KEY) {
   process.exit(1);
 }
 
+// A key goes into an HTTP header, and a header can only hold ASCII — so a
+// placeholder pasted verbatim out of a README fails deep inside fetch with
+// "Cannot convert argument to a ByteString", naming a character code and
+// nothing else. Caught here, where the answer is obvious.
+if (!/^[\x21-\x7e]{20,}$/.test(KEY)) {
+  console.error(
+    'That does not look like a service-role key.\n' +
+      'If you copied the command from a README, replace the … with the real key —\n' +
+      'it is a long run of plain ASCII, starting with "sb_secret_" or "eyJ".',
+  );
+  process.exit(1);
+}
+
 /** The URL is not a secret and is already in .env, next to the publishable key. */
 const url =
   process.env.EXPO_PUBLIC_SUPABASE_URL ??
