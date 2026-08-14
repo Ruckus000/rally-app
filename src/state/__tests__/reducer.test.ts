@@ -6,7 +6,7 @@
  */
 import { Action, DEFAULT_CONFIG, hydrate, reducer, State } from '../store';
 import { pick } from '../persistence';
-import { MY_TASKS, MOMENTS, Task } from '../../data/fixtures';
+import { GLOBAL_MOMENTS, MY_TASKS, MOMENTS, Task } from '../../data/fixtures';
 import { __resetOutboxForTests, enqueue } from '../../sync/outbox';
 import type { ReactionRef } from '../../sync/reactions';
 import type { PulledNote } from '../../sync/transport';
@@ -494,6 +494,25 @@ describe('hydration', () => {
     // Seven people and the four Oz bots, who are in every demo directory
     // because the Global feed renders before you know anybody.
     expect(Object.keys(hydrate({ account: 'seeded' }).people)).toHaveLength(11);
+  });
+
+  /**
+   * The Global feed is seeded for the demo modes and server-filled for a live
+   * one, so a payload that predates the slice must not inherit the wrong world.
+   */
+  it('does not hand a live account the demo’s Global feed', () => {
+    // Seen on device: an account upgrading across the build that added this
+    // slice opened on four fictional posts credited to "Someone".
+    expect(hydrate({ account: 'live' }).globalPosts).toEqual([]);
+  });
+
+  it('still seeds it for a demo account, which has no server to ask', () => {
+    expect(hydrate({ account: 'seeded' }).globalPosts).toHaveLength(GLOBAL_MOMENTS.length);
+  });
+
+  it('keeps a live feed that was actually stored', () => {
+    const stored = [{ ...GLOBAL_MOMENTS[0]!, id: 'from-disk' }];
+    expect(hydrate({ account: 'live', globalPosts: stored }).globalPosts).toEqual(stored);
   });
 
   it('refuses a stored selfId on a demo account', () => {

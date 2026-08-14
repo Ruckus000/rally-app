@@ -1264,6 +1264,15 @@ export function hydrate(restored?: Partial<State> | null): State {
     people: restored?.people
       ? indexPeople(Object.values(restored.people).filter((p): p is Person => !!p))
       : seedPeople(s.account),
+    // Re-seeded from the restored account rather than inherited, for the same
+    // reason `people` is. A spread only copies keys that are *present*, so a
+    // payload written before this slice existed leaves `initialState`'s value
+    // standing — and `initialState` is seeded for an undecided account, which
+    // means the demo's four. Seen on device: a live account upgrading across
+    // that build opened on the Oz *fixture*, credited to "Someone", until the
+    // first pull replaced it. Right shape, wrong world, which is this app's
+    // most-repeated bug.
+    globalPosts: restored?.globalPosts ?? seedGlobalPosts(s.account),
   };
 }
 
