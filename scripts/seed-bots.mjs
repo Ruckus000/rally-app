@@ -69,9 +69,23 @@ const db = createClient(url, KEY, {
 /**
  * The cast, and their week.
  *
- * Every task is `aud: 'everyone'` — that is what makes this the Global feed
- * rather than four accounts nobody can see. Ids are fixed so a second run
- * updates the same rows instead of staking the week twice.
+ * These goals are the point, not the characters. The Global feed is the first
+ * screen a new account lands on, so it is where someone learns what a stake
+ * looks like here — which means every line has to be one they could put in
+ * their own week unchanged: a single action, a number or a day attached to it,
+ * and done or not done by Sunday with nothing to argue about. "Get fitter" is
+ * not on this list; "Walk 30 minutes every morning" is.
+ *
+ * The characters only decide which *kind* of goal each one takes — Dorothy
+ * moves, the Scarecrow learns, the Tin Man tends to people, the Lion asks for
+ * things. That is enough personality for a feed and none of it has to be
+ * explained.
+ *
+ * Points are derived from the category below, so the number beside a goal is
+ * the number the composer would charge for staking the same thing. Every task is
+ * `aud: 'everyone'`, which is what makes this the Global feed rather than four
+ * accounts nobody can see, and ids are fixed so a second run updates the same
+ * rows instead of staking the week twice.
  *
  * Nobody closes everything. A feed of perfect weeks is not encouragement, it
  * is a pace car, and the one thing this app should never imply is that the
@@ -83,9 +97,9 @@ const BOTS = [
     name: 'Dorothy Gale',
     email: 'dorothy@ozbots.rally.app',
     tasks: [
-      ['0b0d0000-0000-4000-8000-000000000001', 1, 'Walked the whole way instead of taking the bus', 'Fitness', 20, true],
-      ['0b0d0000-0000-4000-8000-000000000002', 2, 'Wrote the letter I kept not writing', 'Mind', 25, true],
-      ['0b0d0000-0000-4000-8000-000000000003', 4, 'Back on the road before it gets dark', 'Fitness', 30, false],
+      ['0b0d0000-0000-4000-8000-000000000001', 1, 'Walk 30 minutes every morning', 'Fitness', true],
+      ['0b0d0000-0000-4000-8000-000000000002', 2, 'Meal prep Sunday for the week', 'Home', true],
+      ['0b0d0000-0000-4000-8000-000000000003', 4, 'Bike to work 3 days', 'Fitness', false],
     ],
   },
   {
@@ -93,9 +107,9 @@ const BOTS = [
     name: 'The Scarecrow',
     email: 'scarecrow@ozbots.rally.app',
     tasks: [
-      ['0b0d0000-0000-4000-8000-000000000011', 0, 'Read forty pages before anything else', 'Mind', 25, true],
-      ['0b0d0000-0000-4000-8000-000000000012', 2, 'Finished the course I started in March', 'Work', 40, false],
-      ['0b0d0000-0000-4000-8000-000000000013', 3, 'Explained it to someone else, badly, then better', 'Mind', 20, true],
+      ['0b0d0000-0000-4000-8000-000000000011', 0, 'Read 50 pages before opening my phone', 'Mind', true],
+      ['0b0d0000-0000-4000-8000-000000000012', 2, 'Finish module 3 of the SQL course', 'Work', false],
+      ['0b0d0000-0000-4000-8000-000000000013', 3, 'Write a 20-minute weekly review on Friday', 'Mind', true],
     ],
   },
   {
@@ -103,9 +117,9 @@ const BOTS = [
     name: 'Tin Man',
     email: 'tinman@ozbots.rally.app',
     tasks: [
-      ['0b0d0000-0000-4000-8000-000000000021', 1, 'Called someone I had been putting off', 'Mind', 15, true],
-      ['0b0d0000-0000-4000-8000-000000000022', 3, 'Actually said the thing instead of hinting at it', 'Mind', 25, false],
-      ['0b0d0000-0000-4000-8000-000000000023', 5, 'Oiled the joints — stretched every morning', 'Fitness', 20, false],
+      ['0b0d0000-0000-4000-8000-000000000021', 1, 'Call my sister on Wednesday', 'Mind', true],
+      ['0b0d0000-0000-4000-8000-000000000022', 3, 'Cook at home 4 nights', 'Home', false],
+      ['0b0d0000-0000-4000-8000-000000000023', 5, 'Stretch 10 minutes before bed', 'Fitness', false],
     ],
   },
   {
@@ -113,11 +127,19 @@ const BOTS = [
     name: 'Cowardly Lion',
     email: 'lion@ozbots.rally.app',
     tasks: [
-      ['0b0d0000-0000-4000-8000-000000000031', 2, 'Said the thing in the meeting', 'Work', 30, true],
-      ['0b0d0000-0000-4000-8000-000000000032', 4, 'Asked for the raise', 'Work', 45, false],
+      ['0b0d0000-0000-4000-8000-000000000031', 2, 'Ask for a 1:1 about the promotion', 'Work', true],
+      ['0b0d0000-0000-4000-8000-000000000032', 4, 'Send the pitch to 3 clients', 'Work', false],
     ],
   },
 ];
+
+/**
+ * `CATEGORY_POINTS`, which this script cannot import — it is a TypeScript
+ * module inside the app and there is no TS runner here. Repeated once, and
+ * derived from rather than typed out per task, so a goal can never carry a
+ * price the composer would not charge for staking the same thing.
+ */
+const POINTS = { Fitness: 35, Work: 45, Home: 25, Mind: 25 };
 
 /** The Monday of the current week, in the server's own `week_start` shape. */
 function thisMonday() {
@@ -178,7 +200,7 @@ for (const [botIndex, bot] of BOTS.entries()) {
   // transaction is written at one instant, and the feed rendered as a wall of
   // "0h ago" in four blocks of one name — a week's worth of other people's
   // lives, all apparently happening while you watched.
-  const rows = bot.tasks.map(([taskId, day, title, category, points, done], i) => {
+  const rows = bot.tasks.map(([taskId, day, title, category, done], i) => {
     const at = new Date(Date.now() - (2 + i * 5 + botIndex) * 3600_000).toISOString();
     return {
       id: taskId,
@@ -187,7 +209,7 @@ for (const [botIndex, bot] of BOTS.entries()) {
       day,
       title,
       category,
-      points,
+      points: POINTS[category],
       aud: 'everyone',
       source: 'staked',
       created_at: at,
@@ -199,7 +221,7 @@ for (const [botIndex, bot] of BOTS.entries()) {
   const { error: taskError } = await db.from('tasks').upsert(rows, { onConflict: 'id' });
   if (taskError) throw taskError;
 
-  const closed = bot.tasks.filter((t) => t[5]).length;
+  const closed = bot.tasks.filter((t) => t[4]).length;
   console.log(
     `  ${created ? 'created' : 'updated'}  ${bot.name.padEnd(15)} ${closed}/${bot.tasks.length} closed`,
   );
