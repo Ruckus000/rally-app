@@ -7,7 +7,14 @@
  */
 import type { State } from '../state/store';
 import { MOMENTS, MY_TASKS } from '../data/fixtures';
-import { seedHistory, seedPeople, seedProfile, seedYearLevels } from '../data/seed';
+import {
+  seedGlobalPosts,
+  seedHistory,
+  seedNotifications,
+  seedPeople,
+  seedProfile,
+  seedYearLevels,
+} from '../data/seed';
 import { SELF_DEMO_ID } from '../data/people';
 import { FIXTURE_WEEK } from '../data/week';
 
@@ -16,8 +23,11 @@ export const baseState: State = {
   account: 'seeded',
   selfId: SELF_DEMO_ID,
   circle: null,
-  notifications: [],
-  globalPosts: [],
+  // Seeded like every other demo slice. These two used to be empty here and
+  // filled from the world object instead, which is exactly the arrangement
+  // that let a live account read the demo's.
+  notifications: seedNotifications('seeded'),
+  globalPosts: seedGlobalPosts('seeded'),
   // A demo account never signs in, so `off` is the only value it can hold.
   session: { status: 'off' },
   people: seedPeople('seeded'),

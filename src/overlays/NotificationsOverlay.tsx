@@ -8,7 +8,6 @@ import { color, gutter, radius, shadows } from '../theme/tokens';
 import { NOTIF_TIERS, Notification, NotifTier } from '../data/fixtures';
 import { EmptyState } from '../components/FeedCards';
 import { useStore, usePeople } from '../state/store';
-import { notificationsFor } from '../state/selectors';
 import { Icon, IconName } from '../components/Icon';
 import { Avatar } from '../components/Avatar';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
@@ -30,10 +29,10 @@ const TIER_ICON: Partial<Record<Notification['kind'], IconName>> = {
 
 export function NotificationsOverlay({ topInset }: { topInset: number }) {
   const { state, dispatch } = useStore();
-  // Not `world.notifications`: that is the demo's fixture list, and it is empty
-  // on a live account — which is why the bell had nothing in it however many
-  // people cheered you.
-  const all = notificationsFor(state);
+  // One slice, every account. The demo's feed is seeded into it and a live
+  // account's arrives from the server, so there is no world to read by mistake
+  // — which is what left the bell empty however many people cheered you.
+  const all = state.notifications;
   const close = () => dispatch({ type: 'CLOSE_NOTIF' });
 
   return (

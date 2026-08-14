@@ -30,10 +30,11 @@ import { DayIndex, WeekContext, liveWeek, weekAfter } from '../data/week';
 import {
   AccountMode,
   Profile,
-  World,
-  getWorld,
+  DemoContent,
+  demoContent,
   seedHistory,
   seedGlobalPosts,
+  seedNotifications,
   seedMoments,
   seedPeople,
   seedProfile,
@@ -53,7 +54,7 @@ import {
   makePeople,
   personOf,
 } from '../data/people';
-import { notificationsFor, stakedPoints } from './selectors';
+import { stakedPoints } from './selectors';
 import { useWeekReminder } from '../lib/reminders';
 import { flush, load, save } from './persistence';
 import { hasSupabaseConfig } from '../lib/supabase';
@@ -159,7 +160,10 @@ export type State = {
    * are replaced wholesale by the next pull, so being a beat stale costs a
    * `time` that reads a beat old.
    *
-   * The demo's live in `world.notifications`; `notificationsFor` picks.
+   * The demo's are seeded into this same slice, so nothing has to choose. They
+   * used to live on the world object, which handed a live account an empty one
+   * — the bell was silent for every real user, and "mark all read" marked
+   * nothing.
    */
   notifications: Notification[];
   /**
@@ -233,7 +237,7 @@ const initialState: State = {
   account: null,
   selfId: SELF_DEMO_ID,
   circle: null,
-  notifications: [],
+  notifications: seedNotifications(null),
   globalPosts: seedGlobalPosts(null),
   session: { status: 'off' },
   people: seedPeople(null),
@@ -441,7 +445,7 @@ const seedFor = (mode: AccountMode, week: WeekContext) =>
     // Server-derived, and the server it came from belongs to the account being
     // left behind. Cleared here for the reason the outbox is.
     circle: null,
-    notifications: [],
+    notifications: seedNotifications(mode),
     globalPosts: seedGlobalPosts(mode),
     people: seedPeople(mode),
     myTasks: seedTasks(mode),
@@ -827,9 +831,10 @@ export function reducer(state: State, action: Action): State {
     case 'READ_ALL_NOTIFS':
       return {
         ...state,
-        // `notificationsFor`, not the world: on a live account the world's list
-        // is empty, so "mark all read" marked nothing and the badge stayed lit.
-        notifRead: notificationsFor(state).reduce<Record<string, true>>((acc, n) => {
+        // `state.notifications` for every account. It used to read the world's
+        // list, which is empty on a live one — so this marked nothing and the
+        // badge stayed lit.
+        notifRead: state.notifications.reduce<Record<string, true>>((acc, n) => {
           acc[n.id] = true;
           return acc;
         }, { ...state.notifRead }),
@@ -1273,6 +1278,12 @@ export function hydrate(restored?: Partial<State> | null): State {
     // first pull replaced it. Right shape, wrong world, which is this app's
     // most-repeated bug.
     globalPosts: restored?.globalPosts ?? seedGlobalPosts(s.account),
+    // Only a live account's is restored. A demo bell is a constant — nothing
+    // edits it, and `notifRead` is persisted separately — so a payload written
+    // before it was seeded here would otherwise leave the demo permanently
+    // silent, which is the bug this whole change is about, upside down.
+    notifications:
+      s.account === 'live' ? (restored?.notifications ?? []) : seedNotifications(s.account),
   };
 }
 
@@ -1280,8 +1291,8 @@ type Store = {
   state: State;
   dispatch: React.Dispatch<Action>;
   config: Config;
-  /** What this account has: circle, history, suggestions, profile numbers. */
-  world: World;
+  /** Furniture only a demo account has: the owed list, the rail, invite ideas. */
+  demo: DemoContent;
   /** Names, initials, tints and trends — total, for any id at all. */
   people: People;
   /** Resolved audience for the composer: the draft choice, or the configured default. */
@@ -1445,7 +1456,7 @@ export function StoreProvider({
       state,
       dispatch,
       config,
-      world: getWorld(state.account),
+      demo: demoContent(state.account),
       people: makePeople(state.people, state.selfId),
       effectiveAudience: state.draftAud ?? config.defaultAudience,
     }),

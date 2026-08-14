@@ -5,9 +5,9 @@
  * must be the metric the ranking uses — showing points there would imply a
  * different sort.
  */
-import { Notification, Task } from '../data/fixtures';
+import { Task } from '../data/fixtures';
 import { MemberStats, PersonId, makePeople } from '../data/people';
-import { getWorld } from '../data/seed';
+import { seedCircle } from '../data/seed';
 import type { State } from './store';
 
 /** The ids you've cheered. Cheers only ever land on a moment or a global post. */
@@ -116,25 +116,26 @@ export const totalCheersExchanged = (state: State) =>
   ranking(state).reduce((a, r) => a + (r.given ?? 0), 0);
 
 /**
- * Who's on the leaderboard. A live account's circle is whoever is in the
- * directory; the demo accounts get theirs from the world they were seeded with.
+ * Who's on the leaderboard, and the only correct answer to "who is in this
+ * circle". A live account's is whoever is in the directory; a demo account's is
+ * the fixture it was seeded with. The header used to count the world's list
+ * instead, which on a live account is one element long — so a circle of two
+ * read "1 people" and a circle of eight would have too.
  */
 export const circleMembers = (state: State): PersonId[] =>
-  state.account === 'live' ? Object.keys(state.people) : getWorld(state.account).members;
+  state.account === 'live' ? Object.keys(state.people) : seedCircle(state.account);
 
 /**
- * Your feed, from wherever it really lives. The demo's is a fixture world; a
- * live account's arrives from `notifications`, written by a trigger. Same shape
- * either way, so every consumer asks this and not the world directly —
- * `world.notifications` on a live account is empty, which is how the bell came
- * to be permanently silent.
+ * Unread drives the bell badge, and only the "needs you" tier counts.
+ *
+ * Reads `state.notifications` for every account. There used to be a selector
+ * here choosing between state and the world, because the world held a feed too
+ * — and the one it handed a live account was empty, so the badge could never
+ * light however many people cheered you. The demo's feed is seeded into the
+ * same slice now, so there is nothing left to choose between.
  */
-export const notificationsFor = (state: State): Notification[] =>
-  state.account === 'live' ? state.notifications : getWorld(state.account).notifications;
-
-/** Unread drives the bell badge, and only the "needs you" tier counts. */
 export const unreadNeedsCount = (state: State) =>
-  notificationsFor(state).filter((n) => n.tier === 'needs' && !state.notifRead[n.id]).length;
+  state.notifications.filter((n) => n.tier === 'needs' && !state.notifRead[n.id]).length;
 
 /** Personal feed order: closed tasks first (latest day first), then STILL OPEN. */
 export function personalFeed(state: State) {

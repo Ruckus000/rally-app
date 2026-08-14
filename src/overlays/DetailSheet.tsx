@@ -538,9 +538,9 @@ function StartCircle() {
 }
 
 function InviteSheet() {
-  const { state, dispatch, world, people } = useStore();
+  const { state, dispatch, demo, people } = useStore();
   const pending: PersonId[] = Object.keys(state.pending);
-  const suggestions = world.inviteSuggestions.filter((k) => !state.pending[k]);
+  const suggestions = demo.inviteSuggestions.filter((k) => !state.pending[k]);
 
   const live = state.account === 'live';
   /**

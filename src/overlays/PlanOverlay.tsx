@@ -22,7 +22,7 @@ import { Bri, Caps, GlowBloom, GradientHairline, Sans, Tap, fill, row } from '..
 import { Overlay } from './Overlay';
 
 export function PlanOverlay({ topInset, bottomInset }: { topInset: number; bottomInset: number }) {
-  const { state, dispatch, effectiveAudience, world, people } = useStore();
+  const { state, dispatch, effectiveAudience, demo, people } = useStore();
 
   const staked = stakedPoints(state);
   const best = state.profile.bestWeekPoints;
@@ -374,7 +374,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
         </GradientHairline>
 
         {/* pick it back up */}
-        {world.suggestions.length ? (
+        {demo.suggestions.length ? (
           <>
         <View
           style={{
@@ -399,7 +399,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
           style={{ marginHorizontal: -planGutter }}
           contentContainerStyle={{ gap: 10, paddingTop: 11, paddingBottom: 3, paddingHorizontal: planGutter }}
         >
-          {world.suggestions.map((s) => {
+          {demo.suggestions.map((s) => {
             const used = !!state.usedSugg[s.id];
             return (
               <View

@@ -10,7 +10,13 @@ import { GLOBAL_MOMENTS, MY_TASKS, MOMENTS, Task } from '../../data/fixtures';
 import { __resetOutboxForTests, enqueue } from '../../sync/outbox';
 import type { ReactionRef } from '../../sync/reactions';
 import type { PulledNote } from '../../sync/transport';
-import { WORLD, getWorld, seedProfile } from '../../data/seed';
+import {
+  demoContent,
+  seedCircle,
+  seedGlobalPosts,
+  seedNotifications,
+  seedProfile,
+} from '../../data/seed';
 import { personOf } from '../../data/people';
 import { baseState as base, freshState } from '../../test/baseState';
 import { weekAfter } from '../../data/week';
@@ -255,13 +261,29 @@ describe('notes', () => {
 describe('notes on a public post', () => {
   const onGlobal = { type: 'OPEN_SHEET', sheet: { type: 'task' as const, id: 'g1' } } as Action;
 
-  it('keeps the note instead of silently dropping it', () => {
+  it('lands on the post, like a note on anything else', () => {
     const s = run(base, onGlobal, { type: 'SET_NOTE', value: 'Respect.' }, { type: 'SEND_NOTE' });
-    // Carries an id like any other note. It buys nothing here — a public post
-    // has no table — but a note that is written one way everywhere is one fewer
-    // shape for the sync layer to have an opinion about.
-    expect(s.globalNotes.g1).toEqual([{ w: 'You', k: 'you', t: 'Respect.', id: expect.any(String) }]);
+    // It used to go to `globalNotes`, a slice that existed because the Global
+    // feed was a fixture nothing could write to. The feed is a state slice now,
+    // so a note goes where it is shown — and on a live account it also syncs,
+    // because a bot's post is a real task with a uuid.
+    expect(s.globalPosts.find((m) => m.id === 'g1')?.cmts).toEqual([
+      { w: 'You', k: 'you', t: 'Respect.', id: expect.any(String) },
+    ]);
     expect(s.note).toBe('');
+  });
+
+  it('leaves globalNotes for ids that belong to no feed at all', () => {
+    // The last user of that slice: a sheet opened on something that is in
+    // neither your week, nor the circle's, nor the Global feed. Nothing routes
+    // there today, and the branch exists so a note is never silently dropped.
+    const s = run(
+      base,
+      { type: 'OPEN_SHEET', sheet: { type: 'task', id: 'not-in-any-feed' } },
+      { type: 'SET_NOTE', value: 'Respect.' },
+      { type: 'SEND_NOTE' },
+    );
+    expect(s.globalNotes['not-in-any-feed']).toHaveLength(1);
   });
 
   it('does not leak into your tasks or the circle feed', () => {
@@ -278,7 +300,7 @@ describe('notes on a public post', () => {
       { type: 'SEND_NOTE' },
     );
     expect(s.myTasks.find((t) => t.id === 'm4')?.cmts).toHaveLength(1);
-    expect(s.globalNotes).toEqual({});
+    expect(s.globalPosts).toEqual(base.globalPosts);
   });
 
   it('still routes a note on a friend’s moment to that moment', () => {
@@ -289,11 +311,12 @@ describe('notes on a public post', () => {
       { type: 'SEND_NOTE' },
     );
     expect(s.moments.find((m) => m.id === 'f2')?.cmts).toHaveLength(1);
-    expect(s.globalNotes).toEqual({});
+    expect(s.globalPosts).toEqual(base.globalPosts);
   });
 
   it('ignores an empty note', () => {
     const s = run(base, onGlobal, { type: 'SET_NOTE', value: '  ' }, { type: 'SEND_NOTE' });
+    expect(s.globalPosts).toEqual(base.globalPosts);
     expect(s.globalNotes).toEqual({});
   });
 });
@@ -317,6 +340,11 @@ describe('accounts', () => {
     account: null,
     myTasks: [],
     moments: [],
+    // Seeded per mode like the two above, and null has none of it. Spelled out
+    // because `base` is the *seeded* account, and inheriting its bell here
+    // would leave this fixture claiming a world it has not been granted.
+    notifications: seedNotifications(null),
+    globalPosts: seedGlobalPosts(null),
     history: [],
     yearLevels: [],
     profile: seedProfile(null),
@@ -324,7 +352,7 @@ describe('accounts', () => {
   };
 
   it('starts empty before you have chosen', () => {
-    expect(getWorld(undecided.account).members).toEqual(['you']);
+    expect(seedCircle(undecided.account)).toEqual(['you']);
     expect(undecided.myTasks).toHaveLength(0);
   });
 
@@ -333,7 +361,7 @@ describe('accounts', () => {
     expect(s.account).toBe('seeded');
     expect(s.myTasks).toHaveLength(MY_TASKS.length);
     expect(s.moments).toHaveLength(MOMENTS.length);
-    expect(getWorld(s.account).members.length).toBeGreaterThan(1);
+    expect(seedCircle(s.account).length).toBeGreaterThan(1);
     // The account is a separate question from where onboarding is: the flow
     // holds the step itself, and picking a world must not close it.
     expect(s.onboardStep).toBe('onboarding');
@@ -362,7 +390,7 @@ describe('accounts', () => {
 
     expect(solo.account).toBe('fresh');
     expect(solo.myTasks).toHaveLength(0);
-    expect(getWorld(solo.account).members).toEqual(['you']);
+    expect(seedCircle(solo.account)).toEqual(['you']);
   });
 
   it('skipping leaves a genuinely empty account', () => {
@@ -372,10 +400,9 @@ describe('accounts', () => {
     expect(s.moments).toHaveLength(0);
     expect(s.onboardStep).toBeNull();
 
-    const world = getWorld(s.account);
-    expect(world.members).toEqual(['you']);
-    expect(world.notifications).toHaveLength(0);
-    expect(world.suggestions).toHaveLength(0);
+    expect(seedCircle(s.account)).toEqual(['you']);
+    expect(s.notifications).toHaveLength(0);
+    expect(demoContent(s.account).suggestions).toHaveLength(0);
     expect(s.history).toHaveLength(0);
     expect(s.yearLevels).toHaveLength(0);
     expect(s.profile.allTimePoints).toBe(0);
@@ -481,11 +508,40 @@ describe('accounts', () => {
   });
 
   it('marks read only the notifications the account actually has', () => {
-    const fresh: State = { ...base, account: 'fresh' };
+    // A fresh account's bell is empty because its *slice* is, not because a
+    // world object said so — which is the difference this pass is about.
+    const fresh: State = { ...base, account: 'fresh', notifications: [] };
     expect(reducer(fresh, { type: 'READ_ALL_NOTIFS' }).notifRead).toEqual({});
     expect(
       Object.keys(reducer(base, { type: 'READ_ALL_NOTIFS' }).notifRead),
-    ).toHaveLength(WORLD.seeded.notifications.length);
+    ).toHaveLength(seedNotifications('seeded').length);
+  });
+});
+
+/**
+ * The bug class this pass is about: a live account reading the demo's world.
+ * It happened five times — the Me screen's name, the invite link, the header's
+ * member count, the bell, and "mark all read" — because the world object held
+ * fields a live account also had, and handed it the `fresh` ones.
+ */
+describe('demo content cannot answer for a live account', () => {
+  it('has nothing in it, whichever way you ask', () => {
+    // Not a guard at a call site: there is no longer a field here that a live
+    // account could want. Everything left is furniture with no server
+    // counterpart, so empty is the true answer rather than a stale one.
+    expect(demoContent('live')).toEqual({ owed: [], suggestions: [], inviteSuggestions: [] });
+    expect(demoContent(null)).toEqual({ owed: [], suggestions: [], inviteSuggestions: [] });
+  });
+
+  it('no longer holds a circle or a feed, which are the two that had counterparts', () => {
+    expect(demoContent('seeded')).not.toHaveProperty('members');
+    expect(demoContent('seeded')).not.toHaveProperty('notifications');
+  });
+
+  it('and the demo still gets both, from the slices that replaced them', () => {
+    // The control. Moving them out must not have quietly emptied the demo.
+    expect(seedCircle('seeded').length).toBeGreaterThan(1);
+    expect(seedNotifications('seeded').length).toBeGreaterThan(0);
   });
 });
 
@@ -513,6 +569,19 @@ describe('hydration', () => {
   it('keeps a live feed that was actually stored', () => {
     const stored = [{ ...GLOBAL_MOMENTS[0]!, id: 'from-disk' }];
     expect(hydrate({ account: 'live', globalPosts: stored }).globalPosts).toEqual(stored);
+  });
+
+  it('re-seeds the demo bell rather than restoring it', () => {
+    // A demo feed is a constant — nothing edits it, and `notifRead` is
+    // persisted separately. A payload written before it was seeded into state
+    // carries an empty array, and honouring that would leave the demo
+    // permanently silent: this bug class, upside down.
+    expect(hydrate({ account: 'seeded', notifications: [] }).notifications.length).toBeGreaterThan(0);
+  });
+
+  it('restores a live one, which is the only kind worth keeping', () => {
+    const stored = seedNotifications('seeded').slice(0, 1);
+    expect(hydrate({ account: 'live', notifications: stored }).notifications).toEqual(stored);
   });
 
   it('refuses a stored selfId on a demo account', () => {
