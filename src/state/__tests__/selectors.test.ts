@@ -16,7 +16,7 @@ import {
   unreadNeedsCount,
   weekPoints,
 } from '../selectors';
-import { WORLD } from '../../data/seed';
+import { seedCircle, seedNotifications } from '../../data/seed';
 import { baseState as base, freshState } from '../../test/baseState';
 
 
@@ -45,7 +45,7 @@ describe('points', () => {
 
 describe('ranking', () => {
   it('ranks everyone in the circle', () => {
-    expect(ranking(base)).toHaveLength(WORLD.seeded.members.length);
+    expect(ranking(base)).toHaveLength(seedCircle('seeded').length);
   });
 
   it('sorts by follow-through, so a full week beats a bigger partial one', () => {
@@ -130,7 +130,7 @@ describe('personal feed order', () => {
 
 describe('unread badge', () => {
   it('counts only the tier that means someone is waiting', () => {
-    const needs = WORLD.seeded.notifications.filter((n) => n.tier === 'needs').length;
+    const needs = seedNotifications('seeded').filter((n) => n.tier === 'needs').length;
     expect(unreadNeedsCount(base)).toBe(needs);
   });
 

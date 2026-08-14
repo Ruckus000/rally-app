@@ -8,12 +8,12 @@ import { CIRCLE_NAME, ME, weekPointsLabel } from '../data/fixtures';
 import { NAME_MAX } from '../data/people';
 import { queueProfileName } from '../sync/engine';
 import { nextWeekAfter, useStore } from '../state/store';
-import { allTasksDone, cheersGiven, weekPoints } from '../state/selectors';
+import { allTasksDone, cheersGiven, circleMembers, weekPoints } from '../state/selectors';
 import { Avatar } from '../components/Avatar';
 import { Bri, Caps, GlowBloom, Sans, Tap, fill, row } from '../components/primitives';
 
 export function MeScreen() {
-  const { state, dispatch, world, people } = useStore();
+  const { state, dispatch, demo, people } = useStore();
   const { profile, week, history, yearLevels } = state;
   const live = state.account === 'live';
 
@@ -30,7 +30,7 @@ export function MeScreen() {
    */
   const subtitle = live
     ? (state.circle?.name ?? '')
-    : world.members.length > 1
+    : circleMembers(state).length > 1
       ? `${ME.handle} · ${CIRCLE_NAME}`
       : ME.handle;
 
@@ -54,7 +54,7 @@ export function MeScreen() {
   const gave = cheersGiven(state);
   const got = profile.cheersReceived;
   const exchangeTotal = gave + got || 1;
-  const owed = world.owed.filter((o) => !state.replied[o.k]);
+  const owed = demo.owed.filter((o) => !state.replied[o.k]);
   // A closed week extends the streak; the bar shows where you'd land.
   const streak = won ? profile.currentStreak + 1 : profile.currentStreak;
   const toHold = Math.max(0, state.myTasks.filter((t) => !t.done).length);

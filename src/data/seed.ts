@@ -66,10 +66,24 @@ export type Profile = {
   baseCheersGiven: number;
 };
 
-export type World = {
-  /** The circle, always including you. */
-  members: PersonId[];
-  notifications: Notification[];
+/**
+ * Content that only a demo account has, and that a live one is *right* to have
+ * none of.
+ *
+ * This used to be called a World and to hold `members` and `notifications` too
+ * — a live account got the `fresh` one, so those two read as a circle of one
+ * and a bell with nothing in it. Both were bugs, five times between them: the
+ * header's "1 people, ranked by follow-through" next to two names, a badge that
+ * could never light, and a "mark all read" that marked nothing.
+ *
+ * The fix that lasts is not another guard at the call site. It is that this
+ * type no longer has a field a live account could want. Everything left is
+ * demo furniture — three fixtures with no server counterpart and no plans for
+ * one — so an empty answer is the true one rather than a stale one. Anything
+ * with two possible sources lives in state and is seeded per mode, next to
+ * `moments` and `globalPosts`.
+ */
+export type DemoContent = {
   owed: { k: PersonId; reason: string }[];
   /** The PICK IT BACK UP rail. */
   suggestions: Suggestion[];
@@ -77,27 +91,41 @@ export type World = {
   inviteSuggestions: PersonId[];
 };
 
-const SEEDED: World = Object.freeze({
-  members: CIRCLE,
-  notifications: NOTIFICATIONS,
+const SEEDED_CONTENT: DemoContent = Object.freeze({
   owed: OWED_SEED,
   suggestions: SUGGESTIONS,
   inviteSuggestions: INVITE_SUGGESTIONS,
 });
 
-const FRESH: World = Object.freeze({
-  members: [SELF_DEMO_ID],
-  notifications: [],
-  owed: [],
-  suggestions: [],
-  inviteSuggestions: [],
-});
+/** A fresh account, and a live one: none of this is theirs to have. */
+const NOTHING: DemoContent = Object.freeze({ owed: [], suggestions: [], inviteSuggestions: [] });
 
-/** Live starts out looking like a fresh account; the server fills it in. */
-export const WORLD: Record<AccountMode, World> = { fresh: FRESH, seeded: SEEDED, live: FRESH };
+export const DEMO_CONTENT: Record<AccountMode, DemoContent> = {
+  fresh: NOTHING,
+  seeded: SEEDED_CONTENT,
+  live: NOTHING,
+};
 
 /** Undecided (mid-onboarding) counts as fresh — nothing has been granted yet. */
-export const getWorld = (mode: AccountMode | null): World => WORLD[mode ?? 'fresh'];
+export const demoContent = (mode: AccountMode | null): DemoContent =>
+  DEMO_CONTENT[mode ?? 'fresh'];
+
+/**
+ * Who is in the demo's circle. A live account's is `Object.keys(state.people)`,
+ * and `circleMembers` is the one place that chooses — which is what the
+ * header's member count now asks, having previously asked the world.
+ */
+export const seedCircle = (mode: AccountMode | null): PersonId[] =>
+  mode === 'seeded' ? CIRCLE : [SELF_DEMO_ID];
+
+/**
+ * The demo's bell. A live account's arrives from `notifications`, written by a
+ * trigger, so this is seeded into state exactly like `moments` — and never
+ * restored from disk, because unlike a moment it cannot be edited: nothing but
+ * `notifRead` moves, and that is persisted separately.
+ */
+export const seedNotifications = (mode: AccountMode | null): Notification[] =>
+  mode === 'seeded' ? NOTIFICATIONS : [];
 
 /**
  * Live mode gets an empty directory rather than the self-only one: the account

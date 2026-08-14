@@ -86,7 +86,7 @@ mutation that the server ultimately rejects. It is the larger half of the work.
 | `notifRead` | `notifications.read_at` | Per-item, as the client already does it |
 | `pending` | `invites` | |
 | `moments` | derived | A view over other members' `tasks` and `week_rollups` |
-| `world.members` | `circle_members` | |
+| circle membership | `circle_members` | `circleMembers(state)` is the one reader; the demo's is a fixture |
 | `globalPosts` | `tasks` where `owner_id` is a bot | The Oz bots' weeks. No public-post table: a bot's post *is* a task, `aud = 'everyone'` |
 | `globalNotes` | *(demo only)* | The two demo modes' posts have fixture ids, which `syncableNote` refuses. A note on a bot's post is an ordinary note |
 
