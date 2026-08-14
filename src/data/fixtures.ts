@@ -276,6 +276,14 @@ export const BIG_CARD_BASE_CHEERS = 12;
  * Ids stay `g1`–`g4`. They are not uuids, and that is load-bearing: it is what
  * `parseActedKey` and `syncableNote` check, so a cheer or a note left on a
  * demo post stays on the device instead of jamming the queue behind it.
+ *
+ * The goals themselves are meant to be *copied*. This is the first screen a new
+ * account lands on, so what it shows is the app's answer to "what does a stake
+ * look like" — which means every line here has to be something you could put in
+ * your own week unchanged: one action, a number or a day attached to it, and
+ * done or not done by Sunday with no argument about which. Points come from
+ * `CATEGORY_POINTS`, so the number beside a goal is the number the composer
+ * would charge you for staking the same thing.
  */
 export const GLOBAL_MOMENTS: Moment[] = [
   {
@@ -284,9 +292,9 @@ export const GLOBAL_MOMENTS: Moment[] = [
     kind: 'normal',
     time: '2h',
     day: 2,
-    title: 'Walked the whole way instead of taking the bus',
-    pts: 20,
-    quote: 'Some mornings I do not want to. Today was one of them.',
+    title: 'Walk 30 minutes every morning',
+    pts: CATEGORY_POINTS.Fitness,
+    quote: 'Split it into two walks on the wet days. Still counted.',
     cheers: 14,
   },
   {
@@ -295,8 +303,8 @@ export const GLOBAL_MOMENTS: Moment[] = [
     kind: 'normal',
     time: '4h',
     day: 2,
-    title: 'Read forty pages before anything else',
-    pts: 25,
+    title: 'Finish module 3 of the SQL course',
+    pts: CATEGORY_POINTS.Work,
     cheers: 9,
   },
   {
@@ -305,9 +313,9 @@ export const GLOBAL_MOMENTS: Moment[] = [
     kind: 'normal',
     time: '6h',
     day: 1,
-    title: 'Called someone I had been putting off',
-    pts: 15,
-    quote: 'Rustier than I expected. Worth it anyway.',
+    title: 'Call my sister on Wednesday',
+    pts: CATEGORY_POINTS.Mind,
+    quote: 'Put it in the calendar so it stopped being a decision.',
     cheers: 21,
   },
   {
@@ -316,8 +324,8 @@ export const GLOBAL_MOMENTS: Moment[] = [
     kind: 'normal',
     time: '9h',
     day: 1,
-    title: 'Said the thing in the meeting',
-    pts: 30,
+    title: 'Ask for a 1:1 about the promotion',
+    pts: CATEGORY_POINTS.Work,
     cheers: 7,
   },
 ];

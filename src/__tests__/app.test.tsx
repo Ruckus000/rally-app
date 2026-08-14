@@ -45,7 +45,7 @@ function openFresh() {
 }
 
 /** The first Oz post, spelled once. */
-const OZ_POST = 'Walked the whole way instead of taking the bus';
+const OZ_POST = 'Walk 30 minutes every morning';
 
 const goToPersonal = () => fireEvent.press(screen.getByText('Personal'));
 const goToFriends = () => fireEvent.press(screen.getByText('Friends'));
