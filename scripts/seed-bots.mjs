@@ -19,6 +19,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
+import ws from 'ws';
 
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!KEY) {
@@ -43,7 +44,14 @@ if (!url) {
   process.exit(1);
 }
 
-const db = createClient(url, KEY, { auth: { persistSession: false } });
+const db = createClient(url, KEY, {
+  auth: { persistSession: false },
+  // Node 20 has no global WebSocket and supabase-js builds a realtime client
+  // eagerly, so `createClient` throws without this. The same line, for the same
+  // reason, is in integration/support/clients.ts — the app itself needs
+  // neither, because React Native provides WebSocket natively.
+  realtime: { transport: ws },
+});
 
 /**
  * The cast, and their week.
@@ -131,6 +139,17 @@ async function ensureAccount(bot) {
 const monday = thisMonday();
 console.log(`Seeding the Oz bots into ${new URL(url).host}, week of ${monday}.`);
 
+try {
+  await seed();
+} catch (err) {
+  // A stack trace here is noise: everything that can go wrong is a wrong key,
+  // a project that has not had the migration pushed, or no network.
+  console.error(`\nFailed: ${err?.message ?? err}`);
+  if (err?.hint) console.error(err.hint);
+  process.exit(1);
+}
+
+async function seed() {
 for (const bot of BOTS) {
   const { id, created } = await ensureAccount(bot);
 
@@ -166,3 +185,4 @@ for (const bot of BOTS) {
 }
 
 console.log('Done. The Global feed is these four.');
+}
