@@ -12,16 +12,13 @@ import type { Scope, State } from '../state/store';
 const memberCount = (state: State): number => circleMembers(state).length;
 
 /**
- * Order is the reading order, and Global sits in the middle because it is where
- * a new account lands: the tab you open on should not be the one you have to
- * cross the row to reach. Personal stays first — it is your own week, and the
- * one you come back to — and Friends keeps the far edge it can afford, because
- * by the time it means anything you have a circle and know where it is.
+ * Two: your own week, and everyone else's. Global and Friends were the same
+ * cards over the same shape, and a card in the merged feed says which of the
+ * two it came from — so the row no longer has to.
  */
 const SCOPES: { key: Scope; label: string }[] = [
   { key: 'personal', label: 'Personal' },
-  { key: 'global', label: 'Global' },
-  { key: 'friends', label: 'Friends' },
+  { key: 'feed', label: 'Feed' },
 ];
 
 export function Header({ topInset }: { topInset: number }) {
@@ -127,29 +124,35 @@ export function Header({ topInset }: { topInset: number }) {
                 accessibilityState={{ selected: active }}
                 style={{ flex: 1, paddingBottom: 12, alignItems: 'center', minHeight: 44, justifyContent: 'flex-end' }}
               >
-                {active ? (
-                  <Bri size={14.5} weight={800} color={color.ink}>
-                    {s.label}
-                  </Bri>
-                ) : (
-                  <Sans size={14.5} weight={600} color={color.faintInk}>
-                    {s.label}
-                  </Sans>
-                )}
-                {active ? (
-                  <View
-                    style={{
-                      position: 'absolute',
-                      left: '22%',
-                      right: '22%',
-                      bottom: 0,
-                      height: 3,
-                      borderTopLeftRadius: 3,
-                      borderTopRightRadius: 3,
-                      backgroundColor: color.lime,
-                    }}
-                  />
-                ) : null}
+                {/* The rule is pinned to this wrapper, which is only as wide
+                    as the word. It used to be inset a percentage of the *tab*,
+                    which was tuned for a row of three — halving the row would
+                    have left a rule running well past both ends of "Feed". */}
+                <View>
+                  {active ? (
+                    <Bri size={14.5} weight={800} color={color.ink}>
+                      {s.label}
+                    </Bri>
+                  ) : (
+                    <Sans size={14.5} weight={600} color={color.faintInk}>
+                      {s.label}
+                    </Sans>
+                  )}
+                  {active ? (
+                    <View
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        right: 0,
+                        bottom: -12,
+                        height: 3,
+                        borderTopLeftRadius: 3,
+                        borderTopRightRadius: 3,
+                        backgroundColor: color.lime,
+                      }}
+                    />
+                  ) : null}
+                </View>
               </Tap>
             );
           })}

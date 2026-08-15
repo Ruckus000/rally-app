@@ -26,6 +26,7 @@ import {
 } from '../realtime';
 import { __resetSessionForTests, currentUserId } from '../session';
 import { personOf } from '../../data/people';
+import { circleMembers } from '../../state/selectors';
 
 const OTHER = '22222222-2222-4222-8222-222222222222';
 const CIRCLE = '33333333-3333-4333-8333-333333333333';
@@ -124,6 +125,10 @@ function Probe() {
   return (
     <>
       <Text testID="people">{Object.keys(store.state.people).sort().join(',')}</Text>
+      {/* Who the Circle screen counts and ranks. Not the same as `people`: the
+          bots are in the directory so their cards have names, and in nobody's
+          circle. */}
+      <Text testID="members">{[...circleMembers(store.state)].sort().join(',')}</Text>
       {/* Your own name as a screen would draw it — the thing that used to read
           "Someone" no matter what you typed. */}
       <Text testID="myname">{store.state.people[store.state.selfId]?.name ?? ''}</Text>
@@ -1019,6 +1024,22 @@ describe('the Oz bots', () => {
     expect(screen.getByTestId('people')).toHaveTextContent(BOT);
     // `withStats` counts their week off the same rows — the card's stat line.
     expect(screen.getByTestId('stats')).toHaveTextContent(`${BOT}:0/1`);
+  });
+
+  it('are in the directory but in nobody’s circle', async () => {
+    // Seen on device: an account that knew nobody read "5 people, ranked by
+    // follow-through" over a leaderboard of four Wizard of Oz characters —
+    // `circleMembers` is the whole directory on a live account, and the bots
+    // are in it. It also meant the account was never "alone", so the one
+    // prompt that would have got it a real circle never appeared.
+    mount();
+    await settle();
+    aBotStakes();
+
+    await settle(60_000);
+
+    expect(screen.getByTestId('people')).toHaveTextContent(BOT);
+    expect(screen.getByTestId('members')).not.toHaveTextContent(BOT);
   });
 
   it('bring their cheer counts, minus your own', async () => {

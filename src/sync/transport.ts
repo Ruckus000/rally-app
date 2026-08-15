@@ -460,7 +460,14 @@ export function supabaseTransport(): Transport {
       .select('id,handle,name')
       .eq('is_bot', true);
     if (error) fail(error);
-    return (data ?? []).map((row) => rowToPerson(row as Record<string, unknown>));
+    // Marked here, where the query is what makes it true — this is the only
+    // read in the app whose filter is `is_bot`. Downstream, `circleMembers`
+    // needs it: these profiles are in the same directory as your circle and
+    // are in nobody's circle.
+    return (data ?? []).map((row) => ({
+      ...rowToPerson(row as Record<string, unknown>),
+      bot: true,
+    }));
   };
 
   /**

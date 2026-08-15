@@ -118,6 +118,7 @@ export function MineRow({
 
 export function BigCard({
   moment,
+  badge,
   cheered,
   cosigned,
   onCheer,
@@ -125,6 +126,8 @@ export function BigCard({
   onCosign,
 }: {
   moment: Moment;
+  /** FRIENDS or FOLLOW, as on `SocialCard`. */
+  badge?: string;
   cheered: boolean;
   cosigned: boolean;
   onCheer: () => void;
@@ -142,9 +145,12 @@ export function BigCard({
         <View style={[row, { gap: 10 }]}>
           <Avatar who={moment.who} size={36} />
           <View style={fill}>
-            <Sans size={13.5} weight={600} color={color.paper}>
-              {people.name(moment.who)}
-            </Sans>
+            <View style={[row, { gap: 7 }]}>
+              <Sans size={13.5} weight={600} color={color.paper}>
+                {people.name(moment.who)}
+              </Sans>
+              {badge ? <SourceBadge label={badge} dark /> : null}
+            </View>
             <Sans size={11} color={onDark.secondary}>
               {moment.time} ago
             </Sans>
@@ -204,6 +210,33 @@ function Stat({ value, label, accent }: { value: string; label: string; accent?:
   );
 }
 
+/* ── source badge ───────────────────────────────────────────────────────── */
+
+/**
+ * FRIENDS or FOLLOW, beside the name.
+ *
+ * The circle's moments and the public feed are one list now, so this is the
+ * only thing that says which half a card came from — it used to be answered by
+ * which tab you were standing on. Same chip `MineRow` draws for audience, so
+ * there is one pill in this app rather than two that nearly match.
+ */
+function SourceBadge({ label, dark }: { label: string; dark?: boolean }) {
+  return (
+    <View
+      style={{
+        backgroundColor: dark ? 'rgba(241,242,236,.12)' : color.chip,
+        borderRadius: 999,
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+      }}
+    >
+      <Caps size={9.5} tracking={0.9} color={dark ? onDark.secondary : color.muted}>
+        {label}
+      </Caps>
+    </View>
+  );
+}
+
 /* ── social (friend moment or global post) ──────────────────────────────── */
 
 export function SocialCard({
@@ -211,6 +244,7 @@ export function SocialCard({
   initials,
   tint,
   name,
+  badge,
   time,
   title,
   quote,
@@ -228,6 +262,8 @@ export function SocialCard({
   initials?: string;
   tint?: string;
   name: string;
+  /** FRIENDS or FOLLOW. Optional so the demo's own cards can go unlabelled. */
+  badge?: string;
   time: string;
   title: string;
   quote?: string;
@@ -247,7 +283,9 @@ export function SocialCard({
     <GradientHairline radius={23} style={{ marginBottom: 12 }}>
       <Tap
         onPress={onOpen}
-        accessibilityLabel={`${name}: ${title}`}
+        // The badge is in here too. Whose feed a card came from is not
+        // decoration, and a screen reader gets it from nowhere else.
+        accessibilityLabel={badge ? `${name}, ${badge}: ${title}` : `${name}: ${title}`}
         minSize={0}
         style={{
           backgroundColor: isAsk ? color.askTint : color.card,
@@ -266,9 +304,12 @@ export function SocialCard({
         <View style={[row, { gap: 10 }]}>
           <Avatar who={who} initials={initials} tint={tint} label={name} size={34} />
           <View style={fill}>
-            <Sans size={13.5} weight={600}>
-              {name}
-            </Sans>
+            <View style={[row, { gap: 7 }]}>
+              <Sans size={13.5} weight={600}>
+                {name}
+              </Sans>
+              {badge ? <SourceBadge label={badge} /> : null}
+            </View>
             <Sans size={11} color={color.faintInk}>
               {time} ago
             </Sans>
