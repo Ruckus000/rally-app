@@ -90,18 +90,19 @@ const db = createClient(url, KEY, {
  * Nobody closes everything. A feed of perfect weeks is not encouragement, it
  * is a pace car, and the one thing this app should never imply is that the
  * people in it do not miss.
+ *
+ * The addresses are the one part of this list that is not this script's to
+ * choose. On a local stack all four already exist: `supabase/seed.sql` creates
+ * them at fixed ids as the control on `profiles_select`, and `ensureAccount`
+ * adopts those rows by handle rather than making a second cast. So an address
+ * that disagrees with the seed describes an account nobody has — which is
+ * exactly what `dorothy@ozbots.rally.app` did, unnoticed, until
+ * `integration/world.test.ts` started checking. Only a hosted project ever
+ * reads them, and there they are what the accounts get created with.
  */
 const BOTS = [
   {
     handle: 'dorothy.gale',
-    // The one address here that is not this script's to choose. Dorothy already
-    // exists on a local stack: `supabase/seed.sql` creates her as the control on
-    // `profiles_select` — the bot a stranger is allowed to read — and
-    // `ensureAccount` finds that row by handle rather than making a second one.
-    // So this has to be the address that account actually has, or it describes
-    // an account nobody has. It said `dorothy@ozbots.rally.app` for a while,
-    // which was never wrong anywhere it was read and never right anywhere it
-    // was checked. `integration/world.test.ts` checks it now.
     name: 'Dorothy Gale',
     email: 'dorothy@rally.test',
     tasks: [
@@ -113,7 +114,7 @@ const BOTS = [
   {
     handle: 'the.scarecrow',
     name: 'The Scarecrow',
-    email: 'scarecrow@ozbots.rally.app',
+    email: 'scarecrow@rally.test',
     tasks: [
       ['0b0d0000-0000-4000-8000-000000000011', 0, 'Read 50 pages before opening my phone', 'Mind', 25, true],
       ['0b0d0000-0000-4000-8000-000000000012', 2, 'Finish module 3 of the SQL course', 'Work', 45, false],
@@ -123,7 +124,7 @@ const BOTS = [
   {
     handle: 'tin.man',
     name: 'Tin Man',
-    email: 'tinman@ozbots.rally.app',
+    email: 'tinman@rally.test',
     tasks: [
       ['0b0d0000-0000-4000-8000-000000000021', 1, 'Call my sister on Wednesday', 'Mind', 25, true],
       ['0b0d0000-0000-4000-8000-000000000022', 3, 'Cook at home 4 nights', 'Home', 25, false],
@@ -133,7 +134,7 @@ const BOTS = [
   {
     handle: 'cowardly.lion',
     name: 'Cowardly Lion',
-    email: 'lion@ozbots.rally.app',
+    email: 'lion@rally.test',
     tasks: [
       ['0b0d0000-0000-4000-8000-000000000031', 2, 'Ask for a 1:1 about the promotion', 'Work', 45, true],
       ['0b0d0000-0000-4000-8000-000000000032', 4, 'Send the pitch to 3 clients', 'Work', 45, false],

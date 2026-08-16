@@ -75,36 +75,66 @@ begin
   end loop;
 end $$;
 
--- ─── the oz bot ───────────────────────────────────────────────────────────
+-- ─── the oz bots ──────────────────────────────────────────────────────────
 --
--- An openly fictional account, readable by everyone — which is what makes it
+-- Openly fictional accounts, readable by everyone — which is what makes them
 -- the control on `profiles_select`: if a stranger can read Dorothy but still
 -- cannot read Jordan, the policy was widened rather than opened.
 --
--- No `auth.identities` row, because nothing ever signs in as one. The password
+-- All four, at fixed ids, and that is the point of the loop. `scripts/
+-- seed-bots.mjs` creates whichever of them it cannot find by handle, and
+-- `auth.admin.createUser` picks the uuid — so on a stack seeded before this
+-- block existed, three of the four were re-minted with new ids on every
+-- `db reset`, while Dorothy's stayed put. The app keyed its people directory by
+-- id, so each reset left the composer offering the same character twice: once
+-- as the row it had, once as the row it has. That directory prunes itself now
+-- (see `SERVER_MERGE`), but a cast whose ids change under a local database is
+-- still a cast nothing else can name — including this file's own tests.
+--
+-- The addresses have to be the ones the script names, for the reason its
+-- comment gives: it adopts these rows rather than making a second set.
+--
+-- No `auth.identities` rows, because nothing ever signs in as one. The password
 -- column is left as the empty string gotrue writes for a user who cannot
 -- authenticate; there is no credential here to leak.
 
-insert into auth.users (
-  instance_id, id, aud, role, email, encrypted_password,
-  email_confirmed_at, created_at, updated_at,
-  raw_app_meta_data, raw_user_meta_data,
-  confirmation_token, recovery_token, email_change_token_new, email_change
-) values (
-  '00000000-0000-0000-0000-000000000000',
-  '00000000-0000-4000-8000-0000000000b0',
-  'authenticated', 'authenticated', 'dorothy@rally.test', '',
-  now(), now(), now(),
-  '{"provider":"email","providers":["email"]}'::jsonb,
-  '{"handle":"dorothy.gale","name":"Dorothy Gale"}'::jsonb,
-  '', '', '', ''
-)
-on conflict (id) do nothing;
+do $$
+declare
+  bot record;
+begin
+  for bot in
+    select * from (values
+      ('dorothy.gale',  'Dorothy Gale',   'dorothy@rally.test',   '00000000-0000-4000-8000-0000000000b0'::uuid),
+      ('the.scarecrow', 'The Scarecrow',  'scarecrow@rally.test', '00000000-0000-4000-8000-0000000000b1'::uuid),
+      ('tin.man',       'Tin Man',        'tinman@rally.test',    '00000000-0000-4000-8000-0000000000b2'::uuid),
+      ('cowardly.lion', 'Cowardly Lion',  'lion@rally.test',      '00000000-0000-4000-8000-0000000000b3'::uuid)
+    ) as t(handle, name, email, id)
+  loop
+    if bot.handle !~ '^[a-z0-9_.]{3,30}$' then
+      raise exception 'seed handle % violates profiles.handle check', bot.handle;
+    end if;
 
-insert into public.profiles (id, handle, name, is_bot)
-values ('00000000-0000-4000-8000-0000000000b0', 'dorothy.gale', 'Dorothy Gale', true)
-on conflict (id) do update
-  set handle = excluded.handle, name = excluded.name, is_bot = excluded.is_bot;
+    insert into auth.users (
+      instance_id, id, aud, role, email, encrypted_password,
+      email_confirmed_at, created_at, updated_at,
+      raw_app_meta_data, raw_user_meta_data,
+      confirmation_token, recovery_token, email_change_token_new, email_change
+    ) values (
+      '00000000-0000-0000-0000-000000000000', bot.id,
+      'authenticated', 'authenticated', bot.email, '',
+      now(), now(), now(),
+      '{"provider":"email","providers":["email"]}'::jsonb,
+      jsonb_build_object('handle', bot.handle, 'name', bot.name),
+      '', '', '', ''
+    )
+    on conflict (id) do nothing;
+
+    insert into public.profiles (id, handle, name, is_bot)
+    values (bot.id, bot.handle, bot.name, true)
+    on conflict (id) do update
+      set handle = excluded.handle, name = excluded.name, is_bot = excluded.is_bot;
+  end loop;
+end $$;
 
 -- ─── circles ──────────────────────────────────────────────────────────────
 
