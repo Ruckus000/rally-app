@@ -18,6 +18,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { randomUUID } from 'expo-crypto';
 import { backoffMs } from './backoff';
+import { projectRef } from '../lib/supabase';
 
 export type OutboxOp =
   | 'task.upsert'
@@ -118,13 +119,37 @@ let running: Promise<OutboxStats> | null = null;
 // exported surface is pinned by a test suite that has no business failing over
 // a change to the outbox.
 
-type Envelope = { version: number; entries: OutboxEntry[]; dead: OutboxEntry[]; acked: string[] };
+/**
+ * `backend` and `owner` answer "whose queue is this", which the entries alone
+ * cannot. `owner_id` is stamped per send rather than at enqueue — see `run()` —
+ * so a queue restored after the account changed would go out under the new
+ * name, attributing one person's week to another. Null owner means never
+ * drained, which is the plane case and still sends.
+ */
+type Envelope = {
+  version: number;
+  backend: string | null;
+  owner: string | null;
+  entries: OutboxEntry[];
+  dead: OutboxEntry[];
+  acked: string[];
+};
 
 let timer: ReturnType<typeof setTimeout> | null = null;
 let dirty = false;
 
+/** The account this queue has been draining as, or null if it never has. */
+let owner: string | null = null;
+
 async function write(): Promise<void> {
-  const envelope: Envelope = { version: VERSION, entries: queue, dead, acked: [...acked] };
+  const envelope: Envelope = {
+    version: VERSION,
+    backend: projectRef(),
+    owner,
+    entries: queue,
+    dead,
+    acked: [...acked],
+  };
   try {
     await AsyncStorage.setItem(KEY, JSON.stringify(envelope));
   } catch {
@@ -195,7 +220,15 @@ export async function hydrateOutbox(): Promise<void> {
     const raw = await AsyncStorage.getItem(KEY);
     if (raw) {
       const envelope = JSON.parse(raw) as Partial<Envelope>;
-      if (envelope?.version === VERSION) {
+      // A queue written against another project addresses rows that do not
+      // exist here, under an id this project never issued. Same three escapes
+      // as the state payload: an absent stamp predates the check, and an
+      // unconfigured build cannot tell.
+      const ref = projectRef();
+      const foreign =
+        typeof envelope?.backend === 'string' && !!ref && envelope.backend !== ref;
+      if (envelope?.version === VERSION && !foreign) {
+        owner = typeof envelope.owner === 'string' ? envelope.owner : null;
         stored = (Array.isArray(envelope.entries) ? envelope.entries : []).filter(entryIsSound);
         storedDead = (Array.isArray(envelope.dead) ? envelope.dead : []).filter(entryIsSound);
         storedAcked = (Array.isArray(envelope.acked) ? envelope.acked : []).filter(
@@ -364,6 +397,21 @@ async function run(transport: QueueTransport, now: number): Promise<OutboxStats>
   const ownerId = transport.ownerId();
   if (!ownerId) return stats;
 
+  // …and it is also why the queue has to be checked against the account it was
+  // drained as. Stamping at send time means a queue that outlived its author
+  // does not fail — it succeeds, under the wrong name, filing one person's week
+  // as another's. The store clears the queue on an identity change too, but
+  // hydration can beat the session resolving, so the guard has to be here as
+  // well. A null owner has never been drained: that is the plane, and it sends.
+  if (owner && owner !== ownerId) {
+    await clearOutbox();
+    return stats;
+  }
+  if (owner !== ownerId) {
+    owner = ownerId;
+    schedule();
+  }
+
   let changed = false;
   try {
     while (queue.length) {
@@ -452,6 +500,7 @@ export async function clearOutbox(): Promise<void> {
   acked = new Set();
   nextSeq = 1;
   inFlight = null;
+  owner = null;
   try {
     await AsyncStorage.removeItem(KEY);
   } catch {
@@ -470,5 +519,6 @@ export function __resetOutboxForTests(): void {
   acked = new Set();
   nextSeq = 1;
   inFlight = null;
+  owner = null;
   running = null;
 }

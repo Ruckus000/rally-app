@@ -4,9 +4,10 @@
     "strict": true,
     "types": ["jest", "react", "react-native"]
   },
-  // Edge Functions are Deno: URL imports, a `Deno` global, and none of the
-  // React Native types above. Compiling them with the app's tsconfig reports a
-  // dozen errors about a runtime that is not the one they run in. They are
-  // typechecked by `deno check` instead — see supabase/functions/README.md.
+  // Edge functions are Deno, not React Native: they import from `jsr:`, resolve
+  // siblings with a `.ts` suffix, and expect a `Deno` global. Type-checking them
+  // with the app's config reports a dozen errors about a runtime this config
+  // has never described. `supabase functions serve` and `deploy` type-check
+  // them properly, against Deno's own.
   "exclude": ["supabase/functions"]
 }

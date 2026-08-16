@@ -215,6 +215,27 @@ export type State = {
 
   draftDay: DayIndex | null;
   draftCat: Category;
+  /**
+   * What the draft is worth right now — and the only place that number lives.
+   *
+   * Both `ADD_TASK` and `SAVE_EDIT` used to recompute the price from the
+   * category, which was safe while the price *was* the category. Once a model
+   * reads the goal, recomputing means the button can promise one number and the
+   * reducer stake another. So the composer writes what it is showing here, and
+   * the reducer stakes exactly this.
+   */
+  draftPts: number;
+  /** 'blocked' when the draft is something this app will not put points on. */
+  draftVerdict: 'ok' | 'blocked';
+  /**
+   * Why it was blocked, and it lives here rather than in the composer's hook
+   * for one reason: a refusal and its explanation have to move together. Held
+   * apart — the verdict in the store, the sentence in a hook scoped to the
+   * exact title that produced it — they drift out of step the moment someone
+   * keeps typing, and the screen becomes a disabled button with nothing next
+   * to it. A block with no reason is a dead end.
+   */
+  draftReason: string;
   draftPair: PersonId[];
   /** null = fall back to config.defaultAudience */
   draftAud: Audience | null;
@@ -274,6 +295,9 @@ const initialState: State = {
   composerVal: '',
   draftDay: null,
   draftCat: 'Fitness',
+  draftPts: CATEGORY_POINTS.Fitness,
+  draftVerdict: 'ok',
+  draftReason: '',
   draftPair: [],
   draftAud: null,
   editingId: null,
@@ -302,6 +326,7 @@ export type Action =
   | { type: 'SEND_NOTE' }
   | { type: 'SET_DRAFT'; value: string }
   | { type: 'SET_DRAFT_CAT'; cat: Category }
+  | { type: 'SET_DRAFT_RATING'; points: number; verdict: 'ok' | 'blocked'; reason: string }
   | { type: 'SET_DRAFT_DAY'; day: DayIndex }
   | { type: 'SET_DRAFT_AUD'; aud: Audience }
   | { type: 'TOGGLE_PAIR'; key: PersonId }
@@ -345,6 +370,13 @@ export type Action =
  * batch as the reducer sees it. Tasks join it with the outbox.
  */
 export type ServerMerge = {
+  /**
+   * The whole live directory — the people you share a circle with and the bots,
+   * in one payload. Authoritative for the set: an id it does not name is an id
+   * this account can no longer reach, and `[]` is a real answer meaning nobody
+   * but you. The engine sets it on every pull that came back, and on none that
+   * didn't, so its absence is the only thing that means "no answer".
+   */
   people?: Person[];
   /**
    * The circle you are in, or `null` for "you are in none" — which is a real
@@ -419,13 +451,17 @@ const CLEARED = {
   planOpen: false,
 } satisfies Partial<State>;
 
-/** Fields reset when an edit session is abandoned rather than saved. */
+/** Fields the composer clears when an edit session ends — saved or abandoned. */
 const ABANDON_EDIT = {
   editingId: null,
   draft: '',
   draftPair: [],
   draftAud: null,
   draftDay: null,
+  // An empty composer has nothing to block. Leaving this set would carry a
+  // refusal about a goal that is no longer on the screen into the next one.
+  draftVerdict: 'ok',
+  draftReason: '',
 } satisfies Partial<State>;
 
 /**
@@ -622,7 +658,18 @@ export function reducer(state: State, action: Action): State {
       return { ...state, draft: action.value };
 
     case 'SET_DRAFT_CAT':
+      // Deliberately leaves `draftPts` alone. The composer is about to re-rate
+      // under the new category, and until that lands the honest thing to show
+      // is the price the button is still promising — which is this one.
       return { ...state, draftCat: action.cat };
+
+    case 'SET_DRAFT_RATING':
+      return {
+        ...state,
+        draftPts: action.points,
+        draftVerdict: action.verdict,
+        draftReason: action.verdict === 'blocked' ? action.reason : '',
+      };
 
     case 'SET_DRAFT_DAY':
       return { ...state, draftDay: action.day };
@@ -641,7 +688,12 @@ export function reducer(state: State, action: Action): State {
     case 'ADD_TASK': {
       const title = state.draft.trim();
       if (!title) return state;
-      const pts = CATEGORY_POINTS[state.draftCat] ?? 30;
+      // Not only the button's business. The composer disables itself on a
+      // blocked draft, but a disabled button is a UI state and this is the
+      // rule, so the reducer refuses too.
+      if (state.draftVerdict === 'blocked') return state;
+      // Staked at what was shown, never recomputed. See `draftPts`.
+      const pts = state.draftPts;
       const task: Task = {
         id: nextTaskId(),
         day: state.draftDay ?? state.day,
@@ -656,7 +708,16 @@ export function reducer(state: State, action: Action): State {
         source: 'staked',
       };
       return withToast(
-        { ...state, draft: '', draftPair: [], draftAud: null, myTasks: [...state.myTasks, task] },
+        {
+          ...state,
+          draft: '',
+          draftPair: [],
+          draftAud: null,
+          draftPts: CATEGORY_POINTS[state.draftCat] ?? 30,
+          draftVerdict: 'ok',
+          draftReason: '',
+          myTasks: [...state.myTasks, task],
+        },
         `+${pts} on the line`,
       );
     }
@@ -672,6 +733,11 @@ export function reducer(state: State, action: Action): State {
         editingId: t.id,
         draft: t.title,
         draftCat: t.cat,
+        // What it is already worth. The composer re-rates on the next keystroke;
+        // until then the button offers to save it at the price it has.
+        draftPts: t.pts,
+        draftVerdict: 'ok',
+        draftReason: '',
         draftDay: t.day,
         draftPair: [...t.pair],
         draftAud: t.aud,
@@ -681,7 +747,10 @@ export function reducer(state: State, action: Action): State {
     case 'SAVE_EDIT': {
       const title = state.draft.trim();
       if (!title || !state.editingId) return state;
-      const pts = CATEGORY_POINTS[state.draftCat] ?? 30;
+      if (state.draftVerdict === 'blocked') return state;
+      // Re-priced from the current rating, which is what closes the obvious
+      // loop: stake something demanding, get 60, then edit it down to nothing.
+      const pts = state.draftPts;
       return withToast(
         {
           ...state,
@@ -699,25 +768,14 @@ export function reducer(state: State, action: Action): State {
                   pairKind: state.draftPair.length ? (t.pairKind ?? 'loose') : null,
                 },
           ),
-          editingId: null,
-          draft: '',
-          draftPair: [],
-          draftAud: null,
-          draftDay: null,
+          ...ABANDON_EDIT,
         },
         'Updated — still on the line',
       );
     }
 
     case 'CANCEL_EDIT':
-      return {
-        ...state,
-        editingId: null,
-        draft: '',
-        draftPair: [],
-        draftAud: null,
-        draftDay: null,
-      };
+      return { ...state, ...ABANDON_EDIT };
 
     case 'ADD_SUGGESTION': {
       const s = action.suggestion;
@@ -1163,6 +1221,43 @@ export function reducer(state: State, action: Action): State {
         draft[p.id] = p;
       }
 
+      /**
+       * Whoever the server no longer names is no longer here.
+       *
+       * `merge.people` is the *whole* directory — your circles and the bots, in
+       * one payload — so the ids missing from it are ids this account can no
+       * longer reach. Until now nothing ever dropped one, and a directory that
+       * only grows is a directory that accumulates ghosts: point the app at a
+       * second backend, or re-seed the Oz bots (their accounts are minted by
+       * `scripts/seed-bots.mjs`, so a reset gives them new uuids), and the old
+       * profile rows stay in `people` — and *stay on disk*, because `people` is
+       * persisted. The composer's "In it with me" list is `Object.keys(people)`,
+       * so each ghost is another chip: the same bot, under the same name, twice.
+       *
+       * Pruned here rather than in the render because every reader of this
+       * slice has the same problem — the header counts it, the leaderboard
+       * ranks it — and a directory that is wrong is worth fixing once.
+       *
+       * An empty payload is "nobody", not "no answer" — a fresh account is in no
+       * circle, and an `.env` pointed at a second backend has none of the first
+       * one's people. What makes that safe to act on is the engine's own rule: a
+       * pull that could not answer never dispatches, so the key is here only
+       * when the reads came back.
+       *
+       * You are never dropped, whatever the payload says. `pullCircle` answers
+       * with the members of your circles, so an account in none is not in its
+       * own directory — and your name is the one thing here that is written
+       * locally before the server has ever heard it.
+       */
+      if (state.account === 'live' && action.merge.people) {
+        const named = new Set<PersonId>(action.merge.people.map((p) => p.id));
+        named.add(state.selfId);
+        const kept = Object.values(people).filter((p): p is Person => !!p && named.has(p.id));
+        if (kept.length !== Object.keys(people).length) {
+          people = indexPeople(kept);
+        }
+      }
+
       // The dirty set is derived here, from the queue, and deliberately not kept
       // in state: it would be a second record of what the server still owes us,
       // and the one that decides what actually goes out is the outbox.
@@ -1434,6 +1529,34 @@ export function StoreProvider({
     // never opened a channel stays genuinely offline through this line.
     teardownRealtime();
   }, [state.account]);
+
+  /**
+   * Changing *account* throws the queue away. So does changing *identity*.
+   *
+   * The account mode above is a deliberate act with a confirmation in front of
+   * it. This is the involuntary version: an anonymous session lost and a new
+   * user minted on the same project. Nothing on screen changes, and the queue
+   * is still full of the previous account's work — which `run()` stamps with
+   * `owner_id` at send time, so it would land, successfully, filing one
+   * person's week under another's name.
+   *
+   * The local world is deliberately left alone. Those rows are orphaned on the
+   * server now, which makes what is on this device the only surviving copy;
+   * deleting it to tidy up would be the most destructive thing this could do.
+   * Stopping the writes is enough to keep anyone else's history honest.
+   *
+   * Not fired for the sentinel, which is every first session: a queue built
+   * before this install ever held one is exactly the plane case, and it is
+   * supposed to drain under the id that finally arrives.
+   */
+  const lastSelfId = useRef(state.selfId);
+  useEffect(() => {
+    const prev = lastSelfId.current;
+    lastSelfId.current = state.selfId;
+    if (prev === state.selfId || prev === SELF_DEMO_ID) return;
+    void clearOutbox();
+    teardownRealtime();
+  }, [state.selfId]);
 
   // the access token needs refreshing again before the first write 401s.
   useEffect(() => {

@@ -7,19 +7,28 @@
  * for a better sentence. What is checkable is the shape a copyable goal has:
  * a price the composer would really charge, an author, and a day.
  */
-import { CATEGORY_POINTS, GLOBAL_MOMENTS } from '../fixtures';
+import { GLOBAL_MOMENTS } from '../fixtures';
+import { isValidPoints } from '../../lib/points';
 import { DAY_NAMES } from '../week';
 import { OZ_PEOPLE } from '../people';
 
-const PRICES = Object.values(CATEGORY_POINTS);
 const OZ_IDS = OZ_PEOPLE.map((p) => p.id);
 
 describe('the Global feed’s goals', () => {
   it('are priced at something the composer would charge', () => {
-    // A goal shown at 30 points is one you cannot stake for 30 points — the
-    // number would be describing a world the app does not have.
+    // This used to check membership of `CATEGORY_POINTS`, which was the right
+    // check while the category *was* the price. A rated goal is priced on what
+    // it says, so a feed goal at 40 is now perfectly legal even though no
+    // category costs 40.
+    //
+    // What survives is the reason the old check existed: a goal shown at a
+    // price you could not actually stake is describing a world this app does
+    // not have. The stakeable set is now the band, not the map.
     for (const post of GLOBAL_MOMENTS) {
-      expect(PRICES).toContain(post.pts);
+      // A feed goal with no price at all is the same failure by another route:
+      // nothing to copy, and nothing to stake.
+      expect(post.pts).toBeDefined();
+      expect(isValidPoints(post.pts!)).toBe(true);
     }
   });
 

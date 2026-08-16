@@ -480,14 +480,11 @@ export function supabaseTransport(): Transport {
       .select('id,handle,name')
       .eq('is_bot', true);
     if (error) fail(error);
-    // Marked here, where the query is what makes it true — this is the only
-    // read in the app whose filter is `is_bot`. Downstream, `circleMembers`
-    // needs it: these profiles are in the same directory as your circle and
-    // are in nobody's circle.
-    return (data ?? []).map((row) => ({
-      ...rowToPerson(row as Record<string, unknown>),
-      bot: true,
-    }));
+    // Deliberately unflagged. `circleMembers` needs to know which of these are
+    // bots, but the engine derives that from this query's *id set* after it
+    // dedupes the directory — stamping it here would be lost the moment the
+    // circle read returned the same row first. See `engine.ts`.
+    return (data ?? []).map((row) => rowToPerson(row as Record<string, unknown>));
   };
 
   /**

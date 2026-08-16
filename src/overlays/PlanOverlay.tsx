@@ -11,10 +11,11 @@ import {
   AUDIENCES,
   CATEGORIES,
   CATEGORY_HINT,
-  CATEGORY_POINTS,
 } from '../data/fixtures';
 import { DAY_NAMES, DayIndex } from '../data/week';
 import { useStore } from '../state/store';
+import { useGoalRating } from '../hooks/useGoalRating';
+import { hasSupabaseConfig } from '../lib/supabase';
 import { circleMembers, stakedPoints } from '../state/selectors';
 import { Avatar, FaceStack } from '../components/Avatar';
 import { Icon } from '../components/Icon';
@@ -34,8 +35,25 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
   const pairable = circleMembers(state).filter((k) => !people.isSelf(k));
   const draftDay = (state.draftDay ?? state.day) as DayIndex;
   const hasDraft = !!state.draft.trim();
-  const draftPoints = CATEGORY_POINTS[state.draftCat] ?? 30;
   const editing = !!state.editingId;
+
+  // The hook decides *when* to ask and hands the answer to the reducer; it
+  // returns nothing. What the button shows comes back out of `state.draftPts`,
+  // which is the field the reducer stakes — reading the price from two places
+  // is how a button ends up promising a number the stake does not honour.
+  useGoalRating({
+    title: state.draft,
+    cat: state.draftCat,
+    enabled: state.account === 'live' && hasSupabaseConfig(),
+    onRating: React.useCallback(
+      (r: { points: number; verdict: 'ok' | 'blocked'; reason: string }) =>
+        dispatch({ type: 'SET_DRAFT_RATING', ...r }),
+      [dispatch],
+    ),
+  });
+  const draftPoints = state.draftPts;
+  const blocked = state.draftVerdict === 'blocked';
+  const canStake = hasDraft && !blocked;
   const submitDraft = () =>
     dispatch(
       editing
@@ -244,7 +262,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
               })}
             </View>
 
-            {/* category determines points */}
+            {/* category is what the goal is about — the goal itself is the price */}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 12 }}>
               {CATEGORIES.map((c) => {
                 const on = state.draftCat === c;
@@ -252,7 +270,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                   <Tap
                     key={c}
                     onPress={() => dispatch({ type: 'SET_DRAFT_CAT', cat: c })}
-                    accessibilityLabel={`${c}, ${CATEGORY_POINTS[c]} points`}
+                    accessibilityLabel={c}
                     accessibilityState={{ selected: on }}
                     style={{
                       borderRadius: 999,
@@ -350,26 +368,36 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
 
             <Tap
               onPress={submitDraft}
-              disabled={!hasDraft}
-              accessibilityState={{ disabled: !hasDraft }}
+              disabled={!canStake}
+              accessibilityState={{ disabled: !canStake }}
               style={{
                 height: 50,
                 borderRadius: 16,
                 marginTop: 16,
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: hasDraft ? color.lime : 'rgba(241,242,236,.07)',
-                ...(hasDraft ? shadows.addCta : null),
+                backgroundColor: canStake ? color.lime : 'rgba(241,242,236,.07)',
+                ...(canStake ? shadows.addCta : null),
               }}
             >
-              <Bri size={15.5} weight={800} color={hasDraft ? color.ink : 'rgba(241,242,236,.35)'}>
+              <Bri size={15.5} weight={800} color={canStake ? color.ink : 'rgba(241,242,236,.35)'}>
                 {!hasDraft
                   ? 'Write it down first'
-                  : editing
-                    ? `Save it on ${DAY_NAMES[draftDay]} · +${draftPoints} pts`
-                    : `Stake it on ${DAY_NAMES[draftDay]} · +${draftPoints} pts`}
+                  : blocked
+                    ? 'Not one to stake'
+                    : editing
+                      ? `Save it on ${DAY_NAMES[draftDay]} · +${draftPoints} pts`
+                      : `Stake it on ${DAY_NAMES[draftDay]} · +${draftPoints} pts`}
               </Bri>
             </Tap>
+
+            {/* Said once, under the button that will not move. No second
+                sentence and no advice — the refusal is the whole message. */}
+            {blocked ? (
+              <Sans size={12} lineHeight={16.5} color={onDark.bodySecondary} style={{ marginTop: 10 }}>
+                {state.draftReason || 'This isn’t one to put points on.'}
+              </Sans>
+            ) : null}
           </View>
         </GradientHairline>
 

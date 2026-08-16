@@ -36,6 +36,15 @@
         {
           "mode": "production"
         }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 132,
+          "backgroundColor": "#F1F2EC",
+          "resizeMode": "contain"
+        }
       ]
     ],
     "extra": {

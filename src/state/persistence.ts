@@ -14,6 +14,7 @@ import { AUDIENCES, CATEGORY_POINTS, MOMENT_KINDS, NOTIF_TIERS, Task } from '../
 import { ACCOUNT_MODES } from '../data/seed';
 import { NAME_MAX } from '../data/people';
 import { DAY_NAMES } from '../data/week';
+import { projectRef } from '../lib/supabase';
 import type { State } from './store';
 
 const KEY = 'rally:state:v1';
@@ -234,6 +235,35 @@ function isSound(data: unknown): data is Persisted {
   return true;
 }
 
+/**
+ * Was this payload written against a different Supabase project?
+ *
+ * A live account's state is a picture of one backend: its tasks, its circle,
+ * its bots, its ids. Point the app at another project and none of it exists
+ * there — but the payload is byte-identical in shape to a good one, so nothing
+ * else here can tell. Switching backends used to show the previous one's world
+ * until the app was uninstalled.
+ *
+ * Three ways to answer "no", and each one is load-bearing rather than lenient:
+ *
+ *   - Demo and seeded worlds are not backend-derived, and those modes make no
+ *     network calls at all. A URL change must not eat a demo week.
+ *   - No stamp means the payload predates this check. It was written against
+ *     the backend still in use, so it is kept and stamped on the next write —
+ *     an upgrade nobody notices rather than one that costs a staked week.
+ *   - No configured project means the build cannot tell, which is every jest
+ *     suite that does not set the env. Discarding on ignorance would be a
+ *     permanently forgetful app.
+ */
+function isForeign(envelope: { backend?: unknown; data?: unknown }): boolean {
+  const account = (envelope.data as Partial<Persisted> | undefined)?.account;
+  if (account !== 'live') return false;
+  if (typeof envelope.backend !== 'string') return false;
+  const ref = projectRef();
+  if (!ref) return false;
+  return envelope.backend !== ref;
+}
+
 export async function load(): Promise<Persisted | null> {
   try {
     const raw = await AsyncStorage.getItem(KEY);
@@ -244,6 +274,7 @@ export async function load(): Promise<Persisted | null> {
     // discard too — that was right only while the week could never move, and
     // is now exactly the bug that would eat a week's work. Rollover handles it.
     if (envelope?.version !== VERSION) return null;
+    if (isForeign(envelope)) return null;
     if (!isSound(envelope.data)) return null;
 
     return envelope.data as Persisted;
@@ -267,9 +298,13 @@ const unchanged = (a: Persisted | null, b: Persisted) =>
 
 async function write(data: Persisted) {
   try {
+    // `backend` rides in the envelope, beside `version`, rather than in `data`.
+    // It describes the write, not the app: as a state key it would be picked,
+    // reference-diffed by `unchanged`, and threaded through `hydrate`, `RESET`
+    // and `seedFor` for no gain.
     await AsyncStorage.setItem(
       KEY,
-      JSON.stringify({ version: VERSION, data }),
+      JSON.stringify({ version: VERSION, backend: projectRef(), data }),
     );
     lastWritten = data;
   } catch {

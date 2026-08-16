@@ -491,11 +491,11 @@ describe('the invariants, not just the error codes', () => {
       join pg_namespace n on n.oid = c.relnamespace
       cross join (select rolname from pg_roles where rolname in ('anon','authenticated')) r
       where n.nspname = 'public' and c.relkind = 'r'`);
-    // Eleven tables, two roles. The count is the point: it is what makes
-    // adding a table land here, where somebody has to look at what the new one
-    // grants. It went 20 → 22 for `device_tokens`, and this is how that table
-    // was caught arriving with TRUNCATE nobody had granted it — see below.
-    expect(rows.length).toBe(22);
+    // 13 tables × 2 roles. The count is pinned so that adding a table without
+    // thinking about its grants fails here rather than shipping — which is what
+    // it did for `goal_ratings` and `llm_usage`, and again for `device_tokens`,
+    // which arrived holding TRUNCATE that nobody had granted it (see below).
+    expect(rows.length).toBe(26);
     for (const r of rows) expect(r.trunc).toBe(false);
   });
 

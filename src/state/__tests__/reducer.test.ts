@@ -73,11 +73,12 @@ describe('staking', () => {
     expect(s.myTasks).toHaveLength(base.myTasks.length);
   });
 
-  it('takes points from the category and the day from the picker', () => {
+  it('stakes the price it was told, and the day from the picker', () => {
     const s = run(
       base,
       { type: 'SET_DRAFT', value: 'Ship the thing' },
       { type: 'SET_DRAFT_CAT', cat: 'Work' },
+      { type: 'SET_DRAFT_RATING', points: 45, verdict: 'ok', reason: '' },
       { type: 'SET_DRAFT_DAY', day: 5 },
       { type: 'ADD_TASK', aud: 'everyone' },
     );
@@ -85,6 +86,44 @@ describe('staking', () => {
     expect(added).toMatchObject({ title: 'Ship the thing', cat: 'Work', pts: 45, day: 5, aud: 'everyone' });
     expect(s.toast).toBe('+45 on the line');
     expect(s.draft).toBe('');
+  });
+
+  it('does not re-derive the price from the category', () => {
+    // The whole mechanism in one assertion. The composer shows `draftPts`, and
+    // this stakes `draftPts` — so a goal rated at 20 stays 20 even though its
+    // category has always been worth 45. If this ever went back to reading
+    // CATEGORY_POINTS, the button would promise one number and the week would
+    // record another.
+    const s = run(
+      base,
+      { type: 'SET_DRAFT', value: 'Reply to one email' },
+      { type: 'SET_DRAFT_CAT', cat: 'Work' },
+      { type: 'SET_DRAFT_RATING', points: 20, verdict: 'ok', reason: '' },
+      { type: 'ADD_TASK', aud: 'friends' },
+    );
+    expect(s.myTasks[s.myTasks.length - 1].pts).toBe(20);
+    expect(s.toast).toBe('+20 on the line');
+  });
+
+  it('refuses a draft the rating blocked, button or no button', () => {
+    const s = run(
+      base,
+      { type: 'SET_DRAFT', value: 'something the model refused' },
+      { type: 'SET_DRAFT_RATING', points: 35, verdict: 'blocked', reason: '' },
+      { type: 'ADD_TASK', aud: 'friends' },
+    );
+    expect(s.myTasks).toHaveLength(base.myTasks.length);
+  });
+
+  it('clears the block when the composer moves on', () => {
+    // A refusal is about the goal that was on screen, not about the composer.
+    const s = run(
+      base,
+      { type: 'SET_DRAFT', value: 'something the model refused' },
+      { type: 'SET_DRAFT_RATING', points: 35, verdict: 'blocked', reason: '' },
+      { type: 'CANCEL_EDIT' },
+    );
+    expect(s.draftVerdict).toBe('ok');
   });
 
   it('unstakes and says it', () => {
@@ -149,6 +188,7 @@ describe('editing a stake', () => {
       { type: 'START_EDIT', id: 'm2' },
       { type: 'SET_DRAFT', value: 'Ship it Friday' },
       { type: 'SET_DRAFT_CAT', cat: 'Mind' },
+      { type: 'SET_DRAFT_RATING', points: 25, verdict: 'ok', reason: '' },
       { type: 'SAVE_EDIT', aud: 'private' },
     );
     expect(s.myTasks).toHaveLength(base.myTasks.length);
@@ -160,6 +200,29 @@ describe('editing a stake', () => {
     });
     expect(s.editingId).toBeNull();
     expect(s.toast).toBe('Updated — still on the line');
+  });
+
+  it('re-prices from the new rating rather than keeping the old price', () => {
+    // The loop this closes: stake something demanding, collect a high price,
+    // then quietly edit it down to something you were going to do anyway.
+    const before = base.myTasks.find((t) => t.id === 'm1')!;
+    expect(before.pts).toBe(40);
+
+    const s = run(
+      base,
+      { type: 'START_EDIT', id: 'm1' },
+      { type: 'SET_DRAFT', value: 'Walk to the corner shop' },
+      { type: 'SET_DRAFT_RATING', points: 10, verdict: 'ok', reason: '' },
+      { type: 'SAVE_EDIT', aud: 'friends' },
+    );
+    expect(s.myTasks.find((t) => t.id === 'm1')!.pts).toBe(10);
+  });
+
+  it('opens an edit at the price the task already carries', () => {
+    // Before any rating comes back there is exactly one honest number to show,
+    // and it is the one the task is currently worth — not its category's.
+    const s = reducer(base, { type: 'START_EDIT', id: 'm1' });
+    expect(s.draftPts).toBe(40);
   });
 
   it('keeps the original when the edit is cancelled', () => {
@@ -698,6 +761,24 @@ describe('the session', () => {
     const s = reducer(base, { type: 'SESSION', session: ready });
     expect(reducer(s, { type: 'SESSION', session: { status: 'ready', userId: 'u1' } })).toBe(s);
   });
+
+  it('adopts a new user id without deleting the week that is already here', () => {
+    // An anonymous session lost and re-minted. Those rows are orphaned on the
+    // server now, which makes what is on this device the only surviving copy —
+    // so the identity change stops the writes (see the outbox guard) and leaves
+    // the data alone.
+    //
+    // This is pinned because the tidy-looking change is to purge, and purging
+    // here deletes somebody's week with no undo and no export.
+    const live: State = { ...base, account: 'live', selfId: 'u1' };
+    const s = reducer(live, { type: 'SESSION', session: { status: 'ready', userId: 'u2' } });
+
+    expect(s.selfId).toBe('u2');
+    expect(s.myTasks).toBe(live.myTasks);
+    expect(s.history).toBe(live.history);
+    expect(s.profile).toBe(live.profile);
+    expect(s.week).toBe(live.week);
+  });
 });
 
 describe('merging rows from the server', () => {
@@ -734,6 +815,64 @@ describe('merging rows from the server', () => {
       { type: 'SERVER_MERGE', merge: { people: [{ ...maya, bot: true }] } },
     );
     expect(s.people[maya.id]?.bot).toBe(true);
+  });
+
+  /**
+   * `merge.people` is the whole live directory — your circles and the bots, in
+   * one payload — so an id it does not name is an id this account can no longer
+   * reach. Left in place they pile up: an Oz bot re-seeded under a new uuid, or
+   * a backend swapped in `.env`, and the composer offers the same character two
+   * chips wide off a directory that only ever grew.
+   */
+  describe('the live directory', () => {
+    const BOT = '00000000-0000-4000-8000-0000000000b0';
+    const REBORN = '00000000-0000-4000-8000-0000000000b1';
+    const me = '00000000-0000-4000-8000-000000000001';
+    const live: State = {
+      ...base,
+      account: 'live',
+      selfId: me,
+      people: {
+        [me]: personOf(me, 'Tess Okonkwo'),
+        [BOT]: personOf(BOT, 'Dorothy Gale'),
+      },
+    };
+
+    it('drops whoever the server has stopped naming', () => {
+      const s = reducer(live, {
+        type: 'SERVER_MERGE',
+        merge: { people: [live.people[me]!, personOf(REBORN, 'Dorothy Gale')] },
+      });
+      expect(Object.keys(s.people).sort()).toEqual([me, REBORN].sort());
+      expect(Object.getPrototypeOf(s.people)).toBeNull();
+    });
+
+    it('keeps you, whatever the payload says', () => {
+      // `pullCircle` answers with the members of your circles, so an account
+      // that is in none is not in its own directory — and your name is written
+      // here in onboarding, before the server has ever heard it.
+      const s = reducer(live, {
+        type: 'SERVER_MERGE',
+        merge: { people: [personOf(BOT, 'Dorothy Gale')] },
+      });
+      expect(s.people[me]?.name).toBe('Tess Okonkwo');
+    });
+
+    it('reads an empty payload as nobody, and still not as nobody at all', () => {
+      // "Nobody" is what a second backend answers before you have joined a
+      // circle there. The old directory cannot be left standing for it — but
+      // you are not in your own circle, so you are what survives it.
+      const s = reducer(live, { type: 'SERVER_MERGE', merge: { people: [] } });
+      expect(Object.keys(s.people)).toEqual([me]);
+      expect(s.people[me]?.name).toBe('Tess Okonkwo');
+    });
+
+    it('leaves a demo account alone', () => {
+      // Nothing pulls for one, and its directory is a fixture — pruning it
+      // against a payload would empty the app the moment one arrived.
+      const s = reducer(base, { type: 'SERVER_MERGE', merge: { people: [maya] } });
+      expect(s.people.dre).toBe(base.people.dre);
+    });
   });
 
   it('does not close a sheet the user has open', () => {
