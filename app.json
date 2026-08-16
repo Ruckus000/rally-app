@@ -26,6 +26,20 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-font"]
+    "plugins": [
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "mode": "production"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8ea00fe8-1b14-4c07-af19-896ec6950ae6"
+      }
+    },
+    "owner": "jphilistin12"
   }
 }
