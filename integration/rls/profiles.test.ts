@@ -6,7 +6,7 @@
  */
 import { asAnon, asUser, idOf, signInAnonymously } from '../support/clients';
 import { asRole } from '../support/reset';
-import { SEED_HANDLES, HANDLE_RE, SEED_USERS, SEED_BOT } from '../fixtures/world';
+import { SEED_HANDLES, HANDLE_RE, SEED_USERS, BOT_HANDLES } from '../fixtures/world';
 
 const handles = async (client: ReturnType<typeof asUser>) => {
   const { data, error } = await client.from('profiles').select('handle');
@@ -14,28 +14,25 @@ const handles = async (client: ReturnType<typeof asUser>) => {
   return (data ?? []).map((r: { handle: string }) => r.handle).sort();
 };
 
+/** The bots are readable by everyone, so they are in every list below. */
+const withBots = (...people: string[]) => [...BOT_HANDLES, ...people].sort();
+
 describe('profiles visibility', () => {
-  // The bot is readable by everyone by design, so it is in every list below.
-  // That is the point of it, and `bots.test.ts` holds the line that it is the
-  // *only* row anyone gets for free.
+  // That the bots are in every one of these is the point of them, and
+  // `bots.test.ts` holds the line that they are the *only* rows anyone gets
+  // for free. What each assertion is actually about is the people beside them.
   it('maya sees herself and both her circles, and nobody else', async () => {
     // basement: dre, nana · gym: sofia · jordan and tomas share nothing.
-    expect(await handles(asUser('maya'))).toEqual([
-      SEED_BOT.handle,
-      'dre',
-      'maya',
-      'nana',
-      'sofia',
-    ]);
+    expect(await handles(asUser('maya'))).toEqual(withBots('dre', 'maya', 'nana', 'sofia'));
   });
 
   it('jordan sees only himself and his one circle-mate', async () => {
-    expect(await handles(asUser('jordan'))).toEqual([SEED_BOT.handle, 'jordan', 'tomas']);
+    expect(await handles(asUser('jordan'))).toEqual(withBots('jordan', 'tomas'));
   });
 
   it('sharing a different circle is still sharing a circle', async () => {
     // sofia is in gym, not basement, but still sees maya.
-    expect(await handles(asUser('sofia'))).toEqual([SEED_BOT.handle, 'maya', 'sofia']);
+    expect(await handles(asUser('sofia'))).toEqual(withBots('maya', 'sofia'));
   });
 
   it('a signed-out client cannot reach the table at all', async () => {
@@ -149,11 +146,11 @@ describe('a brand-new anonymous user', () => {
     const { client, id } = await signInAnonymously();
     const { data } = await client.from('profiles').select('id,handle');
 
-    // The bot is here by design and `bots.test.ts` owns that claim. What this
+    // The bots are here by design and `bots.test.ts` owns that claim. What this
     // one still says — and what widening the policy must not have changed —
     // is that none of the seeded people are reachable.
     const rows = (data ?? []) as { id: string; handle: string }[];
-    expect(rows.filter((r) => r.id !== id).map((r) => r.handle)).toEqual([SEED_BOT.handle]);
+    expect(rows.filter((r) => r.id !== id).map((r) => r.handle).sort()).toEqual(BOT_HANDLES);
   });
 });
 
