@@ -94,8 +94,16 @@ const db = createClient(url, KEY, {
 const BOTS = [
   {
     handle: 'dorothy.gale',
+    // The one address here that is not this script's to choose. Dorothy already
+    // exists on a local stack: `supabase/seed.sql` creates her as the control on
+    // `profiles_select` — the bot a stranger is allowed to read — and
+    // `ensureAccount` finds that row by handle rather than making a second one.
+    // So this has to be the address that account actually has, or it describes
+    // an account nobody has. It said `dorothy@ozbots.rally.app` for a while,
+    // which was never wrong anywhere it was read and never right anywhere it
+    // was checked. `integration/world.test.ts` checks it now.
     name: 'Dorothy Gale',
-    email: 'dorothy@ozbots.rally.app',
+    email: 'dorothy@rally.test',
     tasks: [
       ['0b0d0000-0000-4000-8000-000000000001', 1, 'Walk 30 minutes every morning', 'Fitness', 35, true],
       ['0b0d0000-0000-4000-8000-000000000002', 2, 'Meal prep Sunday for the week', 'Home', 25, true],

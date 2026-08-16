@@ -1,9 +1,11 @@
 /**
  * The seeded world, and the single place its handles are spelled.
  *
- * `supabase/seed.sql` is written by hand from this file; `world.test.ts`
+ * `supabase/seed.sql` is written by hand from this file; `integration/world.test.ts`
  * asserts the two still agree, so adding a seventh person to the demo circle
- * fails loudly rather than quietly desyncing the suites.
+ * fails loudly rather than quietly desyncing the suites. That sentence described
+ * a file that did not exist until it was written to catch something — see its
+ * own header.
  *
  * The circle shape is chosen to make the *negative* RLS assertions sharp:
  *
@@ -37,6 +39,10 @@ export type SeedHandle = keyof typeof SEED_USERS;
  * `beforeAll`, and a bot has no password and no `auth.identities` row because
  * nothing ever signs in as one. It exists to be *read* — by strangers, which
  * is the whole of its purpose and the reason `profiles_select` names it.
+ *
+ * She is also the one seeded account the product's own tooling touches:
+ * `scripts/seed-bots.mjs` adopts this row by handle instead of creating a
+ * second Dorothy, which is why the email below has to be the one it names.
  */
 export const SEED_BOT = {
   id: '00000000-0000-4000-8000-0000000000b0',
