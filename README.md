@@ -83,6 +83,32 @@ The handoff lists seven gaps needing a product decision before building. What th
 | `defaultAudience` | `'friends'` | Pre-selects the composer's SEEN BY |
 | `quietComebacks` | `true` | Off → suppresses quiet comeback items from the feed |
 
+## The mark
+
+Three R's climbing a stack, cut from Bricolage Grotesque ExtraBold — the same face the app sets its headlines in — and converted to outlines, so nothing depends on a font being installed. Black on the brand lime.
+
+```bash
+npm run icons
+```
+
+That regenerates every asset from `scripts/make-icons.mjs` and rewrites `src/theme/mark.ts`, which is the geometry the launch screen draws. The icon has a source rather than being a binary somebody once exported: all the geometry is in `SPEC`, and revising the mark is one edit and one command.
+
+Two things worth knowing before changing it:
+
+**The separation channel is cut, not painted.** Three black letters this close merge into one silhouette, so each letter is notched by the ones above it. That notch is a hole in the alpha, produced with an SVG mask. It was originally a fat background-coloured copy painted underneath, which works on the lime plate and silently produces *nothing* on the Android foreground, the themed icon and the splash art — all three are drawn on transparency, and `fill="none"` paints nothing. All three shipped as a single fused blob and it passed a visual review, because at a glance the shape still reads as letters.
+
+**So it is checked by counting, not by looking.** `npm run icons` finishes by counting the connected islands of ink in every asset and fails if any of them is not exactly three, and by measuring the furthest ink from centre against Android's safe circles. A mark that fuses again fails the command that produced it rather than shipping.
+
+**Geometry.** `riseY: 0.70` / `driftX: 0.68` were found by rendering, not by reasoning. Stacked nearly vertically — the obvious reading of "three R's stacked" — the letters bury each other's legs and the mark reads as one damaged R with debris behind it. The horizontal drift buys each letter its own air. The Android foreground is drawn at `scale: 0.51` so the stack clears both the 72dp and the stricter 66dp adaptive-icon safe circles; at 0.66 the launcher shaved the top R's shoulder flat.
+
+Known limit: at 16–20px the mark reads as a texture rather than as three letters. That is the browser-tab favicon only, and the trade was taken deliberately — sizing the letters up to survive a tab would damage the mark everywhere it actually gets seen.
+
+## The launch screen
+
+Two screens, made to look like one. The native splash (`expo-splash-screen`, configured in `app.json`) paints the mark on paper before any JavaScript exists; `src/screens/BootScreen.tsx` then draws the *same* geometry at the same size while fonts and persisted state load. `App.tsx` holds the splash open until both are ready and hides it on layout, so there is no flash of background between the two. Before this the first React frame was a bare paper rectangle and the mark visibly vanished and came back.
+
+The letters arrive bottom-first, which is the stack being built — the thing the app is for. It is over in under half a second, and under reduced motion they are simply there.
+
 ## What a goal is worth
 
 Points used to be a lookup by category — Fitness 35, Work 45 — so "Walk 30 minutes every morning" and "Get fitter" cost the same, though only one of them can be lost on Sunday. A model now reads the goal and prices it, in a band of 10–60 in steps of 5.
