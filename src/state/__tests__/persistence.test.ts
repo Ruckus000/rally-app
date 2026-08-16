@@ -30,6 +30,76 @@ beforeEach(async () => {
   jest.clearAllMocks();
 });
 
+/**
+ * State written against one Supabase project describes a world that does not
+ * exist in another — its tasks, its circle, its bots, its ids. The payload is
+ * byte-identical in shape either way, so nothing else in `load()` can tell, and
+ * switching backends used to show the previous one's world until the app was
+ * uninstalled.
+ *
+ * The three ways this answers "not foreign" are the interesting half. Each one
+ * is a case where discarding would be worse than the bug it prevents.
+ */
+describe('state written against another backend', () => {
+  const live = { ...pick(base), account: 'live' as const };
+  const demo = pick(base); // 'seeded'
+
+  const withProject = (ref: string) => {
+    process.env.EXPO_PUBLIC_SUPABASE_URL = `https://${ref}.supabase.co`;
+    process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY = 'anon';
+  };
+
+  afterEach(() => {
+    delete process.env.EXPO_PUBLIC_SUPABASE_URL;
+    delete process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+  });
+
+  it('is discarded when the project differs', async () => {
+    withProject('bbbb');
+    await AsyncStorage.setItem(KEY, envelope(live, { backend: 'aaaa' }));
+    expect(await load()).toBeNull();
+  });
+
+  it('is kept when the project matches', async () => {
+    withProject('aaaa');
+    await AsyncStorage.setItem(KEY, envelope(live, { backend: 'aaaa' }));
+    expect(await load()).not.toBeNull();
+  });
+
+  it('is kept for a demo account, which is not backend-derived at all', async () => {
+    // Demo and seeded modes make zero network calls. Letting a URL change eat a
+    // demo week would be a bug introduced entirely by a guard for live sync.
+    withProject('bbbb');
+    await AsyncStorage.setItem(KEY, envelope(demo, { backend: 'aaaa' }));
+    expect(await load()).not.toBeNull();
+  });
+
+  it('is kept when it carries no stamp, so an upgrade costs nobody their week', async () => {
+    // Every payload already on disk predates this field, and was written
+    // against the backend still in use. Discarding those would throw away the
+    // staked week, the history and the streak of every existing install.
+    withProject('aaaa');
+    await AsyncStorage.setItem(KEY, envelope(live));
+    expect(await load()).not.toBeNull();
+  });
+
+  it('is kept when the build has no project configured', async () => {
+    // A demo build, and every suite in this repo that does not set the env.
+    // "Cannot tell" must never mean "does not match".
+    await AsyncStorage.setItem(KEY, envelope(live, { backend: 'aaaa' }));
+    expect(await load()).not.toBeNull();
+  });
+
+  it('stamps what it writes, so the next launch can make the comparison', async () => {
+    withProject('aaaa');
+    save({ ...base, account: 'live' });
+    await flush();
+    const written = JSON.parse(setItem.mock.calls.at(-1)![1] as string);
+    expect(written.backend).toBe('aaaa');
+    expect(written.version).toBe(2);
+  });
+});
+
 describe('what gets written', () => {
   it('keeps the durable slices', () => {
     const p = pick({ ...base, tab: 'me', scope: 'personal' });

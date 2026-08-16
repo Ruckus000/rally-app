@@ -32,6 +32,31 @@ export function hasSupabaseConfig(): boolean {
 }
 
 /**
+ * Which Supabase project this build talks to — the first label of the API
+ * hostname, which is how supabase-js names its own auth storage key.
+ *
+ * Anything written to disk against one project describes a world that does not
+ * exist in another, so the persisted state and the outbox both stamp this and
+ * refuse a payload that disagrees. Deriving it the same way supabase-js does
+ * keeps one definition of "which backend is this" rather than two that can
+ * drift.
+ *
+ * Null when there is nothing configured, which is a demo build and every jest
+ * suite that does not set the env. Callers treat null as "cannot tell", never
+ * as "does not match" — a check that discards on ignorance would empty the disk
+ * of every test in the repo.
+ */
+export function projectRef(): string | null {
+  const raw = url();
+  if (!raw) return null;
+  try {
+    return new URL(raw).hostname.split('.')[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The one client. Callers are responsible for checking `hasSupabaseConfig()`
  * and the account mode first — this throws rather than handing back a client
  * pointed at nothing.
