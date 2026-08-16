@@ -14,6 +14,7 @@ export type SessionState =
   | { status: 'signing-in' }
   | { status: 'ready'; userId: string }
   | { status: 'offline' } // tried, no network; retries
+  | { status: 'expired' } // the server rejected this token and a refresh did not help
   | { status: 'error'; message: string };
 
 const OFF: SessionState = { status: 'off' };
@@ -28,6 +29,16 @@ let refreshing = false;
  * against a 422.
  */
 let fatal: string | null = null;
+/**
+ * Latched for the same reason `fatal` is, and it matters more here. `ensureSession`
+ * runs on every foreground, and `getSession()` answers out of AsyncStorage — so a
+ * token the server has stopped accepting is still a token it hands back, and every
+ * foreground would flip `expired` → `ready` and straight back on the next request.
+ * A banner that blinks is worse than no banner.
+ *
+ * Cleared only by something the user did: `retrySession` or `signOutEverywhere`.
+ */
+let expired = false;
 
 const listeners = new Set<(s: SessionState) => void>();
 
@@ -96,6 +107,7 @@ async function resolveSession(): Promise<SessionState> {
 export async function ensureSession(): Promise<SessionState> {
   if (!hasSupabaseConfig()) return set(OFF);
   if (state.status === 'ready') return state;
+  if (expired) return set({ status: 'expired' });
   if (fatal) return set({ status: 'error', message: fatal });
   if (inFlight) return inFlight;
 
@@ -103,6 +115,75 @@ export async function ensureSession(): Promise<SessionState> {
   inFlight = resolveSession().finally(() => {
     inFlight = null;
   });
+  return inFlight;
+}
+
+/**
+ * The sync layer found out the hard way: a request came back 401 and the refresh
+ * the transport already tried did not fix it.
+ *
+ * This is the only way out of `ready`, and moving out of it is what stops the
+ * whole sync layer — `currentUserId()` answers null for every other status, and
+ * the pull, the outbox drain and the realtime channel all bail on a null id. So
+ * one report quiesces everything without a single new flag to poll.
+ *
+ * Ignored unless we currently believe we are signed in: reports can only come
+ * from a live account mid-request, and a demo account must never grow a banner.
+ */
+export function reportAuthFailure(): void {
+  if (state.status !== 'ready') return;
+  expired = true;
+  // Refreshing a token the server has rejected is a timer burning for nothing.
+  stopAutoRefresh();
+  set({ status: 'expired' });
+}
+
+/**
+ * Whether the refresh token is still worth anything, asked over the wire.
+ *
+ * `resolveSession` alone cannot answer this: `getSession()` reads AsyncStorage,
+ * so it would hand back the same dead token and report `ready` — the retry would
+ * look like it worked right up until the next request failed.
+ */
+async function refreshed(): Promise<'ok' | 'offline' | 'rejected'> {
+  const auth = getSupabase().auth as { refreshSession?: () => Promise<{ error: unknown }> };
+  // Not every client can refresh — the unit double has no `refreshSession` — and
+  // one that cannot should fall through to `resolveSession` rather than latch.
+  if (typeof auth.refreshSession !== 'function') return 'ok';
+  try {
+    const { error } = await auth.refreshSession();
+    if (!error) return 'ok';
+    return isOffline(error) ? 'offline' : 'rejected';
+  } catch (err) {
+    return isOffline(err) ? 'offline' : 'rejected';
+  }
+}
+
+/**
+ * "Try again" on the banner. Clears the latch and re-tests the token for real.
+ *
+ * A retry tapped on a plane must not latch `expired` again — that would turn a
+ * tunnel into a permanent verdict on the account, which is the same mistake as
+ * the bug this all fixes, just pointed the other way.
+ */
+export async function retrySession(): Promise<SessionState> {
+  if (!hasSupabaseConfig()) return set(OFF);
+  if (inFlight) return inFlight;
+
+  expired = false;
+  fatal = null;
+  set({ status: 'signing-in' });
+
+  inFlight = (async (): Promise<SessionState> => {
+    const outcome = await refreshed();
+    if (outcome === 'ok') return resolveSession();
+    if (outcome === 'offline') return set({ status: 'offline' });
+    expired = true;
+    return set({ status: 'expired' });
+  })().finally(() => {
+    inFlight = null;
+  });
+
   return inFlight;
 }
 
@@ -117,6 +198,7 @@ export async function signOutEverywhere(): Promise<void> {
     }
   }
   fatal = null;
+  expired = false;
   set(OFF);
 }
 
@@ -157,5 +239,6 @@ export function __resetSessionForTests(): void {
   inFlight = null;
   refreshing = false;
   fatal = null;
+  expired = false;
   listeners.clear();
 }

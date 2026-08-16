@@ -22,6 +22,7 @@ import { OnboardOverlay } from './overlays/OnboardOverlay';
 import { RolloverOverlay } from './overlays/RolloverOverlay';
 import { DetailSheet } from './overlays/DetailSheet';
 import { Toast } from './components/Toast';
+import { SyncBanner } from './components/SyncBanner';
 
 export function App({
   config,
@@ -63,6 +64,10 @@ function Shell() {
       <StatusBar barStyle={state.planOpen ? 'light-content' : 'dark-content'} />
 
       <Header topInset={insets.top} />
+
+      {/* Outside the ScrollView on purpose: not syncing is a condition, not a
+          row, and scrolling away from it should not make it go away. */}
+      <SyncBanner />
 
       <ScrollView
         ref={scroll}

@@ -119,9 +119,22 @@ function isTransient(e: WireError): boolean {
   return code === '40001' || code === '40P01';
 }
 
-/** An expired access token — recoverable exactly once, by refreshing it. */
-function isAuthExpired(e: WireError): boolean {
-  return e.status === 401 || e.code === 'PGRST301' || e.code === 'PGRST303';
+/**
+ * An expired access token — recoverable exactly once, by refreshing it.
+ *
+ * Exported because the pull path has to ask the same question and there must not
+ * be a second list: a read that 401s and a write that 401s are the same fact
+ * about the session, and the engine reports both to the same place.
+ */
+export function isAuthExpired(err: unknown): boolean {
+  const e = asWireError(err);
+  // `'401'` is this module's own sentinel, set below when a 401 arrives with no
+  // SQLSTATE to name it. Recognised here so that re-reading a `PushResult` gives
+  // the same answer as reading the wire error it came from — otherwise the one
+  // failure with no Postgres code behind it is the one that slips through.
+  return (
+    e.status === 401 || e.code === '401' || e.code === 'PGRST301' || e.code === 'PGRST303'
+  );
 }
 
 function classify(err: unknown): PushResult {
@@ -204,8 +217,13 @@ async function forceRefresh(): Promise<void> {
  * and there is no third outcome worth encoding.
  */
 function fail(err: WireError): never {
-  const e = new Error(describe(err)) as Error & { code?: string };
+  const e = new Error(describe(err)) as Error & { code?: string; status?: number };
   e.code = err.code;
+  // Carried for the same reason `code` is. `isAuthExpired` reads both, and a
+  // gateway 401 that never reached PostgREST has no SQLSTATE to read instead —
+  // dropping it here would make the shared predicate quietly half-blind on
+  // pulls while staying whole on pushes.
+  e.status = err.status;
   throw e;
 }
 
