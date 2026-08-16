@@ -1197,6 +1197,40 @@ export function reducer(state: State, action: Action): State {
         draft[p.id] = p;
       }
 
+      /**
+       * Whoever the server no longer names is no longer here.
+       *
+       * `merge.people` is the *whole* directory — your circles and the bots, in
+       * one payload — so the ids missing from it are ids this account can no
+       * longer reach. Until now nothing ever dropped one, and a directory that
+       * only grows is a directory that accumulates ghosts: point the app at a
+       * second backend, or re-seed the Oz bots (their accounts are minted by
+       * `scripts/seed-bots.mjs`, so a reset gives them new uuids), and the old
+       * profile rows stay in `people` — and *stay on disk*, because `people` is
+       * persisted. The composer's "In it with me" list is `Object.keys(people)`,
+       * so each ghost is another chip: the same bot, under the same name, twice.
+       *
+       * Pruned here rather than in the render because every reader of this
+       * slice has the same problem — the header counts it, the leaderboard
+       * ranks it — and a directory that is wrong is worth fixing once.
+       *
+       * Two things are never dropped. An empty answer is not an answer: the
+       * engine only sets the key when the read came back with rows, and this
+       * respects the same rule rather than emptying the app on a half-answer.
+       * And you are kept whatever the payload says — `pullCircle` answers with
+       * the members of your circles, so an account in no circle yet is not in
+       * its own directory, and your name is the one thing here that is written
+       * locally before the server ever hears it.
+       */
+      if (state.account === 'live' && action.merge.people?.length) {
+        const named = new Set<PersonId>(action.merge.people.map((p) => p.id));
+        named.add(state.selfId);
+        const kept = Object.values(people).filter((p): p is Person => !!p && named.has(p.id));
+        if (kept.length !== Object.keys(people).length) {
+          people = indexPeople(kept);
+        }
+      }
+
       // The dirty set is derived here, from the queue, and deliberately not kept
       // in state: it would be a second record of what the server still owes us,
       // and the one that decides what actually goes out is the outbox.

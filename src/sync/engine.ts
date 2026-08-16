@@ -154,6 +154,25 @@ const sameMoments = (a: Moment[], b: Moment[]): boolean =>
     );
   });
 
+/** Ids in the order first seen, each one once. */
+const uniqueIds = (ids: string[]): string[] => [...new Set(ids)];
+
+/**
+ * One row per person, first answer wins.
+ *
+ * The circle read and the bot read are separate queries over the same table
+ * and are allowed to overlap — `profiles_select` exposes a bot to everyone
+ * *and* to the circles it is in — so concatenating them is not a set. Both
+ * copies are the same row, which is exactly why picking one is safe and why
+ * the alternative is so quiet: everything downstream is keyed by id and would
+ * silently collapse it, right up until something counted or listed instead.
+ */
+const dedupePeople = (people: Person[]): Person[] => {
+  const byId = new Map<PersonId, Person>();
+  for (const p of people) if (!byId.has(p.id)) byId.set(p.id, p);
+  return [...byId.values()];
+};
+
 /**
  * The members, carrying the week the feed just counted for them. Whoever the
  * rows say nothing about keeps `undefined` rather than gaining a zeroed week —
@@ -702,13 +721,19 @@ export function createEngine(
       // the membership question twice in parallel would cost the same round
       // trip while making the two answers able to disagree.
       const weekStart = week ? mondayOf(week) : null;
-      const memberIds = people.map((p) => p.id).filter((id) => id !== userId);
-      const botIds = bots.map((b) => b.id);
+      // Deduped, because the two reads overlap by design: `pullCircle` answers
+      // for everyone in your circles and `pullBots` for every bot, and a bot
+      // you share a circle with is legitimately in both. Left as-is the same id
+      // goes into the owners query twice and into the directory twice — the
+      // second of which is the only reason a caller downstream would ever have
+      // to think about duplicates at all.
+      const memberIds = uniqueIds(people.map((p) => p.id).filter((id) => id !== userId));
+      const botIds = uniqueIds(bots.map((b) => b.id));
       // Two feeds, one query, one round trip: `pullTasksByOwners` does not care
       // whose ids these are, and splitting them again afterwards is cheaper
       // than asking the same question twice.
       const ownerRows = weekStart
-        ? await wire.pullTasksByOwners([...memberIds, ...botIds], weekStart)
+        ? await wire.pullTasksByOwners(uniqueIds([...memberIds, ...botIds]), weekStart)
         : [];
       const isBot = new Set(botIds);
       const friendRows = ownerRows.filter((row) => !isBot.has(String(row.owner_id)));
@@ -738,7 +763,12 @@ export function createEngine(
       // avatar, name and initial on the Global feed is resolved through
       // `people`, and a card whose author is missing from it renders as
       // "Someone" — which is the whole thing this replaced.
-      const directory = [...people, ...bots];
+      //
+      // One entry per id, and the whole directory in one payload: this is the
+      // complete answer to "who is in this account's world", which is what lets
+      // the reducer drop whoever is no longer in it. A half-answer would read
+      // as "everybody else left".
+      const directory = dedupePeople([...people, ...bots]);
       if (directory.length > 0) merge.people = withStats(directory, ownerRows);
 
       // Circle members only. `profiles_select` exposes the profiles of people

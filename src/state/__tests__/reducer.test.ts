@@ -766,6 +766,62 @@ describe('merging rows from the server', () => {
     expect(Object.getPrototypeOf(s.people)).toBeNull();
   });
 
+  /**
+   * `merge.people` is the whole live directory — your circles and the bots, in
+   * one payload — so an id it does not name is an id this account can no longer
+   * reach. Left in place they pile up: an Oz bot re-seeded under a new uuid, or
+   * a backend swapped in `.env`, and the composer offers the same character two
+   * chips wide off a directory that only ever grew.
+   */
+  describe('the live directory', () => {
+    const BOT = '00000000-0000-4000-8000-0000000000b0';
+    const REBORN = '00000000-0000-4000-8000-0000000000b1';
+    const me = '00000000-0000-4000-8000-000000000001';
+    const live: State = {
+      ...base,
+      account: 'live',
+      selfId: me,
+      people: {
+        [me]: personOf(me, 'Tess Okonkwo'),
+        [BOT]: personOf(BOT, 'Dorothy Gale'),
+      },
+    };
+
+    it('drops whoever the server has stopped naming', () => {
+      const s = reducer(live, {
+        type: 'SERVER_MERGE',
+        merge: { people: [live.people[me]!, personOf(REBORN, 'Dorothy Gale')] },
+      });
+      expect(Object.keys(s.people).sort()).toEqual([me, REBORN].sort());
+      expect(Object.getPrototypeOf(s.people)).toBeNull();
+    });
+
+    it('keeps you, whatever the payload says', () => {
+      // `pullCircle` answers with the members of your circles, so an account
+      // that is in none is not in its own directory — and your name is written
+      // here in onboarding, before the server has ever heard it.
+      const s = reducer(live, {
+        type: 'SERVER_MERGE',
+        merge: { people: [personOf(BOT, 'Dorothy Gale')] },
+      });
+      expect(s.people[me]?.name).toBe('Tess Okonkwo');
+    });
+
+    it('treats an empty answer as no answer', () => {
+      // The engine only sets the key when the read came back with rows. A merge
+      // carrying none must not be read as "everybody left".
+      expect(reducer(live, { type: 'SERVER_MERGE', merge: { people: [] } })).toBe(live);
+      expect(reducer(live, { type: 'SERVER_MERGE', merge: {} })).toBe(live);
+    });
+
+    it('leaves a demo account alone', () => {
+      // Nothing pulls for one, and its directory is a fixture — pruning it
+      // against a payload would empty the app the moment one arrived.
+      const s = reducer(base, { type: 'SERVER_MERGE', merge: { people: [maya] } });
+      expect(s.people.dre).toBe(base.people.dre);
+    });
+  });
+
   it('does not close a sheet the user has open', () => {
     // A row arriving from someone else's phone is not a route change. This is
     // why SERVER_MERGE is not GO_PLACE, which spreads CLEARED.
