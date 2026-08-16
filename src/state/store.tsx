@@ -210,6 +210,27 @@ export type State = {
 
   draftDay: DayIndex | null;
   draftCat: Category;
+  /**
+   * What the draft is worth right now — and the only place that number lives.
+   *
+   * Both `ADD_TASK` and `SAVE_EDIT` used to recompute the price from the
+   * category, which was safe while the price *was* the category. Once a model
+   * reads the goal, recomputing means the button can promise one number and the
+   * reducer stake another. So the composer writes what it is showing here, and
+   * the reducer stakes exactly this.
+   */
+  draftPts: number;
+  /** 'blocked' when the draft is something this app will not put points on. */
+  draftVerdict: 'ok' | 'blocked';
+  /**
+   * Why it was blocked, and it lives here rather than in the composer's hook
+   * for one reason: a refusal and its explanation have to move together. Held
+   * apart — the verdict in the store, the sentence in a hook scoped to the
+   * exact title that produced it — they drift out of step the moment someone
+   * keeps typing, and the screen becomes a disabled button with nothing next
+   * to it. A block with no reason is a dead end.
+   */
+  draftReason: string;
   draftPair: PersonId[];
   /** null = fall back to config.defaultAudience */
   draftAud: Audience | null;
@@ -268,6 +289,9 @@ const initialState: State = {
   composerVal: '',
   draftDay: null,
   draftCat: 'Fitness',
+  draftPts: CATEGORY_POINTS.Fitness,
+  draftVerdict: 'ok',
+  draftReason: '',
   draftPair: [],
   draftAud: null,
   editingId: null,
@@ -296,6 +320,7 @@ export type Action =
   | { type: 'SEND_NOTE' }
   | { type: 'SET_DRAFT'; value: string }
   | { type: 'SET_DRAFT_CAT'; cat: Category }
+  | { type: 'SET_DRAFT_RATING'; points: number; verdict: 'ok' | 'blocked'; reason: string }
   | { type: 'SET_DRAFT_DAY'; day: DayIndex }
   | { type: 'SET_DRAFT_AUD'; aud: Audience }
   | { type: 'TOGGLE_PAIR'; key: PersonId }
@@ -413,13 +438,17 @@ const CLEARED = {
   planOpen: false,
 } satisfies Partial<State>;
 
-/** Fields reset when an edit session is abandoned rather than saved. */
+/** Fields the composer clears when an edit session ends — saved or abandoned. */
 const ABANDON_EDIT = {
   editingId: null,
   draft: '',
   draftPair: [],
   draftAud: null,
   draftDay: null,
+  // An empty composer has nothing to block. Leaving this set would carry a
+  // refusal about a goal that is no longer on the screen into the next one.
+  draftVerdict: 'ok',
+  draftReason: '',
 } satisfies Partial<State>;
 
 /**
@@ -605,7 +634,18 @@ export function reducer(state: State, action: Action): State {
       return { ...state, draft: action.value };
 
     case 'SET_DRAFT_CAT':
+      // Deliberately leaves `draftPts` alone. The composer is about to re-rate
+      // under the new category, and until that lands the honest thing to show
+      // is the price the button is still promising — which is this one.
       return { ...state, draftCat: action.cat };
+
+    case 'SET_DRAFT_RATING':
+      return {
+        ...state,
+        draftPts: action.points,
+        draftVerdict: action.verdict,
+        draftReason: action.verdict === 'blocked' ? action.reason : '',
+      };
 
     case 'SET_DRAFT_DAY':
       return { ...state, draftDay: action.day };
@@ -624,7 +664,12 @@ export function reducer(state: State, action: Action): State {
     case 'ADD_TASK': {
       const title = state.draft.trim();
       if (!title) return state;
-      const pts = CATEGORY_POINTS[state.draftCat] ?? 30;
+      // Not only the button's business. The composer disables itself on a
+      // blocked draft, but a disabled button is a UI state and this is the
+      // rule, so the reducer refuses too.
+      if (state.draftVerdict === 'blocked') return state;
+      // Staked at what was shown, never recomputed. See `draftPts`.
+      const pts = state.draftPts;
       const task: Task = {
         id: nextTaskId(),
         day: state.draftDay ?? state.day,
@@ -639,7 +684,16 @@ export function reducer(state: State, action: Action): State {
         source: 'staked',
       };
       return withToast(
-        { ...state, draft: '', draftPair: [], draftAud: null, myTasks: [...state.myTasks, task] },
+        {
+          ...state,
+          draft: '',
+          draftPair: [],
+          draftAud: null,
+          draftPts: CATEGORY_POINTS[state.draftCat] ?? 30,
+          draftVerdict: 'ok',
+          draftReason: '',
+          myTasks: [...state.myTasks, task],
+        },
         `+${pts} on the line`,
       );
     }
@@ -655,6 +709,11 @@ export function reducer(state: State, action: Action): State {
         editingId: t.id,
         draft: t.title,
         draftCat: t.cat,
+        // What it is already worth. The composer re-rates on the next keystroke;
+        // until then the button offers to save it at the price it has.
+        draftPts: t.pts,
+        draftVerdict: 'ok',
+        draftReason: '',
         draftDay: t.day,
         draftPair: [...t.pair],
         draftAud: t.aud,
@@ -664,7 +723,10 @@ export function reducer(state: State, action: Action): State {
     case 'SAVE_EDIT': {
       const title = state.draft.trim();
       if (!title || !state.editingId) return state;
-      const pts = CATEGORY_POINTS[state.draftCat] ?? 30;
+      if (state.draftVerdict === 'blocked') return state;
+      // Re-priced from the current rating, which is what closes the obvious
+      // loop: stake something demanding, get 60, then edit it down to nothing.
+      const pts = state.draftPts;
       return withToast(
         {
           ...state,
@@ -682,25 +744,14 @@ export function reducer(state: State, action: Action): State {
                   pairKind: state.draftPair.length ? (t.pairKind ?? 'loose') : null,
                 },
           ),
-          editingId: null,
-          draft: '',
-          draftPair: [],
-          draftAud: null,
-          draftDay: null,
+          ...ABANDON_EDIT,
         },
         'Updated — still on the line',
       );
     }
 
     case 'CANCEL_EDIT':
-      return {
-        ...state,
-        editingId: null,
-        draft: '',
-        draftPair: [],
-        draftAud: null,
-        draftDay: null,
-      };
+      return { ...state, ...ABANDON_EDIT };
 
     case 'ADD_SUGGESTION': {
       const s = action.suggestion;

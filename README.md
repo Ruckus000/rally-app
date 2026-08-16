@@ -83,6 +83,40 @@ The handoff lists seven gaps needing a product decision before building. What th
 | `defaultAudience` | `'friends'` | Pre-selects the composer's SEEN BY |
 | `quietComebacks` | `true` | Off → suppresses quiet comeback items from the feed |
 
+## What a goal is worth
+
+Points used to be a lookup by category — Fitness 35, Work 45 — so "Walk 30 minutes every morning" and "Get fitter" cost the same, though only one of them can be lost on Sunday. A model now reads the goal and prices it, in a band of 10–60 in steps of 5.
+
+The composer rates as you type, 600ms after you stop, through the `rate-goal` edge function. **If anything goes wrong it falls back to the category price and staking works normally** — offline, rate-limited, model down, garbled reply, demo account. Nothing about writing down your week waits on a network.
+
+Two prompts, not one: `supabase/functions/_shared/rubric.mjs` prices a goal and says nothing about safety, `screening.mjs` decides whether a goal is harmful and says nothing about quality. Combined into a single call, a 3B model blocked "Finish module 3 of the SQL course" as "a clearly illegal act" — a phrase it had read in the prompt. Keep them apart.
+
+The screening block is a composer guard, not a security control: a client writing straight to PostgREST skips it, and no database trigger can call a model.
+
+### Running a model locally
+
+The bot authoring scripts and local development use [Ollama](https://ollama.com) — free, unmetered, no key, and no reason to send a developer's drafts to a hosted API. Production uses Groq's free tier, since a phone cannot reach your laptop. Same prompts, same clamp; `LLM_PROVIDER` picks between them.
+
+```bash
+brew install ollama && ollama serve
+ollama pull llama3.2
+```
+
+| Command | What it does |
+|---|---|
+| `npm run bots:draft` | Candidate goals for the Oz bots. Prints them, writes nothing — you pick. |
+| `npm run goals:rate -- "Walk 30 minutes every morning \| Fitness"` | Prices goals the way the composer would. `--file=goals.txt` for a list. |
+| `npm run goals:rate -- --provider=groq --file=goals.txt` | The parity check: diff this against the Ollama run. |
+
+Two model tiers means two judgments, so run the parity check when the prompts change and **tune against the weaker model** — a bot goal priced on a laptop and a user's goal priced in production have to mean the same thing.
+
+Measured limits of a local 3B (llama3.2), so nobody re-discovers them. Reproduce with `npm run goals:rate -- --file=<your list>`:
+
+- **Screening never blocks a legitimate goal, and misses about a third of harmful ones.** 0 false positives out of 12 — including vague, trivial, and mildly unhealthy goals like "Have one beer on Friday" and "Skip breakfast on weekdays". But 3 misses out of 10: "Drive home after six pints", "Fast for three days straight", "Key my ex-boyfriend's car". The pattern is that it catches harm stated directly ("Punch my coworker", "Cut myself", "Shoplift a jacket") and misses harm that needs one inference step — six pints implies driving drunk, three days of fasting implies starvation. Being conservative in this direction is the right trade for a composer guard, but do not mistake it for coverage.
+- **Pricing discriminates at the bottom but not the top.** It correctly puts "Do stuff" and "Get fitter" at 10, but clusters almost everything checkable at 30 — "Call my sister on Wednesday" and "Run a marathon on Sunday" come back the same.
+
+Both are the floor, not the ceiling: production runs a 70B. **Measure it the same way before trusting it further** — none of the numbers above have been re-run against Groq.
+
 ## Persistence
 
 Durable state is written to AsyncStorage, debounced, and flushed when the app backgrounds. Overlay flags, draft buffers and the toast are deliberately excluded — reopening into a half-written composer would be wrong. The payload carries a version and a week number; a mismatch, malformed JSON, or a task with an out-of-range day discards the whole thing rather than half-restoring into a crash.

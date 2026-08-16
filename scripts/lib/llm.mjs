@@ -1,0 +1,114 @@
+/**
+ * The authoring scripts' way to reach a model.
+ *
+ * A Node twin of `supabase/functions/_shared/llm.ts`, which these scripts
+ * cannot import: that file is Deno, reads `Deno.env`, and resolves its siblings
+ * with a `.ts` suffix Node will not follow. The duplication is the same trade
+ * the rest of this project already makes for a script with no TypeScript
+ * runner.
+ *
+ * What is *not* duplicated is the prompts. Both runtimes import the very same
+ * `_shared/rubric.mjs` and `_shared/screening.mjs` — `.mjs` being the one
+ * extension Deno and Node both load — because the thing that must not drift is
+ * the standard a goal is held to. A bot goal priced on a laptop and a user's
+ * goal priced in production have to be answering the same question.
+ *
+ * Defaults to Ollama, which is the whole point of these scripts running here:
+ * free, unmetered, no key, and no reason to send a developer's drafts to a
+ * hosted API. `--provider=groq` exists so you can check that production prices
+ * the same goals the same way.
+ */
+// RUBRIC prices a goal; SCREENING decides whether it is safe to stake.
+export { RUBRIC } from '../../supabase/functions/_shared/rubric.mjs';
+export { SCREENING } from '../../supabase/functions/_shared/screening.mjs';
+
+/** `--provider=groq` on the command line, else LLM_PROVIDER, else ollama. */
+export function providerFromArgv(argv = process.argv) {
+  const flag = argv.find((a) => a.startsWith('--provider='));
+  return flag ? flag.slice('--provider='.length) : (process.env.LLM_PROVIDER ?? 'ollama');
+}
+
+/**
+ * No timeout here, unlike the edge function. Nobody is waiting on a keystroke —
+ * a 3B model on a laptop can take its time, and cutting it off at 2s would only
+ * mean drafting fails on exactly the machines that need it most.
+ */
+export async function complete({ system, user, schema, provider = 'ollama' }) {
+  const raw =
+    provider === 'ollama'
+      ? await ollama({ system, user, schema })
+      : provider === 'groq'
+        ? await groq({ system, user, schema })
+        : fail(`Unknown provider "${provider}". Supported: ollama, groq.`);
+  return parseJson(raw);
+}
+
+function fail(message) {
+  throw new Error(message);
+}
+
+async function ollama({ system, user, schema }) {
+  const base = process.env.LLM_BASE_URL ?? 'http://127.0.0.1:11434';
+  const model = process.env.LLM_MODEL ?? 'llama3.2';
+  let res;
+  try {
+    res = await fetch(`${base}/api/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        format: schema,
+        stream: false,
+        options: { temperature: 0 },
+      }),
+    });
+  } catch (err) {
+    // Much the most likely failure, and worth naming rather than showing a
+    // bare ECONNREFUSED to somebody who has simply not started Ollama.
+    throw new Error(
+      `Could not reach Ollama at ${base}.\n` +
+        `  brew install ollama && ollama serve\n` +
+        `  ollama pull ${model}\n` +
+        `(${err.message})`,
+    );
+  }
+  if (res.status === 404) {
+    // Ollama is running, it simply has never been given this model. Much the
+    // second-likeliest failure, and the fix is one command.
+    throw new Error(`Ollama has no model "${model}". Run: ollama pull ${model}`);
+  }
+  if (!res.ok) throw new Error(`Ollama returned ${res.status}: ${await res.text()}`);
+  return (await res.json())?.message?.content ?? '';
+}
+
+async function groq({ system, user, schema }) {
+  const key = process.env.LLM_API_KEY;
+  if (!key) throw new Error('LLM_API_KEY is not set. Required for --provider=groq.');
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: process.env.LLM_MODEL ?? 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: `${system}\n\nJSON Schema:\n${JSON.stringify(schema)}` },
+        { role: 'user', content: user },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0,
+    }),
+  });
+  if (!res.ok) throw new Error(`Groq returned ${res.status}: ${await res.text()}`);
+  return (await res.json())?.choices?.[0]?.message?.content ?? '';
+}
+
+/** Tolerates a model that wrapped its object in prose. */
+function parseJson(raw) {
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start === -1 || end <= start) throw new Error(`No JSON in the model's reply:\n${raw}`);
+  return JSON.parse(raw.slice(start, end + 1));
+}

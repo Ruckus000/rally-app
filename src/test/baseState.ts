@@ -6,7 +6,7 @@
  * so every new field meant three identical edits.
  */
 import type { State } from '../state/store';
-import { MOMENTS, MY_TASKS } from '../data/fixtures';
+import { CATEGORY_POINTS, MOMENTS, MY_TASKS } from '../data/fixtures';
 import {
   seedGlobalPosts,
   seedHistory,
@@ -53,6 +53,9 @@ export const baseState: State = {
   composerVal: '',
   draftDay: null,
   draftCat: 'Fitness',
+  draftPts: CATEGORY_POINTS.Fitness,
+  draftVerdict: 'ok',
+  draftReason: '',
   draftPair: [],
   draftAud: null,
   editingId: null,
