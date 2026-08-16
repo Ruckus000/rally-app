@@ -10,7 +10,10 @@
     "backgroundColor": "#F1F2EC",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "app.rally.weekspine"
+      "bundleIdentifier": "app.rally.weekspine",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "app.rally.weekspine",
