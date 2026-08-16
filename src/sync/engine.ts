@@ -752,9 +752,11 @@ export function createEngine(
       );
 
       const merge: ServerMerge = {};
-      // No rows is the common answer, and a dispatch that changes nothing still
-      // runs the reducer for every screen. Not dispatching is cheaper than
-      // relying on SERVER_MERGE's identity bail-out.
+      // No rows is the common answer for most of these keys, and a dispatch that
+      // changes nothing still runs the reducer for every screen — so not
+      // dispatching is cheaper than relying on SERVER_MERGE's identity bail-out.
+      // `people` is the exception below, and pays for itself: any account with
+      // one person in it dispatched on every pull before that was true.
       //
       // Stats ride along on the people rows rather than arriving as a slice of
       // their own: `ranking()` already reads `Person.stats`, and a second place
@@ -768,8 +770,16 @@ export function createEngine(
       // complete answer to "who is in this account's world", which is what lets
       // the reducer drop whoever is no longer in it. A half-answer would read
       // as "everybody else left".
+      //
+      // Sent even when it is empty, which is why this is not behind a length
+      // check. "Nobody" is a real answer — a fresh account is in no circle, and
+      // an `.env` pointed at a second backend has none of the first one's people
+      // — and a reducer that cannot tell it from silence keeps the old
+      // directory forever. Getting here at all is what makes it trustworthy: a
+      // read that failed threw inside the `Promise.all` above and left this
+      // function through the `catch`, without dispatching anything.
       const directory = dedupePeople([...people, ...bots]);
-      if (directory.length > 0) merge.people = withStats(directory, ownerRows);
+      merge.people = withStats(directory, ownerRows);
 
       // Circle members only. `profiles_select` exposes the profiles of people
       // who share a circle with you, plus the bots — so a feed of `everyone`
@@ -851,7 +861,9 @@ export function createEngine(
       }
 
       if (
-        !merge.people &&
+        // Presence, not emptiness: an empty directory is an answer, and the
+        // only thing that means "no answer" here is the key never being set.
+        merge.people === undefined &&
         !merge.tasks &&
         !merge.reactions &&
         !merge.notes &&

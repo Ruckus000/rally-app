@@ -807,11 +807,13 @@ describe('merging rows from the server', () => {
       expect(s.people[me]?.name).toBe('Tess Okonkwo');
     });
 
-    it('treats an empty answer as no answer', () => {
-      // The engine only sets the key when the read came back with rows. A merge
-      // carrying none must not be read as "everybody left".
-      expect(reducer(live, { type: 'SERVER_MERGE', merge: { people: [] } })).toBe(live);
-      expect(reducer(live, { type: 'SERVER_MERGE', merge: {} })).toBe(live);
+    it('reads an empty payload as nobody, and still not as nobody at all', () => {
+      // "Nobody" is what a second backend answers before you have joined a
+      // circle there. The old directory cannot be left standing for it — but
+      // you are not in your own circle, so you are what survives it.
+      const s = reducer(live, { type: 'SERVER_MERGE', merge: { people: [] } });
+      expect(Object.keys(s.people)).toEqual([me]);
+      expect(s.people[me]?.name).toBe('Tess Okonkwo');
     });
 
     it('leaves a demo account alone', () => {

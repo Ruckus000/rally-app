@@ -1142,6 +1142,34 @@ describe('the Oz bots', () => {
   });
 
   /**
+   * The same bug one step further out, and the reason the pull answers with the
+   * directory even when the directory is empty.
+   *
+   * A backend that names nobody — an `.env` repointed at a stack with no bots
+   * seeded and no circle joined yet — used to say nothing at all rather than
+   * "nobody", because the merge only carried `people` when it had rows. The
+   * previous backend's whole cast then sat in the directory, and on disk, with
+   * no pull that could ever clear it.
+   */
+  it('leave the directory when the backend stops naming anyone at all', async () => {
+    mount();
+    await settle();
+    aBotStakes();
+    await settle(60_000);
+    expect(screen.getByTestId('people')).toHaveTextContent(new RegExp(BOT));
+
+    await act(async () => {
+      await getSupabase().from('tasks').delete().eq('owner_id', BOT);
+      await getSupabase().from('profiles').delete().eq('id', BOT);
+    });
+
+    await settle(60_000);
+
+    expect(screen.getByTestId('people')).not.toHaveTextContent(new RegExp(BOT));
+    expect(screen.getByTestId('globals')).toHaveTextContent('');
+  });
+
+  /**
    * The control on the test above. Dropping whoever the payload does not name
    * is only safe because the payload is the *whole* directory; if a merge that
    * carries the bots could evict your circle, this would be a worse bug than
