@@ -222,6 +222,15 @@ export type State = {
   draftPts: number;
   /** 'blocked' when the draft is something this app will not put points on. */
   draftVerdict: 'ok' | 'blocked';
+  /**
+   * Why it was blocked, and it lives here rather than in the composer's hook
+   * for one reason: a refusal and its explanation have to move together. Held
+   * apart — the verdict in the store, the sentence in a hook scoped to the
+   * exact title that produced it — they drift out of step the moment someone
+   * keeps typing, and the screen becomes a disabled button with nothing next
+   * to it. A block with no reason is a dead end.
+   */
+  draftReason: string;
   draftPair: PersonId[];
   /** null = fall back to config.defaultAudience */
   draftAud: Audience | null;
@@ -282,6 +291,7 @@ const initialState: State = {
   draftCat: 'Fitness',
   draftPts: CATEGORY_POINTS.Fitness,
   draftVerdict: 'ok',
+  draftReason: '',
   draftPair: [],
   draftAud: null,
   editingId: null,
@@ -310,7 +320,7 @@ export type Action =
   | { type: 'SEND_NOTE' }
   | { type: 'SET_DRAFT'; value: string }
   | { type: 'SET_DRAFT_CAT'; cat: Category }
-  | { type: 'SET_DRAFT_RATING'; points: number; verdict: 'ok' | 'blocked' }
+  | { type: 'SET_DRAFT_RATING'; points: number; verdict: 'ok' | 'blocked'; reason: string }
   | { type: 'SET_DRAFT_DAY'; day: DayIndex }
   | { type: 'SET_DRAFT_AUD'; aud: Audience }
   | { type: 'TOGGLE_PAIR'; key: PersonId }
@@ -438,6 +448,7 @@ const ABANDON_EDIT = {
   // An empty composer has nothing to block. Leaving this set would carry a
   // refusal about a goal that is no longer on the screen into the next one.
   draftVerdict: 'ok',
+  draftReason: '',
 } satisfies Partial<State>;
 
 /**
@@ -629,7 +640,12 @@ export function reducer(state: State, action: Action): State {
       return { ...state, draftCat: action.cat };
 
     case 'SET_DRAFT_RATING':
-      return { ...state, draftPts: action.points, draftVerdict: action.verdict };
+      return {
+        ...state,
+        draftPts: action.points,
+        draftVerdict: action.verdict,
+        draftReason: action.verdict === 'blocked' ? action.reason : '',
+      };
 
     case 'SET_DRAFT_DAY':
       return { ...state, draftDay: action.day };
@@ -675,6 +691,7 @@ export function reducer(state: State, action: Action): State {
           draftAud: null,
           draftPts: CATEGORY_POINTS[state.draftCat] ?? 30,
           draftVerdict: 'ok',
+          draftReason: '',
           myTasks: [...state.myTasks, task],
         },
         `+${pts} on the line`,
@@ -696,6 +713,7 @@ export function reducer(state: State, action: Action): State {
         // until then the button offers to save it at the price it has.
         draftPts: t.pts,
         draftVerdict: 'ok',
+        draftReason: '',
         draftDay: t.day,
         draftPair: [...t.pair],
         draftAud: t.aud,

@@ -1,6 +1,10 @@
 /**
  * The composer's timing, and the promise that it never blocks.
  *
+ * Everything is asserted through `onRating`, because that is the hook's entire
+ * output — it hands the price to the reducer and returns nothing. There is one
+ * number, it lives in the store, and the button reads it from there.
+ *
  * Most of these are about failure, deliberately. A rating that arrives is the
  * easy case; what has to be true is that a rating which never arrives — because
  * the phone is in a tunnel, because the free tier ran out, because the model
@@ -16,6 +20,7 @@ jest.mock('../../lib/rateGoal', () => ({ rateGoal: jest.fn() }));
 const mockRate = rateGoal as jest.MockedFunction<typeof rateGoal>;
 
 const CONCRETE = 'Walk 30 minutes every morning';
+const FALLBACK = { points: CATEGORY_POINTS.Fitness, verdict: 'ok', reason: '' };
 
 function render(title: string, cat = 'Fitness', enabled = true) {
   const onRating = jest.fn();
@@ -62,77 +67,78 @@ describe('useGoalRating', () => {
 
   it('prices a rated goal at what came back', async () => {
     mockRate.mockResolvedValue({ verdict: 'ok', points: 45, reason: '' });
-    const { result, onRating } = render(CONCRETE);
+    const { onRating } = render(CONCRETE);
     await settle();
 
-    await waitFor(() => expect(result.current.state).toBe('rated'));
-    expect(result.current.points).toBe(45);
-    expect(onRating).toHaveBeenLastCalledWith({ points: 45, verdict: 'ok' });
+    await waitFor(() =>
+      expect(onRating).toHaveBeenLastCalledWith({ points: 45, verdict: 'ok', reason: '' }),
+    );
   });
 
   it('falls back to the category price when the call fails', async () => {
     // Offline, timed out, rate-limited, or a garbled body — `rateGoal` returns
     // null for all of them, and this is the one behaviour they must share.
     mockRate.mockResolvedValue(null);
-    const { result, onRating } = render(CONCRETE);
+    const { onRating } = render(CONCRETE);
     await settle();
 
-    await waitFor(() => expect(result.current.state).toBe('fallback'));
-    expect(result.current.points).toBe(CATEGORY_POINTS.Fitness);
-    expect(result.current.verdict).toBe('ok');
-    expect(onRating).toHaveBeenLastCalledWith({
-      points: CATEGORY_POINTS.Fitness,
-      verdict: 'ok',
-    });
-  });
-
-  it('never calls out in demo mode, and still prices the goal', async () => {
-    const { result, onRating } = render(CONCRETE, 'Fitness', false);
-    await settle();
-
-    expect(mockRate).not.toHaveBeenCalled();
-    expect(result.current.points).toBe(CATEGORY_POINTS.Fitness);
-    expect(onRating).toHaveBeenCalledWith({ points: CATEGORY_POINTS.Fitness, verdict: 'ok' });
-  });
-
-  it('does not ask about a fragment too short to be a goal', async () => {
-    const { result } = render('Run');
-    await settle();
-
-    expect(mockRate).not.toHaveBeenCalled();
-    expect(result.current.state).toBe('idle');
-    expect(result.current.points).toBe(CATEGORY_POINTS.Fitness);
-  });
-
-  it('passes a blocked verdict through to the reducer', async () => {
-    mockRate.mockResolvedValue({
-      verdict: 'blocked',
-      points: 35,
-      reason: 'That is not something to put points on.',
-    });
-    const { result, onRating } = render('something the model refused');
-    await settle();
-
-    await waitFor(() => expect(result.current.verdict).toBe('blocked'));
-    expect(result.current.reason).toBe('That is not something to put points on.');
-    expect(onRating).toHaveBeenLastCalledWith({ points: 35, verdict: 'blocked' });
+    await waitFor(() => expect(onRating).toHaveBeenLastCalledWith(FALLBACK));
   });
 
   it('falls back when rateGoal throws instead of returning null', async () => {
     // rateGoal promises never to throw, and was wrong about that once: it built
     // an AbortSignal.timeout above its own try block, which is a TypeError on
     // every device. A broken promise upstream has to degrade here, not leave
-    // the composer stuck on 'rating' with an unhandled rejection per keystroke.
+    // the composer showing a price nothing will ever correct.
     mockRate.mockRejectedValue(new TypeError('AbortSignal.timeout is not a function'));
-    const { result, onRating } = render(CONCRETE);
+    const { onRating } = render(CONCRETE);
     await settle();
 
-    await waitFor(() => expect(result.current.state).toBe('fallback'));
-    expect(result.current.points).toBe(CATEGORY_POINTS.Fitness);
-    expect(onRating).toHaveBeenLastCalledWith({
-      points: CATEGORY_POINTS.Fitness,
-      verdict: 'ok',
-    });
+    await waitFor(() => expect(onRating).toHaveBeenLastCalledWith(FALLBACK));
+  });
+
+  it('never calls out in demo mode, and still prices the goal', async () => {
+    const { onRating } = render(CONCRETE, 'Fitness', false);
+    await settle();
+
+    expect(mockRate).not.toHaveBeenCalled();
+    expect(onRating).toHaveBeenCalledWith(FALLBACK);
+  });
+
+  it('does not ask about a fragment too short to be a goal', async () => {
+    const { onRating } = render('Run');
+    await settle();
+
+    expect(mockRate).not.toHaveBeenCalled();
+    expect(onRating).toHaveBeenCalledWith(FALLBACK);
+  });
+
+  it('sends the reason along with a blocked verdict, never one without the other', async () => {
+    // The pair travels together or the composer ends up disabled with nothing
+    // written under it, which is a refusal the person cannot act on.
+    const reason = 'That is not something to put points on.';
+    mockRate.mockResolvedValue({ verdict: 'blocked', points: 35, reason });
+    const { onRating } = render('something the model refused');
+    await settle();
+
+    await waitFor(() =>
+      expect(onRating).toHaveBeenLastCalledWith({ points: 35, verdict: 'blocked', reason }),
+    );
+  });
+
+  it('clears a stale reason when the next goal is fine', async () => {
+    const reason = 'That is not something to put points on.';
+    mockRate.mockResolvedValue({ verdict: 'blocked', points: 35, reason });
+    const { rerender, onRating } = render('something the model refused');
+    await settle();
+
+    mockRate.mockResolvedValue({ verdict: 'ok', points: 45, reason: '' });
+    rerender({ title: CONCRETE });
+    await settle();
+
+    await waitFor(() =>
+      expect(onRating).toHaveBeenLastCalledWith({ points: 45, verdict: 'ok', reason: '' }),
+    );
   });
 
   it('abandons the answer to a question that changed', async () => {
@@ -157,5 +163,25 @@ describe('useGoalRating', () => {
     const signal = mockRate.mock.calls[0][2] as AbortSignal;
     unmount();
     expect(signal.aborted).toBe(true);
+  });
+
+  it('does not answer with a rating for a goal that is no longer on screen', async () => {
+    // The in-flight call for the abandoned title resolves *after* the draft
+    // changed. Answering then would price what is on screen using what is not.
+    let resolveFirst: (v: null) => void = () => {};
+    mockRate.mockImplementationOnce(
+      () => new Promise((r) => { resolveFirst = r as (v: null) => void; }),
+    );
+    const { rerender, onRating } = render(CONCRETE);
+    await settle();
+
+    onRating.mockClear();
+    rerender({ title: 'Read 50 pages before opening my phone' });
+    await act(async () => {
+      resolveFirst(null);
+    });
+
+    // Only the effect for the new title may speak, and it has not fired yet.
+    expect(onRating).not.toHaveBeenCalled();
   });
 });

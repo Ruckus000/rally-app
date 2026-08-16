@@ -37,17 +37,17 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
   const hasDraft = !!state.draft.trim();
   const editing = !!state.editingId;
 
-  // The hook decides *when* to ask and hands the answer to the reducer. What
-  // the button shows comes back out of `state.draftPts`, never out of the hook,
-  // because the reducer stakes that field — reading the price from two places
+  // The hook decides *when* to ask and hands the answer to the reducer; it
+  // returns nothing. What the button shows comes back out of `state.draftPts`,
+  // which is the field the reducer stakes — reading the price from two places
   // is how a button ends up promising a number the stake does not honour.
-  const rating = useGoalRating({
+  useGoalRating({
     title: state.draft,
     cat: state.draftCat,
     enabled: state.account === 'live' && hasSupabaseConfig(),
     onRating: React.useCallback(
-      ({ points, verdict }: { points: number; verdict: 'ok' | 'blocked' }) =>
-        dispatch({ type: 'SET_DRAFT_RATING', points, verdict }),
+      (r: { points: number; verdict: 'ok' | 'blocked'; reason: string }) =>
+        dispatch({ type: 'SET_DRAFT_RATING', ...r }),
       [dispatch],
     ),
   });
@@ -393,9 +393,9 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
 
             {/* Said once, under the button that will not move. No second
                 sentence and no advice — the refusal is the whole message. */}
-            {blocked && rating.reason ? (
+            {blocked ? (
               <Sans size={12} lineHeight={16.5} color={onDark.bodySecondary} style={{ marginTop: 10 }}>
-                {rating.reason}
+                {state.draftReason || 'This isn’t one to put points on.'}
               </Sans>
             ) : null}
           </View>

@@ -55,6 +55,7 @@ export const baseState: State = {
   draftCat: 'Fitness',
   draftPts: CATEGORY_POINTS.Fitness,
   draftVerdict: 'ok',
+  draftReason: '',
   draftPair: [],
   draftAud: null,
   editingId: null,

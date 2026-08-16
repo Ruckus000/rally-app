@@ -78,7 +78,7 @@ describe('staking', () => {
       base,
       { type: 'SET_DRAFT', value: 'Ship the thing' },
       { type: 'SET_DRAFT_CAT', cat: 'Work' },
-      { type: 'SET_DRAFT_RATING', points: 45, verdict: 'ok' },
+      { type: 'SET_DRAFT_RATING', points: 45, verdict: 'ok', reason: '' },
       { type: 'SET_DRAFT_DAY', day: 5 },
       { type: 'ADD_TASK', aud: 'everyone' },
     );
@@ -98,7 +98,7 @@ describe('staking', () => {
       base,
       { type: 'SET_DRAFT', value: 'Reply to one email' },
       { type: 'SET_DRAFT_CAT', cat: 'Work' },
-      { type: 'SET_DRAFT_RATING', points: 20, verdict: 'ok' },
+      { type: 'SET_DRAFT_RATING', points: 20, verdict: 'ok', reason: '' },
       { type: 'ADD_TASK', aud: 'friends' },
     );
     expect(s.myTasks[s.myTasks.length - 1].pts).toBe(20);
@@ -109,7 +109,7 @@ describe('staking', () => {
     const s = run(
       base,
       { type: 'SET_DRAFT', value: 'something the model refused' },
-      { type: 'SET_DRAFT_RATING', points: 35, verdict: 'blocked' },
+      { type: 'SET_DRAFT_RATING', points: 35, verdict: 'blocked', reason: '' },
       { type: 'ADD_TASK', aud: 'friends' },
     );
     expect(s.myTasks).toHaveLength(base.myTasks.length);
@@ -120,7 +120,7 @@ describe('staking', () => {
     const s = run(
       base,
       { type: 'SET_DRAFT', value: 'something the model refused' },
-      { type: 'SET_DRAFT_RATING', points: 35, verdict: 'blocked' },
+      { type: 'SET_DRAFT_RATING', points: 35, verdict: 'blocked', reason: '' },
       { type: 'CANCEL_EDIT' },
     );
     expect(s.draftVerdict).toBe('ok');
@@ -188,7 +188,7 @@ describe('editing a stake', () => {
       { type: 'START_EDIT', id: 'm2' },
       { type: 'SET_DRAFT', value: 'Ship it Friday' },
       { type: 'SET_DRAFT_CAT', cat: 'Mind' },
-      { type: 'SET_DRAFT_RATING', points: 25, verdict: 'ok' },
+      { type: 'SET_DRAFT_RATING', points: 25, verdict: 'ok', reason: '' },
       { type: 'SAVE_EDIT', aud: 'private' },
     );
     expect(s.myTasks).toHaveLength(base.myTasks.length);
@@ -212,7 +212,7 @@ describe('editing a stake', () => {
       base,
       { type: 'START_EDIT', id: 'm1' },
       { type: 'SET_DRAFT', value: 'Walk to the corner shop' },
-      { type: 'SET_DRAFT_RATING', points: 10, verdict: 'ok' },
+      { type: 'SET_DRAFT_RATING', points: 10, verdict: 'ok', reason: '' },
       { type: 'SAVE_EDIT', aud: 'friends' },
     );
     expect(s.myTasks.find((t) => t.id === 'm1')!.pts).toBe(10);
