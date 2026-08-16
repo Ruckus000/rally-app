@@ -81,8 +81,8 @@ const db = createClient(url, KEY, {
  * things. That is enough personality for a feed and none of it has to be
  * explained.
  *
- * Points are derived from the category below, so the number beside a goal is
- * the number the composer would charge for staking the same thing. Every task is
+ * Each goal carries its own price, rated by the same rubric the composer rates
+ * yours with — `node scripts/rate-goals.mjs` produces them. Every task is
  * `aud: 'everyone'`, which is what makes this the Global feed rather than four
  * accounts nobody can see, and ids are fixed so a second run updates the same
  * rows instead of staking the week twice.
@@ -97,9 +97,9 @@ const BOTS = [
     name: 'Dorothy Gale',
     email: 'dorothy@ozbots.rally.app',
     tasks: [
-      ['0b0d0000-0000-4000-8000-000000000001', 1, 'Walk 30 minutes every morning', 'Fitness', true],
-      ['0b0d0000-0000-4000-8000-000000000002', 2, 'Meal prep Sunday for the week', 'Home', true],
-      ['0b0d0000-0000-4000-8000-000000000003', 4, 'Bike to work 3 days', 'Fitness', false],
+      ['0b0d0000-0000-4000-8000-000000000001', 1, 'Walk 30 minutes every morning', 'Fitness', 35, true],
+      ['0b0d0000-0000-4000-8000-000000000002', 2, 'Meal prep Sunday for the week', 'Home', 25, true],
+      ['0b0d0000-0000-4000-8000-000000000003', 4, 'Bike to work 3 days', 'Fitness', 35, false],
     ],
   },
   {
@@ -107,9 +107,9 @@ const BOTS = [
     name: 'The Scarecrow',
     email: 'scarecrow@ozbots.rally.app',
     tasks: [
-      ['0b0d0000-0000-4000-8000-000000000011', 0, 'Read 50 pages before opening my phone', 'Mind', true],
-      ['0b0d0000-0000-4000-8000-000000000012', 2, 'Finish module 3 of the SQL course', 'Work', false],
-      ['0b0d0000-0000-4000-8000-000000000013', 3, 'Write a 20-minute weekly review on Friday', 'Mind', true],
+      ['0b0d0000-0000-4000-8000-000000000011', 0, 'Read 50 pages before opening my phone', 'Mind', 25, true],
+      ['0b0d0000-0000-4000-8000-000000000012', 2, 'Finish module 3 of the SQL course', 'Work', 45, false],
+      ['0b0d0000-0000-4000-8000-000000000013', 3, 'Write a 20-minute weekly review on Friday', 'Mind', 25, true],
     ],
   },
   {
@@ -117,9 +117,9 @@ const BOTS = [
     name: 'Tin Man',
     email: 'tinman@ozbots.rally.app',
     tasks: [
-      ['0b0d0000-0000-4000-8000-000000000021', 1, 'Call my sister on Wednesday', 'Mind', true],
-      ['0b0d0000-0000-4000-8000-000000000022', 3, 'Cook at home 4 nights', 'Home', false],
-      ['0b0d0000-0000-4000-8000-000000000023', 5, 'Stretch 10 minutes before bed', 'Fitness', false],
+      ['0b0d0000-0000-4000-8000-000000000021', 1, 'Call my sister on Wednesday', 'Mind', 25, true],
+      ['0b0d0000-0000-4000-8000-000000000022', 3, 'Cook at home 4 nights', 'Home', 25, false],
+      ['0b0d0000-0000-4000-8000-000000000023', 5, 'Stretch 10 minutes before bed', 'Fitness', 35, false],
     ],
   },
   {
@@ -127,19 +127,26 @@ const BOTS = [
     name: 'Cowardly Lion',
     email: 'lion@ozbots.rally.app',
     tasks: [
-      ['0b0d0000-0000-4000-8000-000000000031', 2, 'Ask for a 1:1 about the promotion', 'Work', true],
-      ['0b0d0000-0000-4000-8000-000000000032', 4, 'Send the pitch to 3 clients', 'Work', false],
+      ['0b0d0000-0000-4000-8000-000000000031', 2, 'Ask for a 1:1 about the promotion', 'Work', 45, true],
+      ['0b0d0000-0000-4000-8000-000000000032', 4, 'Send the pitch to 3 clients', 'Work', 45, false],
     ],
   },
 ];
 
 /**
- * `CATEGORY_POINTS`, which this script cannot import — it is a TypeScript
- * module inside the app and there is no TS runner here. Repeated once, and
- * derived from rather than typed out per task, so a goal can never carry a
- * price the composer would not charge for staking the same thing.
+ * There is no `POINTS` map here any more, and its absence is the point.
+ *
+ * It used to be a hand-copy of `CATEGORY_POINTS`, and the price was derived
+ * from the category so that a bot goal could never carry a number the composer
+ * would not charge. The composer no longer charges by category — it reads the
+ * goal — so deriving a price here would now be the thing that produced a number
+ * nobody could stake.
+ *
+ * Each task therefore carries its own reviewed price, from
+ * `node scripts/rate-goals.mjs`. Re-run it whenever the wording changes: an
+ * edited goal is a different goal, and the number beside it has to be the one
+ * the app would give somebody who typed the same words.
  */
-const POINTS = { Fitness: 35, Work: 45, Home: 25, Mind: 25 };
 
 /** The Monday of the current week, in the server's own `week_start` shape. */
 function thisMonday() {
@@ -200,7 +207,7 @@ for (const [botIndex, bot] of BOTS.entries()) {
   // transaction is written at one instant, and the feed rendered as a wall of
   // "0h ago" in four blocks of one name — a week's worth of other people's
   // lives, all apparently happening while you watched.
-  const rows = bot.tasks.map(([taskId, day, title, category, done], i) => {
+  const rows = bot.tasks.map(([taskId, day, title, category, points, done], i) => {
     const at = new Date(Date.now() - (2 + i * 5 + botIndex) * 3600_000).toISOString();
     return {
       id: taskId,
@@ -209,7 +216,7 @@ for (const [botIndex, bot] of BOTS.entries()) {
       day,
       title,
       category,
-      points: POINTS[category],
+      points,
       aud: 'everyone',
       source: 'staked',
       created_at: at,

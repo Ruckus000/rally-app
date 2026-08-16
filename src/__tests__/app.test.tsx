@@ -148,13 +148,17 @@ describe('plan', () => {
     expect(screen.getByText('Write it down first')).toBeTruthy();
   });
 
-  it('prices the stake from the chosen category', () => {
+  it('falls back to the category price when nothing rates the goal', () => {
+    // A demo account makes no network calls at all, so nothing is ever rated
+    // here and the composer shows what the category has always been worth.
+    // This is also what a live account sees with the network off, which is the
+    // property that matters: staking never waits on a model.
     open();
     fireEvent.press(screen.getByLabelText('Plan your week'));
     fireEvent.changeText(screen.getByLabelText('What will you do?'), 'Swim on Sunday');
-    fireEvent.press(screen.getByLabelText('Work, 45 points'));
+    fireEvent.press(screen.getByLabelText('Work'));
     expect(screen.getByText(/Stake it on .* · \+45 pts/)).toBeTruthy();
-    fireEvent.press(screen.getByLabelText('Home, 25 points'));
+    fireEvent.press(screen.getByLabelText('Home'));
     expect(screen.getByText(/Stake it on .* · \+25 pts/)).toBeTruthy();
   });
 

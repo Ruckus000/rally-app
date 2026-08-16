@@ -73,11 +73,12 @@ describe('staking', () => {
     expect(s.myTasks).toHaveLength(base.myTasks.length);
   });
 
-  it('takes points from the category and the day from the picker', () => {
+  it('stakes the price it was told, and the day from the picker', () => {
     const s = run(
       base,
       { type: 'SET_DRAFT', value: 'Ship the thing' },
       { type: 'SET_DRAFT_CAT', cat: 'Work' },
+      { type: 'SET_DRAFT_RATING', points: 45, verdict: 'ok' },
       { type: 'SET_DRAFT_DAY', day: 5 },
       { type: 'ADD_TASK', aud: 'everyone' },
     );
@@ -85,6 +86,44 @@ describe('staking', () => {
     expect(added).toMatchObject({ title: 'Ship the thing', cat: 'Work', pts: 45, day: 5, aud: 'everyone' });
     expect(s.toast).toBe('+45 on the line');
     expect(s.draft).toBe('');
+  });
+
+  it('does not re-derive the price from the category', () => {
+    // The whole mechanism in one assertion. The composer shows `draftPts`, and
+    // this stakes `draftPts` — so a goal rated at 20 stays 20 even though its
+    // category has always been worth 45. If this ever went back to reading
+    // CATEGORY_POINTS, the button would promise one number and the week would
+    // record another.
+    const s = run(
+      base,
+      { type: 'SET_DRAFT', value: 'Reply to one email' },
+      { type: 'SET_DRAFT_CAT', cat: 'Work' },
+      { type: 'SET_DRAFT_RATING', points: 20, verdict: 'ok' },
+      { type: 'ADD_TASK', aud: 'friends' },
+    );
+    expect(s.myTasks[s.myTasks.length - 1].pts).toBe(20);
+    expect(s.toast).toBe('+20 on the line');
+  });
+
+  it('refuses a draft the rating blocked, button or no button', () => {
+    const s = run(
+      base,
+      { type: 'SET_DRAFT', value: 'something the model refused' },
+      { type: 'SET_DRAFT_RATING', points: 35, verdict: 'blocked' },
+      { type: 'ADD_TASK', aud: 'friends' },
+    );
+    expect(s.myTasks).toHaveLength(base.myTasks.length);
+  });
+
+  it('clears the block when the composer moves on', () => {
+    // A refusal is about the goal that was on screen, not about the composer.
+    const s = run(
+      base,
+      { type: 'SET_DRAFT', value: 'something the model refused' },
+      { type: 'SET_DRAFT_RATING', points: 35, verdict: 'blocked' },
+      { type: 'CANCEL_EDIT' },
+    );
+    expect(s.draftVerdict).toBe('ok');
   });
 
   it('unstakes and says it', () => {
@@ -149,6 +188,7 @@ describe('editing a stake', () => {
       { type: 'START_EDIT', id: 'm2' },
       { type: 'SET_DRAFT', value: 'Ship it Friday' },
       { type: 'SET_DRAFT_CAT', cat: 'Mind' },
+      { type: 'SET_DRAFT_RATING', points: 25, verdict: 'ok' },
       { type: 'SAVE_EDIT', aud: 'private' },
     );
     expect(s.myTasks).toHaveLength(base.myTasks.length);
@@ -160,6 +200,29 @@ describe('editing a stake', () => {
     });
     expect(s.editingId).toBeNull();
     expect(s.toast).toBe('Updated — still on the line');
+  });
+
+  it('re-prices from the new rating rather than keeping the old price', () => {
+    // The loop this closes: stake something demanding, collect a high price,
+    // then quietly edit it down to something you were going to do anyway.
+    const before = base.myTasks.find((t) => t.id === 'm1')!;
+    expect(before.pts).toBe(40);
+
+    const s = run(
+      base,
+      { type: 'START_EDIT', id: 'm1' },
+      { type: 'SET_DRAFT', value: 'Walk to the corner shop' },
+      { type: 'SET_DRAFT_RATING', points: 10, verdict: 'ok' },
+      { type: 'SAVE_EDIT', aud: 'friends' },
+    );
+    expect(s.myTasks.find((t) => t.id === 'm1')!.pts).toBe(10);
+  });
+
+  it('opens an edit at the price the task already carries', () => {
+    // Before any rating comes back there is exactly one honest number to show,
+    // and it is the one the task is currently worth — not its category's.
+    const s = reducer(base, { type: 'START_EDIT', id: 'm1' });
+    expect(s.draftPts).toBe(40);
   });
 
   it('keeps the original when the edit is cancelled', () => {

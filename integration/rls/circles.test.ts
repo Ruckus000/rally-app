@@ -491,7 +491,10 @@ describe('the invariants, not just the error codes', () => {
       join pg_namespace n on n.oid = c.relnamespace
       cross join (select rolname from pg_roles where rolname in ('anon','authenticated')) r
       where n.nspname = 'public' and c.relkind = 'r'`);
-    expect(rows.length).toBe(20);
+    // 12 tables × 2 roles. The count is pinned so that adding a table without
+    // thinking about its grants fails here rather than shipping — which is what
+    // it just did for `goal_ratings` and `llm_usage`.
+    expect(rows.length).toBe(24);
     for (const r of rows) expect(r.trunc).toBe(false);
   });
 
