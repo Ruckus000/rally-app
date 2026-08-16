@@ -121,7 +121,11 @@ The screening block is a composer guard, not a security control: a client writin
 
 ### Running a model locally
 
-The bot authoring scripts and local development use [Ollama](https://ollama.com) — free, unmetered, no key, and no reason to send a developer's drafts to a hosted API. Production uses Groq's free tier, since a phone cannot reach your laptop. Same prompts, same clamp; `LLM_PROVIDER` picks between them.
+Everything runs against [Ollama](https://ollama.com) over HTTP — free, unmetered, no key, and nothing leaves a machine you control. On a laptop that is `localhost` and it authors the bot goals; in production it is whatever box `LLM_BASE_URL` names. Same model, same prompts, same clamp, so a bot goal and a user's goal are priced by the same thing.
+
+This is also the only shape Supabase documents for language models in an edge function: [the built-in AI API hosts embeddings, and anything larger is expected to be a self-managed Ollama or Llamafile server](https://supabase.com/docs/guides/functions/ai-models). Neither Supabase nor Vercel will run a model for you — [Vercel has no GPUs](https://vercel.com/blog/ai-gateway), and its AI Gateway is a router in front of other people's models.
+
+**Nothing is deployed.** With no `LLM_BASE_URL` reachable from production, every goal falls back to its category price and the composer never blocks — the verified fallback path, not a failure. Rating goes live when there is a box to point at.
 
 ```bash
 brew install ollama && ollama serve
@@ -132,16 +136,15 @@ ollama pull llama3.2
 |---|---|
 | `npm run bots:draft` | Candidate goals for the Oz bots. Prints them, writes nothing — you pick. |
 | `npm run goals:rate -- "Walk 30 minutes every morning \| Fitness"` | Prices goals the way the composer would. `--file=goals.txt` for a list. |
-| `npm run goals:rate -- --provider=groq --file=goals.txt` | The parity check: diff this against the Ollama run. |
 
-Two model tiers means two judgments, so run the parity check when the prompts change and **tune against the weaker model** — a bot goal priced on a laptop and a user's goal priced in production have to mean the same thing.
+One model everywhere means there is no parity problem to manage: point `LLM_BASE_URL` at whatever production talks to and the scripts price goals with exactly what users get.
 
-Measured limits of a local 3B (llama3.2), so nobody re-discovers them. Reproduce with `npm run goals:rate -- --file=<your list>`:
+Measured limits of llama3.2 (3B), so nobody re-discovers them. Reproduce with `npm run goals:rate -- --file=<your list>`:
 
 - **Screening never blocks a legitimate goal, and misses about a third of harmful ones.** 0 false positives out of 12 — including vague, trivial, and mildly unhealthy goals like "Have one beer on Friday" and "Skip breakfast on weekdays". But 3 misses out of 10: "Drive home after six pints", "Fast for three days straight", "Key my ex-boyfriend's car". The pattern is that it catches harm stated directly ("Punch my coworker", "Cut myself", "Shoplift a jacket") and misses harm that needs one inference step — six pints implies driving drunk, three days of fasting implies starvation. Being conservative in this direction is the right trade for a composer guard, but do not mistake it for coverage.
 - **Pricing discriminates at the bottom but not the top.** It correctly puts "Do stuff" and "Get fitter" at 10, but clusters almost everything checkable at 30 — "Call my sister on Wednesday" and "Run a marathon on Sunday" come back the same.
 
-Both are the floor, not the ceiling: production runs a 70B. **Measure it the same way before trusting it further** — none of the numbers above have been re-run against Groq.
+Both are the floor of what a 3B does. A bigger model on a bigger box will do better on each, and `LLM_MODEL` is the only thing that changes — but **re-measure before trusting it further**, because the screening miss rate is the number that decides whether the guard is worth having.
 
 ## Persistence
 

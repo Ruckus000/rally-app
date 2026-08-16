@@ -1,17 +1,21 @@
 /**
  * The one place this project talks to a language model.
  *
- * Two providers ship working, because the two jobs have different audiences.
- * Bot goals are authored on a developer's laptop, where Ollama is free and
- * unmetered and there is no reason to send anything to a hosted API. Goals
- * typed by a real user are rated from an edge function, which cannot reach that
- * laptop, so production points at Groq's free tier. Same rubric, same schema,
- * same clamp — the provider is a config value, not a code path.
+ * One provider: Ollama, over HTTP, wherever it happens to be running. On a
+ * laptop that is `localhost` and it authors the bot goals; in production it is
+ * whatever box `LLM_BASE_URL` names. Same model, same rubric, same clamp, so a
+ * bot goal and a user's goal are priced by the same thing rather than by two
+ * models somebody has to keep in agreement.
  *
- * Free tiers move. That is the whole reason this file exists as a seam rather
- * than as a fetch call inside the handler: swapping providers when terms change
- * should be `supabase secrets set`, and self-hosting Ollama is already one of
- * the branches if it ever comes to that.
+ * This is also the only shape Supabase documents for language models in an edge
+ * function — the built-in `Supabase.ai` API hosts embeddings, and anything
+ * larger is expected to be a self-managed Ollama or Llamafile server. Neither
+ * Supabase nor Vercel will run a model for you; Vercel has no GPUs at all.
+ *
+ * It stays a seam rather than a fetch call in the handler because the endpoint
+ * is a config value: moving from a laptop to a box on the internet is
+ * `supabase secrets set`, and adding a hosted provider later is one branch here
+ * and nothing anywhere else.
  *
  * Two prompts, not one, and the split is not cosmetic. Asked to price a goal
  * and judge its safety in a single schema, a small model fills the verdict
@@ -28,8 +32,8 @@
  * misconfiguration throws, since that is a deploy mistake and should be loud.
  */
 
+/** The host's Ollama, as seen from inside the local edge runtime container. */
 const DEFAULT_OLLAMA_URL = 'http://host.docker.internal:11434';
-const DEFAULT_GROQ_URL = 'https://api.groq.com';
 
 /**
  * Hard ceiling on a single call. The composer shows a fallback price while it
@@ -38,12 +42,12 @@ const DEFAULT_GROQ_URL = 'https://api.groq.com';
  */
 const TIMEOUT_MS = 2000;
 
-export type Provider = 'ollama' | 'groq' | 'gemini' | 'cloudflare';
+export type Provider = 'ollama';
 
 export type CompleteOpts = {
   system: string;
   user: string;
-  /** JSON Schema. Ollama enforces it during decoding; Groq gets it in the prompt. */
+  /** JSON Schema. Ollama constrains decoding to it, so a reply cannot break it. */
   schema: Record<string, unknown>;
 };
 
@@ -68,12 +72,7 @@ export { SCREENING } from './screening.mjs';
 export async function complete<T>(opts: CompleteOpts): Promise<T | null> {
   const p = provider();
   try {
-    const raw =
-      p === 'ollama'
-        ? await callOllama(opts)
-        : p === 'groq'
-          ? await callGroq(opts)
-          : unsupported(p);
+    const raw = p === 'ollama' ? await callOllama(opts) : unsupported(p);
     if (raw === null) return null;
     return parseJson<T>(raw);
   } catch (err) {
@@ -84,10 +83,11 @@ export async function complete<T>(opts: CompleteOpts): Promise<T | null> {
   }
 }
 
-function unsupported(p: Provider): never {
+function unsupported(p: string): never {
   throw new Error(
-    `LLM_PROVIDER=${p} is not implemented. Supported: ollama, groq. ` +
-      `Adding one means a branch in _shared/llm.ts and nothing else.`,
+    `LLM_PROVIDER=${p} is not implemented. The only provider is ollama, ` +
+      `pointed at LLM_BASE_URL. Adding a hosted one means a branch here and ` +
+      `nothing anywhere else.`,
   );
 }
 
@@ -123,40 +123,12 @@ async function callOllama({ system, user, schema }: CompleteOpts): Promise<strin
 }
 
 /**
- * `json_object` is a format hint, not a grammar constraint — the model is told
- * to emit JSON and usually does, but nothing stops it wrapping the object in a
- * sentence. Hence the schema going into the prompt as well, and the tolerant
- * parse below.
+ * Tolerates a model that wrapped its object in prose. Null if there is none.
+ *
+ * Ollama's grammar constraint makes that impossible, so this is belt and braces
+ * for the day a hosted provider is added — those offer a JSON *hint* rather than
+ * a constraint, and will happily wrap the object in a sentence.
  */
-async function callGroq({ system, user, schema }: CompleteOpts): Promise<string | null> {
-  const key = env('LLM_API_KEY');
-  if (!key) throw new Error('LLM_API_KEY is not set. Required for LLM_PROVIDER=groq.');
-  const base = env('LLM_BASE_URL') || DEFAULT_GROQ_URL;
-  const res = await fetch(`${base}/openai/v1/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-    body: JSON.stringify({
-      model: env('LLM_MODEL') || 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: `${system}\n\nJSON Schema:\n${JSON.stringify(schema)}` },
-        { role: 'user', content: user },
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0,
-    }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    // 429 lands here. Nothing to do about it beyond letting the caller fall
-    // back — the per-user cap upstream exists so this stays rare.
-    console.warn(`llm: groq returned ${res.status}`);
-    return null;
-  }
-  const body = await res.json();
-  return body?.choices?.[0]?.message?.content ?? null;
-}
-
-/** Tolerates a model that wrapped its object in prose. Null if there is none. */
 function parseJson<T>(raw: string): T | null {
   const start = raw.indexOf('{');
   const end = raw.lastIndexOf('}');

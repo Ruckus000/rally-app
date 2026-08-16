@@ -14,7 +14,7 @@
  * unmetered — ask for forty and keep eight. Rejecting most of the output is the
  * expected way to use this, not a sign it went wrong.
  */
-import { RUBRIC, complete, providerFromArgv } from './lib/llm.mjs';
+import { RUBRIC, complete } from './lib/llm.mjs';
 
 /**
  * Who they are, in the terms the goals have to reflect. Deliberately short:
@@ -53,7 +53,6 @@ const flag = (name, fallback) => {
 
 const count = Number(flag('count', '10'));
 const only = flag('bot', null);
-const provider = providerFromArgv();
 
 const chosen = only ? { [only]: BOTS[only] } : BOTS;
 if (only && !BOTS[only]) {
@@ -98,7 +97,7 @@ const system = [
   'category is wrong.',
 ].join('\n');
 
-console.log(`Drafting via ${provider}. Nothing here is written anywhere — pick what you want.\n`);
+console.log('Drafting. Nothing here is written anywhere — pick what you want.\n');
 
 for (const [handle, who] of Object.entries(chosen)) {
   console.log(`── ${handle} ${'─'.repeat(Math.max(0, 60 - handle.length))}`);
@@ -107,7 +106,6 @@ for (const [handle, who] of Object.entries(chosen)) {
       system,
       user: `${who}\n\nWrite ${count} candidate goals for this person's week.`,
       schema: SCHEMA,
-      provider,
     });
     for (const g of goals ?? []) {
       const long = g.title.length > 50 ? `  ← ${g.title.length} chars, too long` : '';
