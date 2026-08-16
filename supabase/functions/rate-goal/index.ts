@@ -4,7 +4,7 @@
  *   POST { title, cat } -> { verdict, points, reason }
  *
  * Runs with `verify_jwt` on, which is the default and is load-bearing: without
- * it an anonymous caller could burn a shared free-tier quota from anywhere.
+ * it an anonymous caller could spend a shared model's time from anywhere.
  *
  * Three things stand between a model and the number on the button:
  *
@@ -14,10 +14,10 @@
  *      lookup and no model call at all.
  *   2. `clampPoints`. The model proposes; this decides. Nothing it returns
  *      reaches a task row unrounded or out of band.
- *   3. The per-user daily cap. Groq's free tier is 14,400 requests a day for
- *      the whole project, so one client stuck in a debounce loop could spend
- *      everyone's. Over the cap is not an error — it is a fallback price and a
- *      quiet log, because a rate limit is our problem and not the user's.
+ *   3. The per-user daily cap. One model serves every account, so one client
+ *      stuck in a debounce loop is one client holding up everybody's queue.
+ *      Over the cap is not an error — it is a fallback price and a quiet log,
+ *      because a rate limit is our problem and not the user's.
  *
  * Every failure path returns 200 with a usable price. The composer treats a
  * missing rating and a returned one identically, so the only thing a bad day
@@ -32,7 +32,7 @@ import { RUBRIC, SCREENING, complete } from '../_shared/llm.ts';
 const TITLE_MIN = 8;
 const TITLE_MAX = 50;
 
-/** Calls per user per UTC day. Well above honest use, well below the free tier. */
+/** Calls per user per UTC day. Well above honest use, well below what one box serves. */
 const DAILY_CAP = 200;
 
 /**

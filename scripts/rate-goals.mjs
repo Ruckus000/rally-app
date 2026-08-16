@@ -2,21 +2,21 @@
  * Price goals the way the composer would, and print what it would charge.
  *
  *   node scripts/rate-goals.mjs "Walk 30 minutes every morning" "Get fitter"
- *   node scripts/rate-goals.mjs --provider=groq --file=goals.txt
+ *   node scripts/rate-goals.mjs --file=goals.txt
  *
  * Two uses. One: you have reviewed a batch of bot goals and need the numbers to
- * paste into `seed-bots.mjs`. Two: the parity check — run the same list through
- * `--provider=ollama` and `--provider=groq` and diff. A local 3B and a hosted
- * 70B will not agree perfectly, and what matters is that they agree on which
- * goals are the cheap ones and never disagree about a block. If the local model
- * is the harsher of the two, tune the rubric against it, because a bot goal
- * priced here and a user's goal priced in production have to mean the same
- * thing.
+ * paste into `seed-bots.mjs`. Two: checking the rubric after editing it — feed
+ * it a list with known-cheap, known-dear and known-blocked lines and read the
+ * column.
+ *
+ * There is no provider flag, because there is one provider. Point LLM_BASE_URL
+ * at whatever machine production talks to and this prices goals with the same
+ * model users get, which is the only definition of parity that means anything.
  *
  * Writes nothing. Prints a table.
  */
 import { readFileSync } from 'node:fs';
-import { RUBRIC, SCREENING, complete, providerFromArgv } from './lib/llm.mjs';
+import { RUBRIC, SCREENING, complete } from './lib/llm.mjs';
 
 const POINT_MIN = 10;
 const POINT_MAX = 60;
@@ -35,7 +35,6 @@ const SCREEN_SCHEMA = {
   required: ['harmful', 'reason'],
 };
 
-const provider = providerFromArgv();
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const fileFlag = process.argv.find((a) => a.startsWith('--file='));
 
@@ -54,13 +53,13 @@ if (!lines.length) {
   console.error(
     'Nothing to rate.\n\n' +
       '  node scripts/rate-goals.mjs "Walk 30 minutes every morning"\n' +
-      '  node scripts/rate-goals.mjs --file=goals.txt --provider=groq\n\n' +
+      '  node scripts/rate-goals.mjs --file=goals.txt\n\n' +
       'In the file, one goal per line, optionally "Title | Category".',
   );
   process.exit(1);
 }
 
-console.log(`Rating ${lines.length} goal${lines.length === 1 ? '' : 's'} via ${provider}.\n`);
+console.log(`Rating ${lines.length} goal${lines.length === 1 ? '' : 's'}.\n`);
 
 for (const line of lines) {
   const [title, cat = 'Fitness'] = line.split('|').map((s) => s.trim());
@@ -70,9 +69,8 @@ for (const line of lines) {
         system: RUBRIC,
         user: `Category: ${cat}\nGoal: ${title}`,
         schema: PRICE_SCHEMA,
-        provider,
       }),
-      complete({ system: SCREENING, user: title, schema: SCREEN_SCHEMA, provider }),
+      complete({ system: SCREENING, user: title, schema: SCREEN_SCHEMA }),
     ]);
     // The same clamp the server applies, so what prints is what a task row
     // would actually carry rather than what the model happened to say.

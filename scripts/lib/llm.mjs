@@ -13,38 +13,21 @@
  * the standard a goal is held to. A bot goal priced on a laptop and a user's
  * goal priced in production have to be answering the same question.
  *
- * Defaults to Ollama, which is the whole point of these scripts running here:
- * free, unmetered, no key, and no reason to send a developer's drafts to a
- * hosted API. `--provider=groq` exists so you can check that production prices
- * the same goals the same way.
+ * Ollama, which is the whole point of these scripts running here: free,
+ * unmetered, no key, and no reason to send a developer's drafts anywhere. Point
+ * LLM_BASE_URL at another machine to use one that is not this one.
  */
 // RUBRIC prices a goal; SCREENING decides whether it is safe to stake.
 export { RUBRIC } from '../../supabase/functions/_shared/rubric.mjs';
 export { SCREENING } from '../../supabase/functions/_shared/screening.mjs';
-
-/** `--provider=groq` on the command line, else LLM_PROVIDER, else ollama. */
-export function providerFromArgv(argv = process.argv) {
-  const flag = argv.find((a) => a.startsWith('--provider='));
-  return flag ? flag.slice('--provider='.length) : (process.env.LLM_PROVIDER ?? 'ollama');
-}
 
 /**
  * No timeout here, unlike the edge function. Nobody is waiting on a keystroke —
  * a 3B model on a laptop can take its time, and cutting it off at 2s would only
  * mean drafting fails on exactly the machines that need it most.
  */
-export async function complete({ system, user, schema, provider = 'ollama' }) {
-  const raw =
-    provider === 'ollama'
-      ? await ollama({ system, user, schema })
-      : provider === 'groq'
-        ? await groq({ system, user, schema })
-        : fail(`Unknown provider "${provider}". Supported: ollama, groq.`);
-  return parseJson(raw);
-}
-
-function fail(message) {
-  throw new Error(message);
+export async function complete({ system, user, schema }) {
+  return parseJson(await ollama({ system, user, schema }));
 }
 
 async function ollama({ system, user, schema }) {
@@ -85,25 +68,6 @@ async function ollama({ system, user, schema }) {
   return (await res.json())?.message?.content ?? '';
 }
 
-async function groq({ system, user, schema }) {
-  const key = process.env.LLM_API_KEY;
-  if (!key) throw new Error('LLM_API_KEY is not set. Required for --provider=groq.');
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-    body: JSON.stringify({
-      model: process.env.LLM_MODEL ?? 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: `${system}\n\nJSON Schema:\n${JSON.stringify(schema)}` },
-        { role: 'user', content: user },
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0,
-    }),
-  });
-  if (!res.ok) throw new Error(`Groq returned ${res.status}: ${await res.text()}`);
-  return (await res.json())?.choices?.[0]?.message?.content ?? '';
-}
 
 /** Tolerates a model that wrapped its object in prose. */
 function parseJson(raw) {
