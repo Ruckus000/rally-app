@@ -1093,6 +1093,99 @@ describe('the Oz bots', () => {
 
     expect(screen.getByTestId('globalNotes')).toHaveTextContent('Respect.');
   });
+
+  /**
+   * Seen on a live account against a local stack: the composer's "In it with
+   * me" row offered Dorothy twice.
+   *
+   * A bot's account is minted by `scripts/seed-bots.mjs`, so re-seeding after a
+   * database reset — or pointing the app at a second backend — gives the same
+   * character a new uuid. Both rows then sat in `people`, which only ever grew,
+   * and `circleMembers()` is `Object.keys(people)`: one chip each, same name,
+   * same face. It survived restarts too, because `people` is persisted.
+   */
+  it('do not linger under an id the server has stopped answering with', async () => {
+    mount();
+    await settle();
+    aBotStakes();
+    await settle(60_000);
+    expect(screen.getByTestId('people')).toHaveTextContent(new RegExp(BOT));
+
+    // The same bot, re-seeded: one profile row, one uuid, and the old one gone
+    // — which is exactly what `npm run db:bots` does after a `db reset`.
+    const REBORN = '00000000-0000-4000-8000-0000000000b1';
+    await act(async () => {
+      await getSupabase().from('tasks').delete().eq('owner_id', BOT);
+      await getSupabase().from('profiles').delete().eq('id', BOT);
+    });
+    fakeSupabase.seed({
+      profiles: [{ id: REBORN, handle: 'dorothy.gale', name: 'Dorothy Gale', is_bot: true }],
+      tasks: [
+        {
+          id: BOT_TASK,
+          owner_id: REBORN,
+          week_start: weekOnScreen(),
+          day: 1,
+          title: 'Walked the whole way',
+          category: 'Fitness',
+          points: 20,
+          aud: 'everyone',
+          source: 'staked',
+        },
+      ],
+    });
+
+    await settle(60_000);
+
+    expect(screen.getByTestId('people')).toHaveTextContent(new RegExp(REBORN));
+    expect(screen.getByTestId('people')).not.toHaveTextContent(new RegExp(BOT));
+  });
+
+  /**
+   * The same bug one step further out, and the reason the pull answers with the
+   * directory even when the directory is empty.
+   *
+   * A backend that names nobody — an `.env` repointed at a stack with no bots
+   * seeded and no circle joined yet — used to say nothing at all rather than
+   * "nobody", because the merge only carried `people` when it had rows. The
+   * previous backend's whole cast then sat in the directory, and on disk, with
+   * no pull that could ever clear it.
+   */
+  it('leave the directory when the backend stops naming anyone at all', async () => {
+    mount();
+    await settle();
+    aBotStakes();
+    await settle(60_000);
+    expect(screen.getByTestId('people')).toHaveTextContent(new RegExp(BOT));
+
+    await act(async () => {
+      await getSupabase().from('tasks').delete().eq('owner_id', BOT);
+      await getSupabase().from('profiles').delete().eq('id', BOT);
+    });
+
+    await settle(60_000);
+
+    expect(screen.getByTestId('people')).not.toHaveTextContent(new RegExp(BOT));
+    expect(screen.getByTestId('globals')).toHaveTextContent('');
+  });
+
+  /**
+   * The control on the test above. Dropping whoever the payload does not name
+   * is only safe because the payload is the *whole* directory; if a merge that
+   * carries the bots could evict your circle, this would be a worse bug than
+   * the one it fixes.
+   */
+  it('arriving does not evict the people you share a circle with', async () => {
+    mount();
+    await settle();
+    inACircleWith(currentUserId() as string);
+    aBotStakes();
+
+    await settle(60_000);
+
+    expect(screen.getByTestId('people')).toHaveTextContent(new RegExp(OTHER));
+    expect(screen.getByTestId('people')).toHaveTextContent(new RegExp(BOT));
+  });
 });
 
 it('enqueues nothing for sharing your own win', async () => {

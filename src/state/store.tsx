@@ -364,6 +364,13 @@ export type Action =
  * batch as the reducer sees it. Tasks join it with the outbox.
  */
 export type ServerMerge = {
+  /**
+   * The whole live directory — the people you share a circle with and the bots,
+   * in one payload. Authoritative for the set: an id it does not name is an id
+   * this account can no longer reach, and `[]` is a real answer meaning nobody
+   * but you. The engine sets it on every pull that came back, and on none that
+   * didn't, so its absence is the only thing that means "no answer".
+   */
   people?: Person[];
   /**
    * The circle you are in, or `null` for "you are in none" — which is a real
@@ -1195,6 +1202,43 @@ export function reducer(state: State, action: Action): State {
           people = draft;
         }
         draft[p.id] = p;
+      }
+
+      /**
+       * Whoever the server no longer names is no longer here.
+       *
+       * `merge.people` is the *whole* directory — your circles and the bots, in
+       * one payload — so the ids missing from it are ids this account can no
+       * longer reach. Until now nothing ever dropped one, and a directory that
+       * only grows is a directory that accumulates ghosts: point the app at a
+       * second backend, or re-seed the Oz bots (their accounts are minted by
+       * `scripts/seed-bots.mjs`, so a reset gives them new uuids), and the old
+       * profile rows stay in `people` — and *stay on disk*, because `people` is
+       * persisted. The composer's "In it with me" list is `Object.keys(people)`,
+       * so each ghost is another chip: the same bot, under the same name, twice.
+       *
+       * Pruned here rather than in the render because every reader of this
+       * slice has the same problem — the header counts it, the leaderboard
+       * ranks it — and a directory that is wrong is worth fixing once.
+       *
+       * An empty payload is "nobody", not "no answer" — a fresh account is in no
+       * circle, and an `.env` pointed at a second backend has none of the first
+       * one's people. What makes that safe to act on is the engine's own rule: a
+       * pull that could not answer never dispatches, so the key is here only
+       * when the reads came back.
+       *
+       * You are never dropped, whatever the payload says. `pullCircle` answers
+       * with the members of your circles, so an account in none is not in its
+       * own directory — and your name is the one thing here that is written
+       * locally before the server has ever heard it.
+       */
+      if (state.account === 'live' && action.merge.people) {
+        const named = new Set<PersonId>(action.merge.people.map((p) => p.id));
+        named.add(state.selfId);
+        const kept = Object.values(people).filter((p): p is Person => !!p && named.has(p.id));
+        if (kept.length !== Object.keys(people).length) {
+          people = indexPeople(kept);
+        }
       }
 
       // The dirty set is derived here, from the queue, and deliberately not kept
