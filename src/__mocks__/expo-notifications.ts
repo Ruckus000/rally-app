@@ -70,6 +70,32 @@ export async function requestPermissionsAsync(): Promise<{
   return { granted: state.granted, canAskAgain: false };
 }
 
+/**
+ * The push token for this install.
+ *
+ * Throws without a `projectId` because the real one does — that is the failure
+ * mode this app is most likely to hit, and a fake that resolved empty instead
+ * would let the caller's try/catch go untested.
+ */
+export async function getExpoPushTokenAsync(options?: {
+  projectId?: string;
+}): Promise<{ data: string }> {
+  if (!options?.projectId) throw new Error('No "projectId" found.');
+  if (tokenFails) throw new Error('Failed to get push token: APNs unreachable');
+  return { data: pushToken };
+}
+
+let pushToken = 'ExponentPushToken[test-device]';
+let tokenFails = false;
+
+export const fakePush = {
+  /** APNs down, no network, credentials missing — all the same to the caller. */
+  failsToMint(): void {
+    tokenFails = true;
+  },
+  token: (): string => pushToken,
+};
+
 export async function scheduleNotificationAsync(request: Scheduled): Promise<string> {
   state.scheduled = state.scheduled.filter((s) => s.identifier !== request.identifier);
   state.scheduled.push(request);
@@ -84,5 +110,7 @@ export async function cancelScheduledNotificationAsync(identifier: string): Prom
 export function __resetForTests(): void {
   grantNext = false;
   promptCount = 0;
+  pushToken = 'ExponentPushToken[test-device]';
+  tokenFails = false;
   fakeNotifications.reset();
 }

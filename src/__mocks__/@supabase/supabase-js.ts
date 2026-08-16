@@ -255,6 +255,21 @@ const SCHEMA: Record<string, TableSpec> = {
       created_at: { default: () => now() },
     },
   },
+
+  // The token is the primary key, exactly as in the migration: it names one
+  // physical device, and a device belongs to whoever is signed in on it now.
+  // Modelled here rather than left out because a fake that is missing a table
+  // fails by *swallowing* — this project has already lost a whole pull to a
+  // column the fake did not have.
+  device_tokens: {
+    pk: ['token'],
+    columns: {
+      token: { notNull: true },
+      profile_id: { notNull: true, references: 'profiles' },
+      platform: { notNull: true },
+      updated_at: { default: () => now() },
+    },
+  },
 };
 
 // ─── determinism ──────────────────────────────────────────────────────────
@@ -790,6 +805,48 @@ const RPC: Record<string, (args: Row) => unknown> = {
 
     // `returns table (...)` is a set, so PostgREST answers with an array.
     return [{ id: circle.id, invite_code }];
+  },
+
+  /**
+   * `register_device`, including the part that makes it safe: it takes no
+   * owner and reads the caller instead, so a payload cannot name someone
+   * else's profile. Modelled rather than stubbed because "files the token
+   * against the caller" is the property the client relies on.
+   */
+  register_device(args) {
+    const caller = state.session?.user.id;
+    if (!caller) throw new Refusal(pgError('42501', 'not signed in'));
+
+    const token = String(args.p_token ?? '');
+    const platform = String(args.p_platform ?? '');
+    // The real table's check constraints. A fake that accepted anything would
+    // let the client ship a token shape the server rejects.
+    if (token.length < 8 || token.length > 200) {
+      throw new Refusal(pgError('23514', 'device_tokens_token_shape'));
+    }
+    if (platform !== 'ios' && platform !== 'android') {
+      throw new Refusal(pgError('23514', 'device_tokens_platform_known'));
+    }
+
+    const rows = rowsOf('device_tokens');
+    const at = rows.findIndex((r) => r.token === token);
+    // `on conflict (token) do update` — the row moves to the new owner rather
+    // than a second one appearing for the same phone.
+    if (at >= 0) rows[at] = { ...rows[at], profile_id: caller, platform, updated_at: now() };
+    else rows.push(withDefaults('device_tokens', { token, profile_id: caller, platform }));
+    return null;
+  },
+
+  /** `unregister_device`. Scoped to the caller's own row, as the function is. */
+  unregister_device(args) {
+    const caller = state.session?.user.id;
+    const token = String(args.p_token ?? '');
+    const rows = rowsOf('device_tokens');
+    const at = rows.findIndex((r) => r.token === token && r.profile_id === caller);
+    if (at >= 0) rows.splice(at, 1);
+    // Deleting nothing is not an error, which is what lets sign-out call it
+    // unconditionally.
+    return null;
   },
 
   join_circle_by_code(args) {
