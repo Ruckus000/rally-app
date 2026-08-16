@@ -549,6 +549,89 @@ describe('identity', () => {
   });
 });
 
+/**
+ * Whose queue is this?
+ *
+ * `owner_id` is stamped at send time, not at enqueue — which is exactly what
+ * lets a queue built on a plane land under the session that finally arrives.
+ * The same property means a queue that outlives its author does not fail. It
+ * succeeds, under the wrong name, filing one person's week as another's.
+ */
+describe('a queue that outlived its account', () => {
+  const OTHER = '22222222-2222-4222-8222-222222222222';
+
+  const withProject = (ref: string) => {
+    process.env.EXPO_PUBLIC_SUPABASE_URL = `https://${ref}.supabase.co`;
+    process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY = 'anon';
+  };
+
+  afterEach(() => {
+    delete process.env.EXPO_PUBLIC_SUPABASE_URL;
+    delete process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+  });
+
+  it('is not restored when it was written against another project', async () => {
+    withProject('aaaa');
+    stake('a');
+    await flushOutbox();
+
+    __resetOutboxForTests();
+    withProject('bbbb');
+    await hydrateOutbox();
+
+    expect(pending()).toEqual([]);
+  });
+
+  it('is restored when the project matches', async () => {
+    withProject('aaaa');
+    stake('a');
+    await flushOutbox();
+
+    __resetOutboxForTests();
+    await hydrateOutbox();
+
+    expect(keys()).toEqual(['task:a']);
+  });
+
+  it('is dropped rather than sent under a different owner', async () => {
+    withProject('aaaa');
+    const first = makeTransport();
+    stake('a');
+    await drain(first.transport); // drains as OWNER, stamping the queue
+    stake('b');
+    await flushOutbox();
+
+    __resetOutboxForTests();
+    await hydrateOutbox();
+    expect(keys()).toEqual(['task:b']);
+
+    const second = makeTransport();
+    second.setOwner(OTHER);
+    await drain(second.transport);
+
+    // The unsent entry belonged to OWNER. Nothing goes out as OTHER.
+    expect(second.calls).toEqual([]);
+    expect(pending()).toEqual([]);
+  });
+
+  it('still drains under the first owner it ever sees — the plane case', async () => {
+    withProject('aaaa');
+    stake('a');
+    await flushOutbox();
+
+    __resetOutboxForTests();
+    await hydrateOutbox();
+
+    // Never drained, so the queue has no owner to disagree with.
+    const t = makeTransport();
+    t.setOwner(OTHER);
+    await drain(t.transport);
+
+    expect(t.titles()).toEqual(['a']);
+    expect(t.calls[0].payload.owner_id).toBe(OTHER);
+  });
+});
+
 describe('on disk', () => {
   it('lives under its own key, not inside the state payload', async () => {
     stake('a');

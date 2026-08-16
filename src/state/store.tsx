@@ -1506,6 +1506,34 @@ export function StoreProvider({
     teardownRealtime();
   }, [state.account]);
 
+  /**
+   * Changing *account* throws the queue away. So does changing *identity*.
+   *
+   * The account mode above is a deliberate act with a confirmation in front of
+   * it. This is the involuntary version: an anonymous session lost and a new
+   * user minted on the same project. Nothing on screen changes, and the queue
+   * is still full of the previous account's work — which `run()` stamps with
+   * `owner_id` at send time, so it would land, successfully, filing one
+   * person's week under another's name.
+   *
+   * The local world is deliberately left alone. Those rows are orphaned on the
+   * server now, which makes what is on this device the only surviving copy;
+   * deleting it to tidy up would be the most destructive thing this could do.
+   * Stopping the writes is enough to keep anyone else's history honest.
+   *
+   * Not fired for the sentinel, which is every first session: a queue built
+   * before this install ever held one is exactly the plane case, and it is
+   * supposed to drain under the id that finally arrives.
+   */
+  const lastSelfId = useRef(state.selfId);
+  useEffect(() => {
+    const prev = lastSelfId.current;
+    lastSelfId.current = state.selfId;
+    if (prev === state.selfId || prev === SELF_DEMO_ID) return;
+    void clearOutbox();
+    teardownRealtime();
+  }, [state.selfId]);
+
   // the access token needs refreshing again before the first write 401s.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {

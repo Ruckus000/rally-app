@@ -743,6 +743,24 @@ describe('the session', () => {
     const s = reducer(base, { type: 'SESSION', session: ready });
     expect(reducer(s, { type: 'SESSION', session: { status: 'ready', userId: 'u1' } })).toBe(s);
   });
+
+  it('adopts a new user id without deleting the week that is already here', () => {
+    // An anonymous session lost and re-minted. Those rows are orphaned on the
+    // server now, which makes what is on this device the only surviving copy —
+    // so the identity change stops the writes (see the outbox guard) and leaves
+    // the data alone.
+    //
+    // This is pinned because the tidy-looking change is to purge, and purging
+    // here deletes somebody's week with no undo and no export.
+    const live: State = { ...base, account: 'live', selfId: 'u1' };
+    const s = reducer(live, { type: 'SESSION', session: { status: 'ready', userId: 'u2' } });
+
+    expect(s.selfId).toBe('u2');
+    expect(s.myTasks).toBe(live.myTasks);
+    expect(s.history).toBe(live.history);
+    expect(s.profile).toBe(live.profile);
+    expect(s.week).toBe(live.week);
+  });
 });
 
 describe('merging rows from the server', () => {
