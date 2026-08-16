@@ -118,6 +118,23 @@ describe('useGoalRating', () => {
     expect(onRating).toHaveBeenLastCalledWith({ points: 35, verdict: 'blocked' });
   });
 
+  it('falls back when rateGoal throws instead of returning null', async () => {
+    // rateGoal promises never to throw, and was wrong about that once: it built
+    // an AbortSignal.timeout above its own try block, which is a TypeError on
+    // every device. A broken promise upstream has to degrade here, not leave
+    // the composer stuck on 'rating' with an unhandled rejection per keystroke.
+    mockRate.mockRejectedValue(new TypeError('AbortSignal.timeout is not a function'));
+    const { result, onRating } = render(CONCRETE);
+    await settle();
+
+    await waitFor(() => expect(result.current.state).toBe('fallback'));
+    expect(result.current.points).toBe(CATEGORY_POINTS.Fitness);
+    expect(onRating).toHaveBeenLastCalledWith({
+      points: CATEGORY_POINTS.Fitness,
+      verdict: 'ok',
+    });
+  });
+
   it('abandons the answer to a question that changed', async () => {
     mockRate.mockResolvedValue({ verdict: 'ok', points: 45, reason: '' });
     const { rerender, unmount } = render(CONCRETE);

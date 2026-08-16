@@ -63,15 +63,24 @@ export function useGoalRating(opts: {
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(async () => {
-      const rating = await rateGoal(trimmed, cat, controller.signal);
-      if (controller.signal.aborted) return;
-      setAnswer({ question, rating });
-      onRating(
-        rating
-          ? { points: rating.points, verdict: rating.verdict }
-          : { points: categoryPoints(cat), verdict: 'ok' },
-      );
+    const timer = setTimeout(() => {
+      // `.catch`, not a bare async callback. `rateGoal` promises never to
+      // throw, but a promise nobody is holding turns a broken promise into an
+      // unhandled rejection and a composer stuck on "rating" forever. The whole
+      // point of this hook is that a failed rating is survivable, so the one
+      // place that could drop a failure on the floor has to say what it does
+      // with one.
+      rateGoal(trimmed, cat, controller.signal)
+        .catch(() => null)
+        .then((rating) => {
+          if (controller.signal.aborted) return;
+          setAnswer({ question, rating });
+          onRating(
+            rating
+              ? { points: rating.points, verdict: rating.verdict }
+              : { points: categoryPoints(cat), verdict: 'ok' },
+          );
+        });
     }, DEBOUNCE_MS);
 
     return () => {

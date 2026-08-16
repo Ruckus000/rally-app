@@ -26,15 +26,17 @@ export async function rateGoal(
   cat: string,
   signal?: AbortSignal,
 ): Promise<Rating | null> {
-  if (!hasSupabaseConfig()) return null;
-
-  // Two timers, because `functions.invoke` takes a signal but the caller's
-  // signal is about the draft changing, not about time. Whichever fires first
-  // ends the call.
-  const timeout = AbortSignal.timeout(TIMEOUT_MS);
-  const combined = signal ? anyOf([signal, timeout]) : timeout;
-
+  // Everything is inside the try, including building the signals. React Native
+  // has burned this exact code once already: `AbortSignal.timeout` does not
+  // exist here, and constructing it above the try turned "no rating this time"
+  // into a throw the caller never expected.
   try {
+    if (!hasSupabaseConfig()) return null;
+
+    // Two reasons to stop: the draft changed, or we ran out of patience.
+    // Whichever fires first ends the call.
+    const combined = anyOf([signal, timeoutSignal(TIMEOUT_MS)]);
+
     const { data, error } = await getSupabase().functions.invoke('rate-goal', {
       body: { title, cat },
       signal: combined,
@@ -65,15 +67,25 @@ function valid(data: unknown): data is Rating {
 }
 
 /**
- * `AbortSignal.any` in a shape that survives the older Hermes builds this app
- * still runs on, where it is missing.
+ * `AbortSignal.timeout` and `AbortSignal.any`, written out.
+ *
+ * React Native does not have either. It polyfills `AbortSignal` from the
+ * `abort-controller` package (Libraries/Core/setUpXHR.js), which predates both
+ * statics — so `AbortSignal.timeout(…)` is a `TypeError` on every device, in
+ * release and debug alike, while Jest runs on Node and sees the real thing.
+ * That gap is invisible to the unit suite, which is why these are spelled out
+ * rather than feature-detected.
  */
-function anyOf(signals: AbortSignal[]): AbortSignal {
-  const native = (AbortSignal as { any?: (s: AbortSignal[]) => AbortSignal }).any;
-  if (native) return native(signals);
+function timeoutSignal(ms: number): AbortSignal {
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
 
+function anyOf(signals: (AbortSignal | undefined)[]): AbortSignal {
   const controller = new AbortController();
   for (const s of signals) {
+    if (!s) continue;
     if (s.aborted) {
       controller.abort();
       break;
