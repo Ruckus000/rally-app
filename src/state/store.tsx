@@ -952,6 +952,11 @@ export function reducer(state: State, action: Action): State {
       // what you'd already acted on — those ids belong to the world being left.
       return {
         ...state,
+        // A live-account fact, and this is a new world. Carried forward it
+        // would put "something you wrote never saved" on a demo that has never
+        // touched the network — and leave it there, because `clearOutbox` has
+        // already emptied the list `Got it` would have had to clear.
+        unsaved: 0,
         ...seedFor(action.mode, state.week),
         acted: {},
         replied: {},

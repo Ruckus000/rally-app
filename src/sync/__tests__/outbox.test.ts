@@ -795,6 +795,24 @@ describe('what the server refused outright', () => {
     stop();
   });
 
+  it('says so once for a drain, not once per row it gave up on', async () => {
+    // The way to get many refusals at once is a client behind the schema, which
+    // refuses the whole queue. Announcing per entry would dispatch a different
+    // count each time, defeating the reducer's identity bail-out and
+    // re-rendering every screen once per row.
+    stake('a');
+    stake('b');
+    stake('c');
+
+    const heard: number[] = [];
+    const stop = onOutboxChange(() => heard.push(unsavedCount()));
+    await drain(makeTransport(() => refused('23514')).transport);
+
+    expect(deadLetters()).toHaveLength(3);
+    expect(heard).toEqual([3]);
+    stop();
+  });
+
   it('forgets the list when it is acknowledged, and says so', async () => {
     stake('a');
     await drain(makeTransport(() => refused('23514')).transport);

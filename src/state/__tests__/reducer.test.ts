@@ -1167,6 +1167,17 @@ describe('what the server refused', () => {
     expect(hydrate({ unsaved: 4 } as Partial<State>).unsaved).toBe(0);
   });
 
+  it('does not follow you into a world that cannot have caused it', () => {
+    // Onboarding grants an account and is one back-press from its own front
+    // door, so a live account that collected a refusal can become a demo one.
+    // Carried across, the notice would sit on a world that never touched the
+    // network — and be unclearable, because `clearOutbox` has already emptied
+    // the list that `Got it` would have had to clear.
+    const live: State = { ...base, account: 'live', unsaved: 1 };
+    expect(reducer(live, { type: 'SET_ACCOUNT', mode: 'seeded' }).unsaved).toBe(0);
+    expect(reducer(live, { type: 'RESET', mode: 'seeded' }).unsaved).toBe(0);
+  });
+
   it('is not written to disk either', () => {
     expect(pick({ ...base, unsaved: 3 })).not.toHaveProperty('unsaved');
   });

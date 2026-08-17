@@ -514,10 +514,6 @@ async function run(transport: QueueTransport, now: number): Promise<OutboxStats>
         dead.push(head);
         if (dead.length > DEAD_MAX) dead = dead.slice(-DEAD_MAX);
         stats.dead += 1;
-        // Somebody's week just stopped matching the server. Announced here
-        // rather than after the loop so a drain that drops several still says
-        // so once per drop, and the screen never has to poll for it.
-        announce();
         // Deliberately no rollback and deliberately no `break`: the entry is
         // gone, so the row behind it is no longer blocked by it.
         continue;
@@ -533,6 +529,12 @@ async function run(transport: QueueTransport, now: number): Promise<OutboxStats>
   } finally {
     if (changed) schedule();
   }
+
+  // Once, not once per entry. The count changes with every drop, so announcing
+  // inside the loop would defeat the reducer's identity bail-out and re-render
+  // every screen once per refused row — and the way to get many refusals at
+  // once is a client behind the schema, which refuses the whole queue.
+  if (stats.dead > 0) announce();
 
   return stats;
 }
