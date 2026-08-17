@@ -253,6 +253,10 @@ export async function hydrateOutbox(): Promise<void> {
   queue = [...stored, ...live];
   dead = storedDead.slice(-DEAD_MAX);
   acked = new Set(storedAcked);
+  // A refusal from a previous launch is still a refusal. The envelope carries
+  // `dead`, so the notice has to come back with it rather than only ever
+  // appearing in the session that earned it.
+  if (dead.length > 0) announce();
 }
 
 // ─── enqueue ──────────────────────────────────────────────────────────────
@@ -354,6 +358,53 @@ export function pending(): OutboxEntry[] {
 /** Permanently refused. Kept so a debug screen can say what went wrong. */
 export function deadLetters(): OutboxEntry[] {
   return dead.map((e) => ({ ...e }));
+}
+
+/**
+ * How many distinct things the server has permanently refused.
+ *
+ * Counted by `key` rather than by entry, because the key is the row and the
+ * entry is the attempt: a task written and then deleted is two ops about one
+ * thing, and telling someone two of their tasks never saved when one did would
+ * be its own small lie.
+ */
+export function unsavedCount(): number {
+  return new Set(dead.map((e) => e.key)).size;
+}
+
+/**
+ * Acknowledged. The list is diagnostic — the row itself lives in the reducer
+ * and is untouched by this — so forgetting it costs nothing but the notice.
+ *
+ * There has to be a way to do this. The condition is permanent by definition
+ * and survives relaunches in the envelope, so a banner with no way to dismiss
+ * it would be a banner for the life of the install.
+ */
+export async function forgetDeadLetters(): Promise<void> {
+  if (dead.length === 0) return;
+  dead = [];
+  announce();
+  schedule();
+}
+
+/**
+ * Who wants to know when the dead list changes.
+ *
+ * The same shape as `onSessionChange`, and for the same reason: the fact lives
+ * in a module, the screen that shows it lives in React, and polling for it
+ * would mean a timer for something that changes a handful of times a year.
+ */
+const listeners = new Set<() => void>();
+
+export function onOutboxChange(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+  };
+}
+
+function announce(): void {
+  for (const fn of listeners) fn();
 }
 
 // ─── drain ────────────────────────────────────────────────────────────────
@@ -463,6 +514,10 @@ async function run(transport: QueueTransport, now: number): Promise<OutboxStats>
         dead.push(head);
         if (dead.length > DEAD_MAX) dead = dead.slice(-DEAD_MAX);
         stats.dead += 1;
+        // Somebody's week just stopped matching the server. Announced here
+        // rather than after the loop so a drain that drops several still says
+        // so once per drop, and the screen never has to poll for it.
+        announce();
         // Deliberately no rollback and deliberately no `break`: the entry is
         // gone, so the row behind it is no longer blocked by it.
         continue;
@@ -495,12 +550,14 @@ export async function clearOutbox(): Promise<void> {
   if (timer) clearTimeout(timer);
   timer = null;
   dirty = false;
+  const hadDead = dead.length > 0;
   queue = [];
   dead = [];
   acked = new Set();
   nextSeq = 1;
   inFlight = null;
   owner = null;
+  if (hadDead) announce();
   try {
     await AsyncStorage.removeItem(KEY);
   } catch {

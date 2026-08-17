@@ -23,6 +23,7 @@ import { RolloverOverlay } from './overlays/RolloverOverlay';
 import { DetailSheet } from './overlays/DetailSheet';
 import { Toast } from './components/Toast';
 import { SyncBanner } from './components/SyncBanner';
+import { UnsavedBanner } from './components/UnsavedBanner';
 
 export function App({
   config,
@@ -68,6 +69,9 @@ function Shell() {
       {/* Outside the ScrollView on purpose: not syncing is a condition, not a
           row, and scrolling away from it should not make it go away. */}
       <SyncBanner />
+      {/* Below the session one on purpose: not being signed in is why writes
+          would fail next, so it reads as cause then consequence. */}
+      <UnsavedBanner />
 
       <ScrollView
         ref={scroll}

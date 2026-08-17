@@ -65,7 +65,13 @@ import {
   startAutoRefresh,
   stopAutoRefresh,
 } from '../sync/session';
-import { ackedTaskIds, clearOutbox, flushOutbox } from '../sync/outbox';
+import {
+  ackedTaskIds,
+  clearOutbox,
+  flushOutbox,
+  onOutboxChange,
+  unsavedCount,
+} from '../sync/outbox';
 import { reconcileTasks } from '../sync/reconcile';
 // The queue's key format is the engine's business, not the reducer's; it hands
 // back the ids, and the type-only edge means this adds no import cycle.
@@ -142,6 +148,14 @@ export type State = {
    * signed in as. `off` in every demo mode.
    */
   session: SessionState;
+  /**
+   * How many distinct things the server has permanently refused.
+   *
+   * Never persisted, for the same reason `session` is not: it is derived from
+   * the outbox, which keeps its own record in its own envelope, and a second
+   * copy on disk could only ever disagree with the first.
+   */
+  unsaved: number;
   /** Everyone this account can name, by id. Lookups go through `makePeople`. */
   people: PeopleIndex;
   /**
@@ -266,6 +280,7 @@ const initialState: State = {
   notifications: seedNotifications(null),
   globalPosts: seedGlobalPosts(null),
   session: { status: 'off' },
+  unsaved: 0,
   people: seedPeople(null),
   week: liveWeek(),
   history: [],
@@ -361,6 +376,7 @@ export type Action =
   | { type: 'FINISH_ONBOARD'; stakes: OnboardStake[]; aud: Audience; name: string }
   | { type: 'RENAME_SELF'; name: string }
   | { type: 'SESSION'; session: SessionState }
+  | { type: 'UNSAVED'; count: number }
   | { type: 'SERVER_MERGE'; merge: ServerMerge };
 
 /**
@@ -1151,6 +1167,16 @@ export function reducer(state: State, action: Action): State {
       return { ...state, people };
     }
 
+    case 'UNSAVED': {
+      /**
+       * The count the outbox just announced. Compared before storing, because
+       * every drain announces and every dispatch re-renders every screen — and
+       * the answer is the same number almost every time.
+       */
+      if (state.unsaved === action.count) return state;
+      return { ...state, unsaved: action.count };
+    }
+
     case 'SESSION': {
       const cur = state.session;
       const next = action.session;
@@ -1359,6 +1385,10 @@ export function hydrate(restored?: Partial<State> | null): State {
     // Never off disk. It is re-derived from the auth client on every launch,
     // and a stored one would be an unauthenticated claim to a user id.
     session: { status: 'off' },
+    // Derived from the outbox, which announces the real number as soon as it
+    // hydrates. Restoring a stale one would show a notice for a refusal that
+    // has already been acknowledged.
+    unsaved: 0,
     // `scope` is persisted and has no soundness check, and this build deleted
     // two of its three values. An app upgrading across that change restores
     // 'friends' or 'global', which no branch in WeekScreen renders — a blank
@@ -1474,6 +1504,14 @@ export function StoreProvider({
     // Subscribed before the call, or the transition it broadcasts on the way to
     // `ready` would land before anyone was listening.
     const unsubscribe = onSessionChange((session) => dispatch({ type: 'SESSION', session }));
+    // The other half of "is sync fine": what the server refused outright. It
+    // announces on a drop, on hydration, and when the list is acknowledged, so
+    // nothing here polls. Read once now too — the queue may have hydrated a
+    // refusal from a previous launch before this effect ever ran.
+    const unwatchOutbox = onOutboxChange(() =>
+      dispatch({ type: 'UNSAVED', count: unsavedCount() }),
+    );
+    dispatch({ type: 'UNSAVED', count: unsavedCount() });
     let live = true;
     void ensureSession().then((session) => {
       if (live) dispatch({ type: 'SESSION', session });
@@ -1485,6 +1523,7 @@ export function StoreProvider({
     return () => {
       live = false;
       unsubscribe();
+      unwatchOutbox();
       stopAutoRefresh();
     };
   }, [syncOn]);

@@ -14,6 +14,9 @@ import {
   ackedTaskIds,
   clearOutbox,
   deadLetters,
+  forgetDeadLetters,
+  onOutboxChange,
+  unsavedCount,
   drain,
   enqueue,
   flushOutbox,
@@ -753,5 +756,74 @@ describe('hydration happens once', () => {
     await hydrateOutbox();
 
     expect(pending()).toHaveLength(1);
+  });
+});
+
+describe('what the server refused outright', () => {
+  it('counts rows rather than attempts', async () => {
+    // Two ops about one task: staked, then unstaked before either landed. The
+    // queue coalesces those, so drive the count with two ops that survive —
+    // a task and the profile name, which are two genuinely different things.
+    stake('a');
+    enqueue('profile.update', 'profile', { name: 'Ada' });
+    await drain(makeTransport(() => refused('23514')).transport);
+
+    expect(deadLetters()).toHaveLength(2);
+    expect(unsavedCount()).toBe(2);
+  });
+
+  it('counts a row once however many times it was refused', async () => {
+    stake('a');
+    await drain(makeTransport(() => refused('23514')).transport);
+    stake('a');
+    await drain(makeTransport(() => refused('23514')).transport);
+
+    // Two entries, both about `task:a`. Telling someone two of their tasks
+    // never saved when one did would be its own small lie.
+    expect(deadLetters()).toHaveLength(2);
+    expect(unsavedCount()).toBe(1);
+  });
+
+  it('tells whoever is listening, so nothing has to poll for it', async () => {
+    const heard: number[] = [];
+    const stop = onOutboxChange(() => heard.push(unsavedCount()));
+
+    stake('a');
+    await drain(makeTransport(() => refused('23514')).transport);
+
+    expect(heard).toEqual([1]);
+    stop();
+  });
+
+  it('forgets the list when it is acknowledged, and says so', async () => {
+    stake('a');
+    await drain(makeTransport(() => refused('23514')).transport);
+
+    const heard: number[] = [];
+    const stop = onOutboxChange(() => heard.push(unsavedCount()));
+    await forgetDeadLetters();
+
+    expect(unsavedCount()).toBe(0);
+    expect(deadLetters()).toEqual([]);
+    expect(heard).toEqual([0]);
+    stop();
+  });
+
+  it('acknowledging an empty list is not news', async () => {
+    const heard: number[] = [];
+    const stop = onOutboxChange(() => heard.push(unsavedCount()));
+    await forgetDeadLetters();
+    expect(heard).toEqual([]);
+    stop();
+  });
+
+  it('stops listening when told to', async () => {
+    const heard: number[] = [];
+    onOutboxChange(() => heard.push(unsavedCount()))();
+
+    stake('a');
+    await drain(makeTransport(() => refused('23514')).transport);
+
+    expect(heard).toEqual([]);
   });
 });
