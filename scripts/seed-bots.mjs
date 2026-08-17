@@ -159,8 +159,7 @@ const RHYTHM_SCHEMA = {
  * decoration. The fallback is stated out loud so a run that quietly produced a
  * duller week cannot look like a run that did not.
  */
-async function rhythm(drawn) {
-  const today = todayIndex();
+async function rhythm(drawn, today) {
   const listed = drawn
     .map((g, i) => `${i}: ${g.name} — ${g.title} (${g.category}, ${g.points} points)`)
     .join('\n');
@@ -240,7 +239,13 @@ async function ensureAccount(bot) {
   return { id: data.user.id, created: true };
 }
 
-const monday = thisMonday();
+// One reading of the clock, not two. `week_start` and the day index have to
+// describe the same week, and computing them separately leaves a window —
+// small, but real — where a run that crosses midnight stakes one week and
+// judges its outcomes against the next, forcing almost everything open.
+const now = new Date();
+const monday = thisMonday(now);
+const today = todayIndex(now);
 console.log(`Seeding the Oz bots into ${new URL(url).host}, week of ${monday}.`);
 
 try {
@@ -286,7 +291,7 @@ async function seed() {
     console.error(`  ${b.name} has no approved goals — staking nothing for them.`);
   }
 
-  const shape = await rhythm(drawn);
+  const shape = await rhythm(drawn, today);
 
   let cursor = 0;
   for (const [botIndex, bot] of BOTS.entries()) {
