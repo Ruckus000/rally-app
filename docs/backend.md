@@ -27,18 +27,30 @@ Probed from the `anon` role with the publishable key: `select` on `tasks`
 returns `[]`, `insert` is refused with `42501 new row violates row-level
 security policy`, and `private.can_see_task` is not reachable over REST.
 
-Two advisor WARNs exist but belong to `public.rls_auto_enable()`, a Supabase
-platform event trigger that auto-enables RLS on new tables. It returns
+Two advisor WARNs once pointed at `public.rls_auto_enable()`, the event trigger
+function that auto-enables RLS on new tables. It was described here as a
+Supabase platform object and "not ours" — both wrong. It is owned by `postgres`
+rather than `supabase_admin`, so it was made by somebody with project access,
+and it existed on production and in no migration at all. It now lives in
+`private`, created by `20260817125331_adopt_ensure_rls.sql`, which is also what
+put it under review for the first time. Not exploitable either way: it returns
 `event_trigger`, so calling it over REST fails with *"cannot display a value of
-type event_trigger"* before it can do anything. Not ours, and not exploitable.
+type event_trigger"* before it can do anything.
 
 The performance INFOs are all `unused_index` and `unindexed_foreign_keys` on an
 empty database — meaningless until there is traffic, so nothing has been
 changed in response to them.
 
 **What this does not prove.** Every policy above was exercised as `anon`
-against empty tables. The audience model — friends / everyone / private — is
-only genuinely tested once two real signed-in users exist, which is phase 1.
+against empty tables, which is why this page once said the audience model would
+only be genuinely tested "once two real signed-in users exist, which is phase 1".
+
+That gap has since been closed by `integration/`, not by phase 1.
+`rls/tasks.test.ts` signs in as real seeded users and covers every branch of
+`tasks_select` — `friends`, `everyone`, `private`, and a `private` task a second
+user is paired on — with real JWTs rather than the `anon` key. What phase 1 is
+still for is everything a test cannot stand in for: two people on two devices,
+on a network, over a week.
 
 ## The decision that matters: local-first
 
