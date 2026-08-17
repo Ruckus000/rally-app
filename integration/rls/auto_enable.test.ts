@@ -37,6 +37,41 @@ describe('a table created without a word about RLS', () => {
     expect(rows[0].rls).toBe(true);
   });
 
+  it('however the table was spelled', async () => {
+    // The event trigger fires on three command tags — CREATE TABLE, CREATE
+    // TABLE AS, SELECT INTO — and Postgres reports more forms under those than
+    // is obvious. Enumerated because the tag list is the one place this could
+    // silently narrow: a form that reports some fourth tag would be created
+    // wide open and nothing would say so.
+    const rows = await sqlInTx<{ relname: string; rls: boolean }>([
+      `create table public.probe_plain (id int)`,
+      `create table public.probe_as as select 1 as id`,
+      `select 1 as id into public.probe_into`,
+      `create table public.probe_like (like public.probe_plain)`,
+      `create unlogged table public.probe_unlogged (id int)`,
+      `create table public.probe_part (id int, d date) partition by range (d)`,
+      `create table public.probe_part_child partition of public.probe_part
+         for values from ('2026-01-01') to ('2027-01-01')`,
+      `select relname, relrowsecurity as rls from pg_class c
+         join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and relname like 'probe\\_%' order by relname`,
+    ]);
+
+    expect(rows).toHaveLength(7);
+    for (const r of rows) expect(`${r.relname}:${r.rls}`).toBe(`${r.relname}:true`);
+  });
+
+  it('but not a temp table, which no client can reach', async () => {
+    // Lands in pg_temp rather than public, so the schema test skips it. Worth
+    // stating: a temp table with RLS on would be a confusing way for a future
+    // migration's own scratch space to start refusing to read itself.
+    const rows = await sqlInTx<{ rls: boolean }>([
+      `create temp table probe_temp (id int)`,
+      `select relrowsecurity as rls from pg_class where relname = 'probe_temp'`,
+    ]);
+    expect(rows[0].rls).toBe(false);
+  });
+
   it('but not in private, which is not reachable by a client anyway', async () => {
     // The trigger is scoped to `public` on purpose. Enabling RLS on internal
     // tables would buy nothing — nothing signed in can reach that schema — and
