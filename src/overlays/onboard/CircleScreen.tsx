@@ -172,12 +172,6 @@ export function CircleScreen({
   );
 }
 
-/**
- * The design has no failure state — but a code can be wrong, expired, or hit a
- * dead network, and silence would read as the button being broken. This is the
- * smallest honest thing that fits: one line, same voice, announced to screen
- * readers when it appears.
- */
 /** The inline confirm beside an input — 46px to match the field it follows. */
 function SmallButton({
   label,

@@ -448,7 +448,7 @@ function DeadLetters() {
   if (dead.length === 0) return null;
 
   return (
-    <View style={{ marginTop: 14, gap: 4 }} accessibilityLabel="Never sent">
+    <View style={{ marginTop: 14, gap: 4 }}>
       <Caps size={10} color={color.faintInk}>
         {`Never sent · ${dead.length}`}
       </Caps>
