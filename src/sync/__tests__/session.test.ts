@@ -9,8 +9,6 @@
  */
 import { fakeSupabase } from '../../__mocks__/@supabase/supabase-js';
 import * as supabaseModule from '../../lib/supabase';
-
-const { getSupabase } = supabaseModule;
 import {
   __resetSessionForTests,
   startAutoRefresh,
@@ -20,6 +18,8 @@ import {
   retrySession,
   signOutEverywhere,
 } from '../session';
+
+const { getSupabase } = supabaseModule;
 
 const realEnv = { ...process.env };
 

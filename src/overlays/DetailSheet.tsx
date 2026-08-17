@@ -31,6 +31,7 @@ import { SHEET_DURATION, sheetEasing, useReducedMotion } from '../theme/motion';
 import { Avatar } from '../components/Avatar';
 import { Icon } from '../components/Icon';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
+import { Trouble } from '../components/Trouble';
 import { Overlay } from './Overlay';
 import { createCircle } from '../sync/transport';
 import { kickSync } from '../sync/useSyncEngine';
@@ -516,23 +517,7 @@ function StartCircle() {
         </Tap>
       </View>
 
-      {trouble ? (
-        <View
-          accessibilityRole="alert"
-          accessibilityLiveRegion="polite"
-          style={{
-            marginTop: 10,
-            borderRadius: radius.chip,
-            paddingHorizontal: 12,
-            paddingVertical: 9,
-            backgroundColor: color.chip,
-          }}
-        >
-          <Sans size={12} weight={600} lineHeight={16.5} color={color.ink}>
-            {trouble}
-          </Sans>
-        </View>
-      ) : null}
+      <Trouble message={trouble} />
     </ScrollView>
   );
 }
