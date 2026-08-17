@@ -123,9 +123,22 @@ function isTransient(e: WireError): boolean {
   return code === '40001' || code === '40P01';
 }
 
-/** An expired access token — recoverable exactly once, by refreshing it. */
-function isAuthExpired(e: WireError): boolean {
-  return e.status === 401 || e.code === 'PGRST301' || e.code === 'PGRST303';
+/**
+ * An expired access token — recoverable exactly once, by refreshing it.
+ *
+ * Exported because the pull path has to ask the same question and there must not
+ * be a second list: a read that 401s and a write that 401s are the same fact
+ * about the session, and the engine reports both to the same place.
+ */
+export function isAuthExpired(err: unknown): boolean {
+  const e = asWireError(err);
+  // `'401'` is this module's own sentinel, set below when a 401 arrives with no
+  // SQLSTATE to name it. Recognised here so that re-reading a `PushResult` gives
+  // the same answer as reading the wire error it came from — otherwise the one
+  // failure with no Postgres code behind it is the one that slips through.
+  return (
+    e.status === 401 || e.code === '401' || e.code === 'PGRST301' || e.code === 'PGRST303'
+  );
 }
 
 function classify(err: unknown): PushResult {
@@ -206,6 +219,20 @@ async function forceRefresh(): Promise<void> {
  * Pulls throw where pushes classify. A read has no queue behind it and nothing
  * to retire — the worker either got rows or it will ask again on the next tick,
  * and there is no third outcome worth encoding.
+ */
+/**
+ * Only `code` is carried, and that is not an oversight.
+ *
+ * postgrest-js puts the HTTP status on the *response*, not on the error object,
+ * and no call site here destructures it — so `err.status` is always undefined
+ * on this path and copying it would be a line that reads like insurance while
+ * doing nothing. A rejected JWT is what this needs to survive, and PostgREST
+ * names that one in the body: `PGRST301` expired, `PGRST303` not yet valid.
+ *
+ * What that leaves out: a 401 from the gateway rather than from PostgREST — a
+ * wrong API key, say — whose body carries no code at all. That is a build that
+ * was never going to work rather than a session that stopped working, and
+ * catching it would mean threading `status` through every read here.
  */
 function fail(err: WireError): never {
   const e = new Error(describe(err)) as Error & { code?: string };

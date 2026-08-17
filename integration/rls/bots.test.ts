@@ -11,7 +11,7 @@
  * invisible until someone reads a stranger's circle.
  */
 import { asAnon, asService, asUser, idOf, signInAnonymously } from '../support/clients';
-import { CIRCLE_IDS, SEED_BOT, SEED_USERS, type SeedHandle } from '../fixtures/world';
+import { BOT_HANDLES, CIRCLE_IDS, SEED_BOT, SEED_USERS, type SeedHandle } from '../fixtures/world';
 
 const MONDAY = '2026-08-10';
 
@@ -61,16 +61,17 @@ describe('a bot profile is readable by anyone', () => {
    * "anyone with a public task". Without this, widening the read and opening
    * it look identical from the passing test above.
    */
-  it('and nothing else — a stranger gets the bot and their own row, full stop', async () => {
+  it('and nothing else — a stranger gets the bots and their own row, full stop', async () => {
     const { client, id } = await signInAnonymously();
     const { data } = await client.from('profiles').select('id,handle');
 
     const rows = (data ?? []) as { id: string; handle: string }[];
     // Seven seeded people are in this database and none of them share a circle
     // with a brand-new account. If any of them appear here, the policy was
-    // opened rather than widened.
-    const others = rows.filter((r) => r.id !== id).map((r) => r.handle);
-    expect(others).toEqual([SEED_BOT.handle]);
+    // opened rather than widened. The bots are the whole of what is left, which
+    // is the claim — not "a stranger sees few rows" but "a stranger sees these".
+    const others = rows.filter((r) => r.id !== id).map((r) => r.handle).sort();
+    expect(others).toEqual(BOT_HANDLES);
   });
 
   it('a signed-out client still cannot reach the table at all', async () => {

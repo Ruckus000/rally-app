@@ -33,23 +33,60 @@ export const SEED_USERS = {
 export type SeedHandle = keyof typeof SEED_USERS;
 
 /**
- * One Oz bot, seeded alongside the people.
+ * The Oz bots, seeded alongside the people.
  *
  * Deliberately outside `SEED_USERS`: everything in there gets signed in during
  * `beforeAll`, and a bot has no password and no `auth.identities` row because
- * nothing ever signs in as one. It exists to be *read* — by strangers, which
- * is the whole of its purpose and the reason `profiles_select` names it.
+ * nothing ever signs in as one. They exist to be *read* — by strangers, which
+ * is the whole of their purpose and the reason `profiles_select` names them.
  *
- * She is also the one seeded account the product's own tooling touches:
- * `scripts/seed-bots.mjs` adopts this row by handle instead of creating a
- * second Dorothy, which is why the email below has to be the one it names.
+ * They are also the seeded accounts the product's own tooling touches:
+ * `scripts/seed-bots.mjs` adopts these rows by handle instead of creating a
+ * second cast, which is why the addresses below have to be the ones it names.
+ * Their ids are fixed here and in `seed.sql` for the same reason every other id
+ * in this file is — so a `db reset` produces the same world twice.
  */
-export const SEED_BOT = {
-  id: '00000000-0000-4000-8000-0000000000b0',
-  handle: 'dorothy.gale',
-  name: 'Dorothy Gale',
-  email: 'dorothy@rally.test',
-} as const;
+export const SEED_BOTS = [
+  {
+    id: '00000000-0000-4000-8000-0000000000b0',
+    handle: 'dorothy.gale',
+    name: 'Dorothy Gale',
+    email: 'dorothy@rally.test',
+  },
+  {
+    id: '00000000-0000-4000-8000-0000000000b1',
+    handle: 'the.scarecrow',
+    name: 'The Scarecrow',
+    email: 'scarecrow@rally.test',
+  },
+  {
+    id: '00000000-0000-4000-8000-0000000000b2',
+    handle: 'tin.man',
+    name: 'Tin Man',
+    email: 'tinman@rally.test',
+  },
+  {
+    id: '00000000-0000-4000-8000-0000000000b3',
+    handle: 'cowardly.lion',
+    name: 'Cowardly Lion',
+    email: 'lion@rally.test',
+  },
+] as const;
+
+/**
+ * Dorothy, for the tests that need *a* bot rather than all of them — a cheer
+ * has one author, and `bot_cheer` takes one id.
+ */
+export const SEED_BOT = SEED_BOTS[0];
+
+/**
+ * Every bot handle, sorted, because that is how `profiles` reads back.
+ *
+ * Visibility assertions are written as "the bots, plus whoever I share a circle
+ * with": the bots are in every such list by design, and spelling four of them
+ * into each expectation would bury the part that is actually under test.
+ */
+export const BOT_HANDLES: string[] = SEED_BOTS.map((b) => b.handle).sort();
 
 /** Fixed uuids so seed.sql and these tests can name the same rows. */
 export const CIRCLE_IDS = {

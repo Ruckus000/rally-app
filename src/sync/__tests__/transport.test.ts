@@ -13,6 +13,7 @@ import type { NoteTarget, SyncableNote } from '../notes';
 import type { ReactionKind } from '../reactions';
 import {
   createCircle,
+  isAuthExpired,
   joinCircleByCode,
   supabaseTransport,
   UnknownInviteCode,
@@ -413,6 +414,26 @@ describe('push', () => {
   it('never throws, whatever the server does', async () => {
     fakeSupabase.failNext(1, { code: 'PGRST204', message: 'unknown column' });
     await expect(transport.push(upsert(), ME)).resolves.toMatchObject({ ok: false });
+  });
+
+  it('says so about its own answer, so the engine reads it the same way twice', async () => {
+    fakeSupabase.failNext(2, { code: 'PGRST301', message: 'JWT expired' });
+    const result = await transport.push(upsert(), ME);
+
+    // The engine re-reads this result to decide whether the *session* died, and
+    // must reach the same verdict the transport already reached from the wire
+    // error. A refusal that is merely permanent must not be mistaken for one.
+    expect(isAuthExpired(result)).toBe(true);
+    expect(isAuthExpired({ code: '23514' })).toBe(false);
+  });
+
+  it('recognises the bare 401 it invents when a 401 carries no SQLSTATE', () => {
+    // `code: e.code ?? '401'` is this module's own fallback. Not matching it
+    // would leave exactly one auth failure — the one with no Postgres error
+    // behind it — sliding through as an ordinary permanent refusal, which is
+    // the verdict that drops queue entries.
+    expect(isAuthExpired({ code: '401' })).toBe(true);
+    expect(isAuthExpired({ status: 401 })).toBe(true);
   });
 });
 

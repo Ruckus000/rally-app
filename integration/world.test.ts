@@ -22,7 +22,7 @@ import { sql } from './support/reset';
 import {
   CIRCLE_IDS,
   MEMBERSHIPS,
-  SEED_BOT,
+  SEED_BOTS,
   SEED_HANDLES,
   SEED_USERS,
   type SeedHandle,
@@ -66,31 +66,39 @@ describe('the seeded people', () => {
   });
 });
 
-describe('the seeded bot', () => {
-  it('is the one the fixture and the bot script both name', async () => {
-    const [bot] = await sql<BotRow>(
+describe('the seeded bots', () => {
+  it('are the cast the fixture and the bot script both name, at fixed ids', async () => {
+    const rows = await sql<BotRow>(
       `select p.id, p.handle, p.name, u.email, p.is_bot
          from public.profiles p join auth.users u on u.id = p.id
         where p.is_bot`,
     );
 
-    expect(bot).toEqual({
-      id: SEED_BOT.id,
-      handle: SEED_BOT.handle,
-      name: SEED_BOT.name,
-      email: SEED_BOT.email,
-      is_bot: true,
-    });
+    // The ids matter as much as the names here, and they are why this seeds all
+    // four rather than only Dorothy. `scripts/seed-bots.mjs` creates whichever
+    // bot it cannot find by handle and `auth.admin.createUser` picks the uuid —
+    // so before these rows existed, three of the cast were re-minted on every
+    // `db reset` and the app's directory, keyed by id, ended up holding both the
+    // old row and the new one.
+    const byHandle = (a: BotRow, b: BotRow) => a.handle.localeCompare(b.handle);
+    expect([...rows].sort(byHandle)).toEqual(
+      SEED_BOTS.map((b) => ({
+        id: b.id,
+        handle: b.handle,
+        name: b.name,
+        email: b.email,
+        is_bot: true,
+      })).sort(byHandle),
+    );
   });
 
-  it('is the only one, so a second Dorothy cannot arrive unnoticed', async () => {
-    // `bots.test.ts` asserts that a stranger sees exactly one profile that is
-    // not their own, and reads it as "the bot". That claim is only as true as
-    // this count — and a duplicate bot is precisely the failure this suite
-    // exists to catch early, since the app renders every `is_bot` row as a
-    // person you could stake a goal with.
+  it('are the only ones, so a second Dorothy cannot arrive unnoticed', async () => {
+    // `bots.test.ts` asserts that a stranger sees exactly the bots and their own
+    // row. That claim is only as sharp as this count — and a duplicate bot is
+    // precisely the failure this suite exists to catch early, since the app
+    // renders every `is_bot` row as a person you could stake a goal with.
     const rows = await sql<{ id: string }>('select id from public.profiles where is_bot');
-    expect(rows).toHaveLength(1);
+    expect(rows).toHaveLength(SEED_BOTS.length);
   });
 });
 

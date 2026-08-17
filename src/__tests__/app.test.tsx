@@ -195,7 +195,12 @@ describe('ledger', () => {
   it('opens a historical week with that week’s data', () => {
     open();
     fireEvent.press(screen.getByLabelText('Me'));
-    fireEvent.press(screen.getByLabelText('Week 32, 6 of 7 done, 190 pts'));
+    // Derived, like the test below it. The history is seeded relative to the
+    // live week, so a hardcoded number is only right until the next Monday —
+    // and CI runs in UTC, which turns that into a build that fails on a date
+    // rather than on a change.
+    const lastWeek = liveWeek().number - 1;
+    fireEvent.press(screen.getByLabelText(`Week ${lastWeek}, 6 of 7 done, 190 pts`));
     expect(screen.getByText('Ship newsletter draft')).toBeTruthy();
     expect(screen.getByText('Back to today')).toBeTruthy();
   });

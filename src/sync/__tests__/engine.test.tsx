@@ -12,6 +12,7 @@ import React from 'react';
 import { AppState, Text } from 'react-native';
 import { act, render, screen } from '@testing-library/react-native';
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fakeSupabase } from '../../__mocks__/@supabase/supabase-js';
 import { getSupabase } from '../../lib/supabase';
 import { liveWeek, weekAfter } from '../../data/week';
@@ -240,7 +241,7 @@ const say = (id: string, note: string) => {
   act(() => dispatch({ type: 'SEND_NOTE' }));
 };
 
-beforeEach(() => {
+beforeEach(async () => {
   jest.useFakeTimers();
   realtime.reset();
   __resetRealtimeForTests();
@@ -256,6 +257,12 @@ beforeEach(() => {
   fakeSupabase.reset();
   __resetOutboxForTests();
   __resetSessionForTests();
+  // `__resetOutboxForTests` clears the module, not the disk. A test that ends
+  // with entries still queued leaves them in `rally:outbox:v1`, and the next
+  // mount hydrates them — under a different anonymous user, so the drain sees a
+  // foreign owner, clears the queue and returns before sending anything of its
+  // own. Every test here happened to drain empty until one deliberately did not.
+  await AsyncStorage.clear();
   rendered.count = 0;
 });
 
@@ -290,6 +297,39 @@ it('sends a stake made offline, once, after the network comes back', async () =>
   // once-a-second-forever.
   await settle(30_000);
   expect(upserts()).toHaveLength(1);
+});
+
+it('holds the queue when the server stops accepting the token, and goes quiet', async () => {
+  mount();
+  await settle();
+  expect(currentUserId()).not.toBeNull();
+
+  fakeSupabase.goOffline();
+  stake('ride to the bridge');
+  stake('long way home');
+  await settle(6_000);
+  expect(pending()).toHaveLength(2);
+
+  // The radio is back, but the account it belonged to is gone — deleted, or its
+  // refresh token revoked. Every request now answers the same way.
+  fakeSupabase.goOnline();
+  fakeSupabase.failNext(200, { code: 'PGRST301', message: 'JWT expired' });
+  await settle(10_000);
+
+  // The point of the whole change. A 401 used to arrive as `permanent`, and
+  // `drop` splices the head out and *continues* — so one drain pass emptied the
+  // queue into the dead list, deleting both of these with nothing on screen.
+  expect(pending()).toHaveLength(2);
+  expect(deadLetters()).toEqual([]);
+
+  // And the layer stops rather than asking a dead token the same question every
+  // minute until the app is restarted. This is `currentUserId()` going null:
+  // the pull bails on it, the drain returns early on it, the socket drops it.
+  expect(currentUserId()).toBeNull();
+
+  const quiet = fakeSupabase.calls.length;
+  await settle(120_000);
+  expect(fakeSupabase.calls.length).toBe(quiet);
 });
 
 /** The circle that makes your own `profiles` row come back on a pull. */
