@@ -1,15 +1,18 @@
 /**
  * Step 5 — Notifications. What a cheer looks like when it lands.
  *
- * "Allow notifications" asks for real, and grants exactly one thing: the
- * Monday reminder previewed second on this screen. That is a *local*
- * notification, scheduled on the device, and needs neither APNs nor a paid
- * Apple developer programme.
+ * "Allow notifications" asks once and now delivers both previews on this
+ * screen. The Monday reminder is a *local* notification scheduled on the
+ * device; the cheer is remote push, which needs an APNs key, a real build and a
+ * registered device token — and `allowReminders` registers that token right
+ * here, on this button.
  *
- * The first preview — a cheer landing the moment a friend sends it — still
- * cannot happen: that is remote push. So the subtitle promises cheers wait in
- * the app, which is what they do, and the button delivers the half that is
- * genuinely deliverable rather than prompting for nothing.
+ * The subtitle said cheers "wait in the app" for exactly as long as that was
+ * true, because promising a lock screen the build could not reach would have
+ * been a lie told at the one moment a person is deciding whether to trust the
+ * app with a permission. Underselling is the safe direction to be wrong in, but
+ * it is still wrong once the feature ships: somebody declining here would be
+ * declining the thing they were just told they would not get.
  */
 import React, { useEffect, useState } from 'react';
 import { Animated, View, ViewStyle } from 'react-native';
@@ -48,7 +51,7 @@ export function NotificationsScreen({
         Cheers land here.
       </Bri>
       <Sans size={13.5} color={color.muted} lineHeight={20} style={{ marginTop: 8 }}>
-        One line from a friend, waiting when you open Rally. No spam. No streak-shame.
+        One line from a friend, the moment they send it. No spam. No streak-shame.
       </Sans>
 
       <Pop style={{ marginTop: 34 }}>
