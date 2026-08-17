@@ -78,8 +78,35 @@ function isFatal(err: unknown): boolean {
   return e.code === 'anonymous_provider_disabled';
 }
 
+let watching = false;
+
+/**
+ * gotrue's own verdict, and the only warning we get for the failure that
+ * actually happens.
+ *
+ * A revoked or expired refresh token does not produce a 401 anywhere this code
+ * can see. supabase-js falls back to the publishable key when it cannot produce
+ * a session (`_getAccessToken`: `data.session?.access_token ?? this.supabaseKey`),
+ * so every request afterwards goes out as `anon` and PostgREST answers 42501 —
+ * "permission denied for table tasks" — which is indistinguishable from an
+ * ordinary RLS refusal and gets the entry dropped. The HTTP status *is* 401, but
+ * postgrest-js puts that on the response rather than on the error object, so it
+ * never reaches the classifier.
+ *
+ * gotrue knows, though: it clears the session and announces SIGNED_OUT. That is
+ * this subscription's whole job.
+ */
+function watchAuth(): void {
+  if (watching) return;
+  watching = true;
+  getSupabase().auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_OUT' && !session) reportAuthFailure();
+  });
+}
+
 async function resolveSession(): Promise<SessionState> {
   const supabase = getSupabase();
+  watchAuth();
 
   try {
     // Reads AsyncStorage, not the network — this is the path that works on a
@@ -189,6 +216,13 @@ export async function retrySession(): Promise<SessionState> {
 
 export async function signOutEverywhere(): Promise<void> {
   stopAutoRefresh();
+  fatal = null;
+  expired = false;
+  // Before the call, not after. `signOut` makes gotrue announce SIGNED_OUT, and
+  // `watchAuth` cannot tell that one from the involuntary kind — leaving `ready`
+  // in place here would have this condemn the very session it is retiring, and
+  // land on the banner instead of on a clean start.
+  set(OFF);
   if (hasSupabaseConfig()) {
     try {
       await getSupabase().auth.signOut({ scope: 'global' });
@@ -197,9 +231,6 @@ export async function signOutEverywhere(): Promise<void> {
       // or the app is stuck signed in to a session it is refusing to use.
     }
   }
-  fatal = null;
-  expired = false;
-  set(OFF);
 }
 
 export function currentUserId(): string | null {
@@ -240,5 +271,6 @@ export function __resetSessionForTests(): void {
   refreshing = false;
   fatal = null;
   expired = false;
+  watching = false;
   listeners.clear();
 }

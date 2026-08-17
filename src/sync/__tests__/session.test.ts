@@ -9,6 +9,8 @@
  */
 import { fakeSupabase } from '../../__mocks__/@supabase/supabase-js';
 import * as supabaseModule from '../../lib/supabase';
+
+const { getSupabase } = supabaseModule;
 import {
   __resetSessionForTests,
   currentUserId,
@@ -115,6 +117,33 @@ it('a retry in a tunnel reports offline rather than condemning the account', asy
   } as unknown as ReturnType<typeof supabaseModule.getSupabase>);
 
   await expect(retrySession()).resolves.toEqual({ status: 'offline' });
+});
+
+it('takes gotrue signing itself out as the rejection, because nothing else will', async () => {
+  await signedIn();
+
+  // The failure that actually happens. A revoked refresh token never produces a
+  // 401 this code can read: supabase-js falls back to the publishable key, so
+  // requests go out as `anon` and PostgREST answers 42501 — the same code an
+  // ordinary RLS refusal carries, which drops the entry. Verified against a
+  // real PostgREST: HTTP 401, body `{"code":"42501"}`, and postgrest-js does not
+  // put the status on the error. gotrue announcing SIGNED_OUT is the only signal
+  // that distinguishes "you are nobody now" from "you may not touch that row".
+  await getSupabase().auth.signOut();
+
+  expect(currentUserId()).toBeNull();
+  await expect(ensureSession()).resolves.toEqual({ status: 'expired' });
+});
+
+it('does not condemn the session it is deliberately retiring', async () => {
+  await signedIn();
+
+  // `signOut` announces SIGNED_OUT too, and the watcher cannot tell the two
+  // apart. Landing on the banner here would make "Start over" unable to start.
+  await signOutEverywhere();
+
+  const next = await ensureSession();
+  expect(next.status).toBe('ready');
 });
 
 it('signing out clears the latch, so the next sign-in is allowed to work', async () => {

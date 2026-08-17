@@ -216,14 +216,23 @@ async function forceRefresh(): Promise<void> {
  * to retire — the worker either got rows or it will ask again on the next tick,
  * and there is no third outcome worth encoding.
  */
+/**
+ * Only `code` is carried, and that is not an oversight.
+ *
+ * postgrest-js puts the HTTP status on the *response*, not on the error object,
+ * and no call site here destructures it — so `err.status` is always undefined
+ * on this path and copying it would be a line that reads like insurance while
+ * doing nothing. A rejected JWT is what this needs to survive, and PostgREST
+ * names that one in the body: `PGRST301` expired, `PGRST303` not yet valid.
+ *
+ * What that leaves out: a 401 from the gateway rather than from PostgREST — a
+ * wrong API key, say — whose body carries no code at all. That is a build that
+ * was never going to work rather than a session that stopped working, and
+ * catching it would mean threading `status` through every read here.
+ */
 function fail(err: WireError): never {
-  const e = new Error(describe(err)) as Error & { code?: string; status?: number };
+  const e = new Error(describe(err)) as Error & { code?: string };
   e.code = err.code;
-  // Carried for the same reason `code` is. `isAuthExpired` reads both, and a
-  // gateway 401 that never reached PostgREST has no SQLSTATE to read instead —
-  // dropping it here would make the shared predicate quietly half-blind on
-  // pulls while staying whole on pushes.
-  e.status = err.status;
   throw e;
 }
 
