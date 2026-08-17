@@ -17,75 +17,31 @@
  * dependencies, and adding one to run a script four times a year is not worth
  * the install.
  */
-import { readFileSync } from 'node:fs';
-import { createClient } from '@supabase/supabase-js';
-import ws from 'ws';
+import { serviceClient } from './lib/db.mjs';
+import { complete } from './lib/llm.mjs';
 
-const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!KEY) {
-  console.error(
-    'SUPABASE_SERVICE_ROLE_KEY is not set.\n' +
-      'Find it under Project Settings → API in the Supabase dashboard, and pass it\n' +
-      'on the command line rather than putting it in .env — that file is for the\n' +
-      'publishable key, and this one bypasses every policy in the database.',
-  );
-  process.exit(1);
-}
-
-// A key goes into an HTTP header, and a header can only hold ASCII — so a
-// placeholder pasted verbatim out of a README fails deep inside fetch with
-// "Cannot convert argument to a ByteString", naming a character code and
-// nothing else. Caught here, where the answer is obvious.
-if (!/^[\x21-\x7e]{20,}$/.test(KEY)) {
-  console.error(
-    'That does not look like a service-role key.\n' +
-      'If you copied the command from a README, replace the … with the real key —\n' +
-      'it is a long run of plain ASCII, starting with "sb_secret_" or "eyJ".',
-  );
-  process.exit(1);
-}
-
-/** The URL is not a secret and is already in .env, next to the publishable key. */
-const url =
-  process.env.EXPO_PUBLIC_SUPABASE_URL ??
-  (readFileSync(new URL('../.env', import.meta.url), 'utf8').match(
-    /^EXPO_PUBLIC_SUPABASE_URL=(.+)$/m,
-  ) ?? [])[1];
-
-if (!url) {
-  console.error('No EXPO_PUBLIC_SUPABASE_URL, in the environment or in .env.');
-  process.exit(1);
-}
-
-const db = createClient(url, KEY, {
-  auth: { persistSession: false },
-  // Node 20 has no global WebSocket and supabase-js builds a realtime client
-  // eagerly, so `createClient` throws without this. The same line, for the same
-  // reason, is in integration/support/clients.ts — the app itself needs
-  // neither, because React Native provides WebSocket natively.
-  realtime: { transport: ws },
-});
+const { db, url } = serviceClient();
 
 /**
- * The cast, and their week.
+ * The cast, and the shape of their week.
  *
- * These goals are the point, not the characters. The Global feed is the first
- * screen a new account lands on, so it is where someone learns what a stake
- * looks like here — which means every line has to be one they could put in
- * their own week unchanged: a single action, a number or a day attached to it,
- * and done or not done by Sunday with nothing to argue about. "Get fitter" is
- * not on this list; "Walk 30 minutes every morning" is.
+ * The goals are no longer here, and that is the change. They are drawn from
+ * `bot_goal_candidates` — written by a model, priced by the rubric the composer
+ * prices yours with, and approved one at a time by a person running
+ * `npm run bots:review`. This file used to carry eleven hand-written lines, and
+ * the cast sat on whatever week those lines described until somebody edited
+ * them.
  *
- * The characters only decide which *kind* of goal each one takes — Dorothy
- * moves, the Scarecrow learns, the Tin Man tends to people, the Lion asks for
- * things. That is enough personality for a feed and none of it has to be
- * explained.
+ * The characters only decide which *kind* of goal each one is written for —
+ * Dorothy moves, the Scarecrow learns, the Tin Man tends to people, the Lion
+ * asks for things. That is enough personality for a feed and none of it has to
+ * be explained.
  *
- * Each goal carries its own price, rated by the same rubric the composer rates
- * yours with — `node scripts/rate-goals.mjs` produces them. Every task is
- * `aud: 'everyone'`, which is what makes this the Global feed rather than four
- * accounts nobody can see, and ids are fixed so a second run updates the same
- * rows instead of staking the week twice.
+ * `slots` are fixed task ids, and they are what keeps this idempotent: slot one
+ * for Dorothy is the same row every week, holding whichever goal was drawn for
+ * it. Without them a second run would stake the week twice rather than replace
+ * it. Every task is `aud: 'everyone'`, which is what makes this the Global feed
+ * rather than four accounts nobody can see.
  *
  * Nobody closes everything. A feed of perfect weeks is not encouragement, it
  * is a pace car, and the one thing this app should never imply is that the
@@ -105,57 +61,151 @@ const BOTS = [
     handle: 'dorothy.gale',
     name: 'Dorothy Gale',
     email: 'dorothy@rally.test',
-    tasks: [
-      ['0b0d0000-0000-4000-8000-000000000001', 1, 'Walk 30 minutes every morning', 'Fitness', 35, true],
-      ['0b0d0000-0000-4000-8000-000000000002', 2, 'Meal prep Sunday for the week', 'Home', 25, true],
-      ['0b0d0000-0000-4000-8000-000000000003', 4, 'Bike to work 3 days', 'Fitness', 35, false],
+    slots: [
+      '0b0d0000-0000-4000-8000-000000000001',
+      '0b0d0000-0000-4000-8000-000000000002',
+      '0b0d0000-0000-4000-8000-000000000003',
     ],
   },
   {
     handle: 'the.scarecrow',
     name: 'The Scarecrow',
     email: 'scarecrow@rally.test',
-    tasks: [
-      ['0b0d0000-0000-4000-8000-000000000011', 0, 'Read 50 pages before opening my phone', 'Mind', 25, true],
-      ['0b0d0000-0000-4000-8000-000000000012', 2, 'Finish module 3 of the SQL course', 'Work', 45, false],
-      ['0b0d0000-0000-4000-8000-000000000013', 3, 'Write a 20-minute weekly review on Friday', 'Mind', 25, true],
+    slots: [
+      '0b0d0000-0000-4000-8000-000000000011',
+      '0b0d0000-0000-4000-8000-000000000012',
+      '0b0d0000-0000-4000-8000-000000000013',
     ],
   },
   {
     handle: 'tin.man',
     name: 'Tin Man',
     email: 'tinman@rally.test',
-    tasks: [
-      ['0b0d0000-0000-4000-8000-000000000021', 1, 'Call my sister on Wednesday', 'Mind', 25, true],
-      ['0b0d0000-0000-4000-8000-000000000022', 3, 'Cook at home 4 nights', 'Home', 25, false],
-      ['0b0d0000-0000-4000-8000-000000000023', 5, 'Stretch 10 minutes before bed', 'Fitness', 35, false],
+    slots: [
+      '0b0d0000-0000-4000-8000-000000000021',
+      '0b0d0000-0000-4000-8000-000000000022',
+      '0b0d0000-0000-4000-8000-000000000023',
     ],
   },
   {
+    // Two, not three, on purpose: a cast where everybody stakes the same number
+    // of goals reads like a template.
     handle: 'cowardly.lion',
     name: 'Cowardly Lion',
     email: 'lion@rally.test',
-    tasks: [
-      ['0b0d0000-0000-4000-8000-000000000031', 2, 'Ask for a 1:1 about the promotion', 'Work', 45, true],
-      ['0b0d0000-0000-4000-8000-000000000032', 4, 'Send the pitch to 3 clients', 'Work', 45, false],
+    slots: [
+      '0b0d0000-0000-4000-8000-000000000031',
+      '0b0d0000-0000-4000-8000-000000000032',
     ],
   },
 ];
 
 /**
- * There is no `POINTS` map here any more, and its absence is the point.
+ * The draw: this bot's approved goals, least recently used first.
  *
- * It used to be a hand-copy of `CATEGORY_POINTS`, and the price was derived
- * from the category so that a bot goal could never carry a number the composer
- * would not charge. The composer no longer charges by category — it reads the
- * goal — so deriving a price here would now be the thing that produced a number
- * nobody could stake.
+ * `nulls first` is the whole rule — a goal that has never been staked outranks
+ * every goal that has, and after those the one that ran longest ago comes back
+ * round. So a pool with more goals than slots never repeats until it has to,
+ * and a pool with fewer degrades to repetition rather than to a silent feed.
+ * Somebody repeating a goal across two weeks is honest anyway.
  *
- * Each task therefore carries its own reviewed price, from
- * `node scripts/rate-goals.mjs`. Re-run it whenever the wording changes: an
- * edited goal is a different goal, and the number beside it has to be the one
- * the app would give somebody who typed the same words.
+ * Unapproved candidates are invisible here. That filter is the gate: it is the
+ * only thing standing between a model's output and the first screen a new
+ * account sees.
  */
+async function draw(bot) {
+  const { data, error } = await db
+    .from('bot_goal_candidates')
+    .select('id, title, category, points')
+    .eq('handle', bot.handle)
+    .not('approved_at', 'is', null)
+    .order('last_staked', { ascending: true, nullsFirst: true })
+    .order('created_at', { ascending: true })
+    .limit(bot.slots.length);
+  if (error) throw error;
+  return data ?? [];
+}
+
+const RHYTHM_SCHEMA = {
+  type: 'object',
+  properties: {
+    week: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' },
+          day: { type: 'integer' },
+          done: { type: 'boolean' },
+        },
+        required: ['id', 'day', 'done'],
+      },
+    },
+  },
+  required: ['week'],
+};
+
+/**
+ * Which goals close, which are missed, and on which days.
+ *
+ * Worth being honest about: this is the job in the whole feature where a model
+ * earns least. Weighted random would produce a week that read the same. It is a
+ * prompt because it keeps every judgement about the bots in one place, and
+ * because one call a week costs nothing.
+ *
+ * Which is also why it falls back rather than failing. A model having a bad day
+ * must not stop the week being staked — the goals are the point, the stagger is
+ * decoration. The fallback is stated out loud so a run that quietly produced a
+ * duller week cannot look like a run that did not.
+ */
+async function rhythm(drawn) {
+  const listed = drawn
+    .map((g, i) => `${i}: ${g.name} — ${g.title} (${g.category}, ${g.points} points)`)
+    .join('\n');
+
+  const system = [
+    'You are laying out one week for a small cast of people in a habit-tracking',
+    'app, so that the feed reads like a real week rather than a spreadsheet.',
+    '',
+    'For every goal, choose the day it sits on (0 is Monday, 6 is Sunday) and',
+    'whether it was finished by Sunday.',
+    '',
+    'Spread the days out. Nobody stacks their whole week on one day, and a cast',
+    'where everything lands on Monday looks staged.',
+    '',
+    'Most goals close, but not all of them, and not for everybody. Somebody',
+    'should end the week having missed one — that is the honest part, and a feed',
+    'where every person finished everything is a feed that makes a reader feel',
+    'worse. Nobody should miss all of theirs either.',
+    '',
+    'Harder and vaguer goals are likelier to be missed than small specific ones.',
+    'Return one entry per goal, using the id given.',
+  ].join('\n');
+
+  try {
+    const { week } = await complete({
+      system,
+      user: `The goals, by id:\n\n${listed}`,
+      schema: RHYTHM_SCHEMA,
+    });
+
+    const byId = new Map((week ?? []).map((w) => [w.id, w]));
+    // Anything the model skipped or invented falls back per goal rather than
+    // discarding the whole answer, so a half-answer still beats no answer.
+    return drawn.map((g, i) => {
+      const said = byId.get(i);
+      const day = Number(said?.day);
+      return {
+        day: Number.isInteger(day) && day >= 0 && day <= 6 ? day : i % 7,
+        done: typeof said?.done === 'boolean' ? said.done : i % 3 !== 2,
+      };
+    });
+  } catch (err) {
+    console.error(`  (no rhythm from the model: ${err.message.split('\n')[0]})`);
+    console.error('  Falling back to a fixed spread — the week will read flatter.');
+    return drawn.map((_, i) => ({ day: i % 7, done: i % 3 !== 2 }));
+  }
+}
 
 /** The Monday of the current week, in the server's own `week_start` shape. */
 function thisMonday() {
@@ -201,47 +251,97 @@ try {
 }
 
 async function seed() {
-for (const [botIndex, bot] of BOTS.entries()) {
-  const { id, created } = await ensureAccount(bot);
+  // Everyone's accounts and everyone's goals first, so the week is laid out in
+  // one call across the whole cast. Asking per bot would let four independent
+  // answers all decide Tuesday was a good day.
+  const drawn = [];
+  for (const bot of BOTS) {
+    const { id, created } = await ensureAccount(bot);
 
-  // The signup trigger generates a handle; this replaces it with the readable
-  // one and is the only place `is_bot` is ever set.
-  const { error: profileError } = await db
-    .from('profiles')
-    .update({ handle: bot.handle, name: bot.name, is_bot: true })
-    .eq('id', id);
-  if (profileError) throw profileError;
+    // The signup trigger generates a handle; this replaces it with the readable
+    // one and is the only place `is_bot` is ever set.
+    const { error: profileError } = await db
+      .from('profiles')
+      .update({ handle: bot.handle, name: bot.name, is_bot: true })
+      .eq('id', id);
+    if (profileError) throw profileError;
 
-  // Staggered, and interleaved across the cast. Everything written in one
-  // transaction is written at one instant, and the feed rendered as a wall of
-  // "0h ago" in four blocks of one name — a week's worth of other people's
-  // lives, all apparently happening while you watched.
-  const rows = bot.tasks.map(([taskId, day, title, category, points, done], i) => {
-    const at = new Date(Date.now() - (2 + i * 5 + botIndex) * 3600_000).toISOString();
-    return {
-      id: taskId,
-      owner_id: id,
-      week_start: monday,
-      day,
-      title,
-      category,
-      points,
-      aud: 'everyone',
-      source: 'staked',
-      created_at: at,
-      done_at: done ? at : null,
-      updated_at: at,
-    };
-  });
+    bot.id = id;
+    bot.created = created;
+    bot.goals = await draw(bot);
+    for (const g of bot.goals) drawn.push({ ...g, name: bot.name });
+  }
 
-  const { error: taskError } = await db.from('tasks').upsert(rows, { onConflict: 'id' });
-  if (taskError) throw taskError;
+  const empty = BOTS.filter((b) => !b.goals.length);
+  if (empty.length === BOTS.length) {
+    throw new Error(
+      'No approved goals for anybody, so there is no week to stake.\n' +
+        '  npm run bots:draft -- --write   then   npm run bots:review',
+    );
+  }
+  for (const b of empty) {
+    console.error(`  ${b.name} has no approved goals — staking nothing for them.`);
+  }
 
-  const closed = bot.tasks.filter((t) => t[4]).length;
-  console.log(
-    `  ${created ? 'created' : 'updated'}  ${bot.name.padEnd(15)} ${closed}/${bot.tasks.length} closed`,
-  );
-}
+  const shape = await rhythm(drawn);
 
-console.log('Done. The Global feed is these four.');
+  let cursor = 0;
+  for (const [botIndex, bot] of BOTS.entries()) {
+    // Staggered, and interleaved across the cast. Everything written in one
+    // transaction is written at one instant, and the feed rendered as a wall of
+    // "0h ago" in four blocks of one name — a week's worth of other people's
+    // lives, all apparently happening while you watched.
+    const rows = bot.goals.map((g, i) => {
+      const { day, done } = shape[cursor + i];
+      const at = new Date(Date.now() - (2 + i * 5 + botIndex) * 3600_000).toISOString();
+      return {
+        id: bot.slots[i],
+        owner_id: bot.id,
+        week_start: monday,
+        day,
+        title: g.title,
+        category: g.category,
+        points: g.points,
+        aud: 'everyone',
+        source: 'staked',
+        created_at: at,
+        done_at: done ? at : null,
+        updated_at: at,
+      };
+    });
+    cursor += bot.goals.length;
+
+    if (rows.length) {
+      const { error: taskError } = await db.from('tasks').upsert(rows, { onConflict: 'id' });
+      if (taskError) throw taskError;
+    }
+
+    // A slot the pool could not fill would otherwise keep last week's row, and
+    // show up in the feed as a goal from a week nobody is looking at.
+    const unfilled = bot.slots.slice(bot.goals.length);
+    if (unfilled.length) {
+      const { error } = await db.from('tasks').delete().in('id', unfilled);
+      if (error) throw error;
+    }
+
+    // Stamped only once the week is actually staked, so a run that fell over
+    // half way does not push these goals to the back of the queue for nothing.
+    if (bot.goals.length) {
+      const { error } = await db
+        .from('bot_goal_candidates')
+        .update({ last_staked: monday })
+        .in(
+          'id',
+          bot.goals.map((g) => g.id),
+        );
+      if (error) throw error;
+    }
+
+    const closed = rows.filter((r) => r.done_at).length;
+    console.log(
+      `  ${bot.created ? 'created' : 'updated'}  ${bot.name.padEnd(15)} ${closed}/${rows.length} closed`,
+    );
+  }
+
+  console.log('Done. The Global feed is these four.');
 }

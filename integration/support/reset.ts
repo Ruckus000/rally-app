@@ -31,6 +31,7 @@ const DOMAIN_TABLES = [
   'public.week_rollups',
   'public.notifications',
   'public.invites',
+  'public.bot_goal_candidates',
 ] as const;
 
 export async function resetDomainTables(): Promise<void> {

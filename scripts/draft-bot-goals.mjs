@@ -1,20 +1,28 @@
 /**
- * Draft candidate goals for the Oz bots. Prints them. Writes nothing.
+ * Draft candidate goals for the Oz bots.
  *
  *   node scripts/draft-bot-goals.mjs
  *   node scripts/draft-bot-goals.mjs --count=12 --bot=tin.man
+ *   SUPABASE_SERVICE_ROLE_KEY=… node scripts/draft-bot-goals.mjs --write
  *
  * The Global feed is the first screen a new account lands on, so its goals are
  * the app's answer to "what does a stake look like here". That is documentation
  * written by four fictional people, and it is not something a model gets to
- * publish. This script generates; you choose; `seed-bots.mjs` publishes what
- * you chose. The gap between those three sentences is the entire design.
+ * publish. This script generates; you approve with `bots:review`;
+ * `seed-bots.mjs` publishes what you approved. The gap between those three
+ * sentences is the entire design.
  *
- * Because it runs against Ollama on your own machine, generating is free and
- * unmetered — ask for forty and keep eight. Rejecting most of the output is the
- * expected way to use this, not a sign it went wrong.
+ * Without `--write` it prints and stores nothing, which is the way to read a
+ * batch before committing to it. With `--write` each goal is priced and
+ * screened and lands in `bot_goal_candidates` as pending — pending, not
+ * published: nothing here reaches a feed until a person has said yes to it.
+ *
+ * Ask for forty and keep eight. Rejecting most of the output is the expected
+ * way to use this, not a sign it went wrong.
  */
 import { RUBRIC, complete } from './lib/llm.mjs';
+import { rateGoal } from './lib/rate.mjs';
+import { serviceClient } from './lib/db.mjs';
 
 /**
  * Who they are, in the terms the goals have to reflect. Deliberately short:
@@ -53,12 +61,16 @@ const flag = (name, fallback) => {
 
 const count = Number(flag('count', '10'));
 const only = flag('bot', null);
+const write = process.argv.includes('--write');
 
-const chosen = only ? { [only]: BOTS[only] } : BOTS;
 if (only && !BOTS[only]) {
   console.error(`Unknown bot "${only}". One of: ${Object.keys(BOTS).join(', ')}`);
   process.exit(1);
 }
+const chosen = only ? { [only]: BOTS[only] } : BOTS;
+
+// Only when writing, so reading a batch stays a thing you can do with no key.
+const { db } = write ? serviceClient() : {};
 
 /**
  * The rubric describes what a goal worth points looks like, which is exactly
@@ -97,7 +109,15 @@ const system = [
   'category is wrong.',
 ].join('\n');
 
-console.log('Drafting. Nothing here is written anywhere — pick what you want.\n');
+console.log(
+  write
+    ? 'Drafting. Each goal is priced and screened, then stored as pending.\n'
+    : 'Drafting. Nothing here is written anywhere — run again with --write to keep it.\n',
+);
+
+let kept = 0;
+let blocked = 0;
+let repeats = 0;
 
 for (const [handle, who] of Object.entries(chosen)) {
   console.log(`── ${handle} ${'─'.repeat(Math.max(0, 60 - handle.length))}`);
@@ -108,8 +128,47 @@ for (const [handle, who] of Object.entries(chosen)) {
       schema: SCHEMA,
     });
     for (const g of goals ?? []) {
-      const long = g.title.length > 50 ? `  ← ${g.title.length} chars, too long` : '';
-      console.log(`  ['${g.title.replace(/'/g, "\\'")}', '${g.category}'],${long}`);
+      if (!write) {
+        const long = g.title.length > 50 ? `  ← ${g.title.length} chars, too long` : '';
+        console.log(`  ['${g.title.replace(/'/g, "\\'")}', '${g.category}'],${long}`);
+        continue;
+      }
+      // The title bound is a database constraint now, so a long line is a
+      // failed insert rather than a warning. Said here, before spending a call
+      // pricing something that cannot be stored.
+      if (g.title.length > 50) {
+        console.log(`  ${String(g.title.length).padStart(3)}c  ${g.title}  ← too long, dropped`);
+        continue;
+      }
+      const { points, harmful, reason } = await rateGoal({ title: g.title, category: g.category });
+      if (harmful) {
+        // Not stored at all. A blocked goal is not a pending one — putting it
+        // in the queue would only mean rejecting it again by hand.
+        blocked += 1;
+        console.log(`  ---  ${g.title} BLOCKED`);
+        console.log(`       ↳ ${reason}`);
+        continue;
+      }
+      const { data, error } = await db
+        .from('bot_goal_candidates')
+        .upsert(
+          { handle, title: g.title, category: g.category, points },
+          { onConflict: 'handle,title', ignoreDuplicates: true },
+        )
+        .select('id');
+      if (error) throw error;
+
+      // Nothing back means the unique constraint swallowed it: this bot already
+      // has that goal, approved or pending or waiting to be rejected. Worth
+      // showing rather than counting as new — a run that is mostly repeats is
+      // telling you the pool is saturated.
+      if (!data?.length) {
+        repeats += 1;
+        console.log(`  ${String(points).padStart(3)}  ${g.title}  ← already in the pool`);
+        continue;
+      }
+      kept += 1;
+      console.log(`  ${String(points).padStart(3)}  ${g.title}  (${g.category})`);
     }
   } catch (err) {
     console.error(`  failed: ${err.message}`);
@@ -118,6 +177,8 @@ for (const [handle, who] of Object.entries(chosen)) {
 }
 
 console.log(
-  'Next: paste the keepers into BOTS in scripts/seed-bots.mjs with a day and a\n' +
-    'done flag, run scripts/rate-goals.mjs to price them, then npm run db:bots.',
+  write
+    ? `Stored ${kept} pending, blocked ${blocked}, already had ${repeats}.\n` +
+      'Next: npm run bots:review, then npm run db:bots.'
+    : 'Next: run again with --write to store these for review.',
 );
