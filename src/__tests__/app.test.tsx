@@ -48,8 +48,8 @@ function openFresh() {
 const OZ_POST = 'Walk 30 minutes every morning';
 
 const goToPersonal = () => fireEvent.press(screen.getByText('Personal'));
-const goToFriends = () => fireEvent.press(screen.getByText('Friends'));
-const goToGlobal = () => fireEvent.press(screen.getByText('Global'));
+/** One tab now: the circle and the public feed are one list. */
+const goToFeed = () => fireEvent.press(screen.getByText('Feed'));
 
 describe('shell', () => {
   it('shows the week from the week context, not a literal', () => {
@@ -63,7 +63,7 @@ describe('shell', () => {
   it('lands on your own week after onboarding, and switches scope', () => {
     open();
     expect(screen.getByText('Ship the portfolio site')).toBeTruthy();
-    goToFriends();
+    goToFeed();
     expect(screen.getByText('7 of 7 — the entire thing')).toBeTruthy();
   });
 
@@ -102,7 +102,7 @@ describe('week feed', () => {
 
   it('turns a zero cheer count into the verb, and back again', () => {
     open();
-    goToFriends();
+    goToFeed();
     // Sofia's quiet win has no cheers yet.
     expect(screen.getAllByLabelText('Cheer').length).toBeGreaterThan(0);
     fireEvent.press(screen.getAllByLabelText('Cheer')[0]);
@@ -130,13 +130,13 @@ describe('circle', () => {
 describe('config', () => {
   it('honours quietComebacks: false by dropping the quiet item', () => {
     open({ config: { showRank: true, defaultAudience: 'friends', quietComebacks: false } });
-    goToFriends();
+    goToFeed();
     expect(screen.queryByText(/Tomás’s week didn’t finish/)).toBeNull();
   });
 
   it('shows the quiet item by default', () => {
     open();
-    goToFriends();
+    goToFeed();
     expect(screen.getByText(/Tomás’s week didn’t finish/)).toBeTruthy();
   });
 });
@@ -222,10 +222,15 @@ describe('a genuinely empty first run', () => {
     expect(screen.getByText('The week doesn’t count itself.')).toBeTruthy();
   });
 
-  it('asks you to bring someone in rather than showing an empty feed', () => {
+  it('asks you to bring someone in, under a feed that is not empty', () => {
+    // This used to be the "Nobody here yet" empty state, because the circle's
+    // feed was its own tab and an account with no circle had nothing in it.
+    // Merged, there is always the public half to read — so the ask is a footer
+    // under real content rather than a page saying nothing.
     openFresh();
-    goToFriends();
-    expect(screen.getByText('Nobody here yet')).toBeTruthy();
+    goToFeed();
+    expect(screen.getByText(OZ_POST)).toBeTruthy();
+    expect(screen.getByText('Invite someone')).toBeTruthy();
   });
 
   it('shows a circle of one', () => {
@@ -317,10 +322,10 @@ describe('reset', () => {
  * characters rather than `@kwon.builds`, and rows of the same shape as any
  * other week, so the feed is drawn by the component the Friends feed uses.
  */
-describe('the global feed', () => {
+describe('the feed', () => {
   it('is public, so a fresh account still sees it', () => {
     openFresh();
-    goToGlobal();
+    goToFeed();
     expect(screen.getByText(OZ_POST)).toBeTruthy();
     // Named, not "Someone": the demo directory carries the Oz cast for exactly
     // this account, which knows nobody else at all.
@@ -339,34 +344,62 @@ describe('the global feed', () => {
     // Tin Man in a row, which reads as one person shouting rather than as four
     // people having a week. The Friends feed has always sorted; this did not.
     openFresh();
-    goToGlobal();
-    const cards = screen.getAllByLabelText(/^(Dorothy Gale|The Scarecrow|Tin Man|Cowardly Lion): /);
+    goToFeed();
+    const cards = screen.getAllByLabelText(/^(Dorothy Gale|The Scarecrow|Tin Man|Cowardly Lion), /);
     const times = cards.map((c) => c.props.accessibilityLabel);
     expect(times[0]).toContain('Dorothy Gale');
     expect(times[times.length - 1]).toContain('Cowardly Lion');
   });
 
-  it('sits in the middle, so the landing tab is not across the row', () => {
+  it('is one of two tabs, the circle and the public feed having merged', () => {
     openFresh();
     const tabs = screen.getAllByRole('tab');
     expect(within(tabs[0]).getByText('Personal')).toBeTruthy();
-    expect(within(tabs[1]).getByText('Global')).toBeTruthy();
-    expect(within(tabs[2]).getByText('Friends')).toBeTruthy();
+    expect(within(tabs[1]).getByText('Feed')).toBeTruthy();
+    // The scope row ends there — tabs[2] is the bottom nav, which shares the
+    // role. Global and Friends are gone rather than merely renamed.
+    expect(within(tabs[2]).getByText('Week')).toBeTruthy();
   });
 
-  it('says they are not real, and offers a way out when you have no circle', () => {
+  /**
+   * The whole feature: with both halves in one list, the label is the only
+   * thing that says which is which. Both directions are asserted, so swapping
+   * them fails rather than half-passing.
+   */
+  it('labels your circle Friends and the bots Follow', () => {
+    open();
+    goToFeed();
+    expect(screen.getByLabelText(`Dorothy Gale, Follow: ${OZ_POST}`)).toBeTruthy();
+    expect(screen.getByLabelText(/^Sofia Park, Friends: /)).toBeTruthy();
+  });
+
+  it('interleaves the two halves rather than stacking them', () => {
+    // Friends-first would be the two feeds one above the other, which is what
+    // merging them was meant to stop.
+    open();
+    goToFeed();
+    const labels = screen
+      .getAllByLabelText(/, (Friends|Follow): /)
+      .map((c) => (c.props.accessibilityLabel.includes(', Follow: ') ? 'follow' : 'circle'));
+    expect(new Set(labels).size).toBe(2);
+    // At least one changeover in each direction — a stacked feed has one.
+    const flips = labels.filter((k, i) => i > 0 && k !== labels[i - 1]).length;
+    expect(flips).toBeGreaterThan(1);
+  });
+
+  it('says the bots are not real, and offers a way out when you have no circle', () => {
     openFresh();
-    goToGlobal();
-    expect(screen.getByText(/These four are not real/)).toBeTruthy();
+    goToFeed();
+    expect(screen.getByText(/marked Follow are not real/)).toBeTruthy();
     fireEvent.press(screen.getByText('Invite someone'));
     expect(screen.getByText('Grow the circle')).toBeTruthy();
   });
 
   it('drops the nudge once you have a circle', () => {
     open();
-    goToGlobal();
+    goToFeed();
     expect(screen.getByText(OZ_POST)).toBeTruthy();
-    expect(screen.queryByText(/These four are not real/)).toBeNull();
+    expect(screen.queryByText(/marked Follow are not real/)).toBeNull();
   });
 
   // The arithmetic is pinned in selectors.test.ts; what this proves is that the
@@ -378,8 +411,8 @@ describe('the global feed', () => {
     expect(screen.getByText('12')).toBeTruthy();
 
     fireEvent.press(screen.getByLabelText('Week'));
-    goToGlobal();
-    fireEvent.press(screen.getByLabelText(`Dorothy Gale: ${OZ_POST}`));
+    goToFeed();
+    fireEvent.press(screen.getByLabelText(`Dorothy Gale, Follow: ${OZ_POST}`));
     fireEvent.press(screen.getByText('Cheer Dorothy'));
     fireEvent.press(screen.getByLabelText('Close'));
 
@@ -389,8 +422,8 @@ describe('the global feed', () => {
 
   it('keeps a note left on a bot’s post, and counts it on the card', () => {
     open();
-    goToGlobal();
-    fireEvent.press(screen.getByLabelText(`Dorothy Gale: ${OZ_POST}`));
+    goToFeed();
+    fireEvent.press(screen.getByLabelText(`Dorothy Gale, Follow: ${OZ_POST}`));
     fireEvent.changeText(screen.getByLabelText('Say something…'), 'Respect.');
     fireEvent.press(screen.getByLabelText('Send note'));
 
@@ -399,10 +432,14 @@ describe('the global feed', () => {
     // The count is the thread's real length now. It used to be a fixture's
     // `comments: 12` with your note added on top — a number that counted
     // eleven replies nobody ever wrote.
-    expect(screen.getByLabelText('1 notes')).toBeTruthy();
+    //
+    // Scoped to Dorothy's card: the circle's cards are in this list too now,
+    // and one of them has always carried a single note of its own.
+    const card = screen.getByLabelText(`Dorothy Gale, Follow: ${OZ_POST}`);
+    expect(within(card).getByLabelText('1 notes')).toBeTruthy();
 
     // And it is still there when you go back in, which is the "keeps" half.
-    fireEvent.press(screen.getByLabelText(`Dorothy Gale: ${OZ_POST}`));
+    fireEvent.press(screen.getByLabelText(`Dorothy Gale, Follow: ${OZ_POST}`));
     expect(screen.getByText('Respect.')).toBeTruthy();
   });
 });

@@ -3,11 +3,14 @@
  * metric the sort uses, or the screen implies an order it doesn't have.
  */
 import { reducer } from '../store';
+import { personOf, type PersonId } from '../../data/people';
 import {
   allTasksDone,
   cheersGiven,
   circleCheersGiven,
+  circleMembers,
   helpedByThisWeek,
+  mergedFeed,
   myRank,
   personalFeed,
   ranking,
@@ -17,6 +20,7 @@ import {
   weekPoints,
 } from '../selectors';
 import { seedCircle, seedNotifications } from '../../data/seed';
+import { parseHours } from '../../data/fixtures';
 import { baseState as base, freshState } from '../../test/baseState';
 
 
@@ -142,6 +146,80 @@ describe('unread badge', () => {
   it('ignores reads in the other tiers', () => {
     const s = reducer(base, { type: 'READ_NOTIF', id: 'n7' });
     expect(unreadNeedsCount(s)).toBe(unreadNeedsCount(base));
+  });
+});
+
+describe('who counts as your circle', () => {
+  /** A live account: one real person, and the bots every account can see. */
+  const live = {
+    ...base,
+    account: 'live' as const,
+    people: {
+      'u-1': personOf('u-1' as PersonId, 'Rae Silva'),
+      'b-1': { ...personOf('b-1' as PersonId, 'Dorothy Gale'), bot: true },
+      'b-2': { ...personOf('b-2' as PersonId, 'Tin Man'), bot: true },
+    },
+  };
+
+  it('leaves the bots out', () => {
+    // Seen on device: "5 people, ranked by follow-through" over a leaderboard
+    // of Wizard of Oz characters, on an account that knew nobody.
+    expect(circleMembers(live)).toEqual(['u-1']);
+  });
+
+  it('so an account with only bots is still a circle of one', () => {
+    // Which is what the feed's invite prompt keys off. While the bots counted,
+    // a brand-new account was never alone and never saw it.
+    const { 'u-1': _, ...botsOnly } = live.people;
+    expect(circleMembers({ ...live, people: botsOnly })).toEqual([]);
+  });
+});
+
+/**
+ * The Week tab's one social feed. What used to be two tabs is now one list, so
+ * the ordering and the label are the whole of what merging them decided — and
+ * both are here rather than in a render test.
+ */
+describe('the merged feed', () => {
+  it('carries every card from both halves', () => {
+    const feed = mergedFeed(base, true);
+    expect(feed).toHaveLength(base.moments.length + base.globalPosts.length);
+    expect(feed.filter((e) => e.from === 'circle')).toHaveLength(base.moments.length);
+    expect(feed.filter((e) => e.from === 'follow')).toHaveLength(base.globalPosts.length);
+  });
+
+  it('labels each card by the slice it came from', () => {
+    const feed = mergedFeed(base, true);
+    for (const { m, from } of feed) {
+      const inCircle = base.moments.some((x) => x.id === m.id);
+      expect(from).toBe(inCircle ? 'circle' : 'follow');
+    }
+  });
+
+  it('interleaves by time rather than stacking one half on the other', () => {
+    const feed = mergedFeed(base, true);
+    const times = feed.map((e) => parseHours(e.m.time));
+    expect(times).toEqual([...times].sort((a, b) => a - b));
+    // Friends-first would change source exactly once. Interleaved is more.
+    const flips = feed.filter((e, i) => i > 0 && e.from !== feed[i - 1]!.from).length;
+    expect(flips).toBeGreaterThan(1);
+  });
+
+  it('still honours quietComebacks, and only on the circle half', () => {
+    const quiet = mergedFeed(base, false);
+    expect(quiet.some((e) => e.m.kind === 'quiet')).toBe(false);
+    expect(quiet.filter((e) => e.from === 'follow')).toHaveLength(base.globalPosts.length);
+  });
+
+  it('draws an id in both slices once, as the circle’s', () => {
+    // Impossible today — `pullBots` only returns bot owners, and a bot is in
+    // nobody's circle — but a card drawn twice under one React key is a bad
+    // way to find out that changed.
+    const dupe = { ...base.globalPosts[0]!, id: base.moments[0]!.id };
+    const feed = mergedFeed({ ...base, globalPosts: [dupe] }, true);
+    const mine = feed.filter((e) => e.m.id === base.moments[0]!.id);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]!.from).toBe('circle');
   });
 });
 

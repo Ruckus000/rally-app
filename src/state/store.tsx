@@ -85,7 +85,12 @@ import { pauseRealtime, resumeRealtime, teardownRealtime } from '../sync/realtim
 import { kickSync, useSyncEngine } from '../sync/useSyncEngine';
 
 export type Tab = 'week' | 'circle' | 'me';
-export type Scope = 'personal' | 'friends' | 'global';
+/**
+ * Two, not three. Friends and Global were the same renderer over the same type,
+ * sorted the same way — what separated them was a tab. They are one list now,
+ * and a card says which half it came from.
+ */
+export type Scope = 'personal' | 'feed';
 export type SheetRef = { type: 'task' | 'person' | 'invite'; id: string | null } | null;
 /**
  * Deliberately coarse. Onboarding is seven screens now, and all seven of them
@@ -269,12 +274,13 @@ const initialState: State = {
   pendingRollover: null,
   tab: 'week',
   /**
-   * Global, not Friends. A brand-new account's circle is empty, and Friends
-   * opens on an empty state — the first screen after signing in should have
-   * something in it. `scope` is persisted, so this is the first launch only;
-   * whatever tab you last chose is the one you come back to.
+   * The feed, not Personal. A brand-new account has staked nothing, and its own
+   * week opens on an empty state — the first screen after signing in should
+   * have something in it, and the feed always does. `scope` is persisted, so
+   * this is the first launch only; whatever tab you last chose is the one you
+   * come back to.
    */
-  scope: 'global',
+  scope: 'feed',
   day: liveWeek().today,
   myTasks: [],
   moments: [],
@@ -496,6 +502,16 @@ const sameStats = (a?: MemberStats, b?: MemberStats): boolean =>
   (!!a && !!b && a.done === b.done && a.total === b.total && a.streak === b.streak && a.given === b.given);
 
 /** Field-wise, because a row off the wire is always a fresh object. */
+/**
+ * Every field, deliberately. A merge skips a row this answers true for, so a
+ * field missing here is a field the server can never correct.
+ *
+ * Seen on device: `bot` was added to `Person` and left out of this. The pull
+ * carried the flag, the directory on disk predated it, and every row compared
+ * equal — so an upgrading install kept counting the Oz bots as its circle,
+ * through any number of pulls. A fresh directory was fine, which is why only
+ * the device found it.
+ */
 const samePerson = (a: Person, b: Person): boolean =>
   a === b ||
   (a.name === b.name &&
@@ -503,6 +519,7 @@ const samePerson = (a: Person, b: Person): boolean =>
     a.initials === b.initials &&
     a.tint === b.tint &&
     a.trend === b.trend &&
+    !!a.bot === !!b.bot &&
     sameStats(a.stats, b.stats));
 
 /**
@@ -931,10 +948,10 @@ export function reducer(state: State, action: Action): State {
       // Leaving the flow early keeps whatever account you'd already chosen —
       // and grants an empty one if you never chose.
       //
-      // Global, where finishing properly lands you on Personal: skipping means
-      // nothing was staked and no circle was joined, so both of the other tabs
-      // are empty states. This is the one landing the app picks with nothing of
-      // yours to show, so it opens on the feed that has something in it.
+      // The feed, where finishing properly lands you on Personal: skipping
+      // means nothing was staked, so your own week is an empty state. This is
+      // the one landing the app picks with nothing of yours to show, so it
+      // opens on the tab that has something in it.
       const mode = state.account ?? 'fresh';
       return {
         ...state,
@@ -942,7 +959,7 @@ export function reducer(state: State, action: Action): State {
         profile: state.account ? state.profile : seedProfile(mode),
         onboardStep: null,
         tab: 'week',
-        scope: mode === 'seeded' ? 'personal' : 'global',
+        scope: mode === 'seeded' ? 'personal' : 'feed',
       };
     }
 
@@ -957,10 +974,10 @@ export function reducer(state: State, action: Action): State {
         ...seedFor(action.mode, week),
         onboardStep: null,
         tab: 'week',
-        // The seeded demo has a circle worth opening on. The other modes have
-        // neither a circle nor a staked week, so Global is the only tab with
-        // anything in it.
-        scope: action.mode === 'seeded' ? 'friends' : 'global',
+        // The feed, for every mode. It used to branch — the demo opened on its
+        // circle and the empty modes on Global — and those were the two halves
+        // of one list, so there is nothing left to choose between.
+        scope: 'feed',
       };
     }
 
@@ -1342,6 +1359,13 @@ export function hydrate(restored?: Partial<State> | null): State {
     // Never off disk. It is re-derived from the auth client on every launch,
     // and a stored one would be an unauthenticated claim to a user id.
     session: { status: 'off' },
+    // `scope` is persisted and has no soundness check, and this build deleted
+    // two of its three values. An app upgrading across that change restores
+    // 'friends' or 'global', which no branch in WeekScreen renders — a blank
+    // Week tab, on the tab the app opens on. Both of them mean the feed now.
+    // Deliberately not a VERSION bump: that discards the week, the history and
+    // the profile, which is far too much to pay for a renamed UI enum.
+    scope: s.scope === 'personal' ? 'personal' : 'feed',
     // In a demo account there is exactly one legitimate self, so `selfId` is
     // not restored — it is asserted. Honouring whatever was on disk would let
     // an edited payload point self at Maya, which hands her your live week in

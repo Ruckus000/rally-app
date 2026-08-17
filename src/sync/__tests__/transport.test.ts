@@ -99,6 +99,88 @@ beforeEach(() => {
   transport = supabaseTransport();
 });
 
+/**
+ * Where a cheer goes when the app is closed.
+ *
+ * The write is an RPC rather than a table upsert, and that is not a style
+ * choice: `device_tokens` is granted to nobody, because an upsert would need
+ * SELECT to resolve `on conflict` and granting that read would make everyone's
+ * list of devices enumerable. These tests hold the client to the surface the
+ * migration actually left it.
+ */
+describe('registering this device', () => {
+  const A_TOKEN = 'ExponentPushToken[abc123def456]';
+
+  const registration = (token = A_TOKEN, platform = 'ios'): WireOp => ({
+    id: 'entry-6',
+    at: AT,
+    op: 'device.register',
+    token,
+    platform,
+  });
+
+  const signedIn = async () => {
+    const { data } = await getSupabase().auth.signInAnonymously();
+    return data.session?.user.id as string;
+  };
+
+  it('files the token against whoever is signed in', async () => {
+    const me = await signedIn();
+
+    expect(await transport.push(registration(), me)).toEqual({ ok: true });
+
+    expect(fakeSupabase.rows('device_tokens')).toEqual([
+      expect.objectContaining({ token: A_TOKEN, profile_id: me, platform: 'ios' }),
+    ]);
+  });
+
+  it('sends no owner at all, so there is none to forge', async () => {
+    // The payload type has no profile id and this is what pins it: the
+    // function reads `auth.uid()`, so a compromised or replayed entry cannot
+    // point somebody else's cheers at this phone.
+    const me = await signedIn();
+    await transport.push(registration(), me);
+
+    const call = fakeSupabase.calls.find((c) => c.table === 'register_device');
+    expect(call?.body).toEqual({ p_token: A_TOKEN, p_platform: 'ios' });
+    expect(JSON.stringify(call?.body)).not.toContain(me);
+  });
+
+  it('moves the row when the phone changes hands', async () => {
+    // The same physical device, a different account. Two rows would mean the
+    // previous owner's next cheer ringing on a phone they no longer have.
+    const first = await signedIn();
+    await transport.push(registration(), first);
+    await getSupabase().auth.signOut();
+    const second = await signedIn();
+
+    await transport.push(registration(), second);
+
+    expect(fakeSupabase.rows('device_tokens')).toHaveLength(1);
+    expect(fakeSupabase.rows('device_tokens')[0]?.profile_id).toBe(second);
+  });
+
+  it('treats a token the server refuses as permanent', async () => {
+    // A shape the check constraint rejects can never succeed, so retrying it
+    // forever would wedge the queue behind an entry that is simply wrong.
+    const me = await signedIn();
+
+    const result = await transport.push(registration('short'), me);
+
+    expect(result).toMatchObject({ ok: false, retryable: false, code: '23514' });
+  });
+
+  it('retries when the network is what failed', async () => {
+    const me = await signedIn();
+    fakeSupabase.goOffline();
+
+    expect(await transport.push(registration(), me)).toMatchObject({
+      ok: false,
+      retryable: true,
+    });
+  });
+});
+
 describe('the circle calls', () => {
   // Both go through SECURITY DEFINER functions, so being signed in is the whole
   // authorisation story — the fake refuses them without a session exactly as

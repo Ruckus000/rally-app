@@ -38,7 +38,7 @@ export const baseState: State = {
   profile: seedProfile('seeded'),
   pendingRollover: null,
   tab: 'week',
-  scope: 'friends',
+  scope: 'feed',
   day: FIXTURE_WEEK.today,
   myTasks: MY_TASKS,
   moments: MOMENTS,

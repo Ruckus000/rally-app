@@ -8,6 +8,7 @@
  * not an error.
  */
 import { getSupabase, hasSupabaseConfig } from '../lib/supabase';
+import { getPushToken } from '../lib/push';
 
 export type SessionState =
   | { status: 'off' } // demo mode or no config — never touches the network
@@ -177,6 +178,32 @@ export async function ensureSession(): Promise<SessionState> {
 }
 
 /**
+ * Stop this phone receiving the departing account's notifications.
+ *
+ * Before `signOut`, and awaited, because `unregister_device` deletes the row
+ * matching `auth.uid()` — a session this has to still have. Deliberately not
+ * queued through the outbox either, and that is the subtler half: the queue
+ * stamps identity at *send* time, so a deregistration still waiting on signal
+ * when somebody else signs in on this phone would delete **their** brand-new
+ * registration instead of the one it was written for.
+ *
+ * Best-effort. A sign-out that cannot reach the network still has to complete
+ * locally, and the row it leaves behind is repaired by the next person to
+ * register on this device — `register_device` moves the row rather than adding
+ * one, which is why the token is the primary key.
+ */
+async function forgetThisDevice(): Promise<void> {
+  try {
+    const token = await getPushToken();
+    if (!token) return;
+    await getSupabase().rpc('unregister_device', { p_token: token.token });
+  } catch {
+    // Offline, or no permission and so no token to forget. Neither is a
+    // reason to keep somebody signed in.
+  }
+}
+
+/**
  * The sync layer found out the hard way: a request came back 401 and the refresh
  * the transport already tried did not fix it.
  *
@@ -266,6 +293,7 @@ export async function signOutEverywhere(): Promise<void> {
   set(OFF);
   try {
     if (hasSupabaseConfig()) {
+      await forgetThisDevice();
       try {
         await getSupabase().auth.signOut({ scope: 'global' });
       } catch {

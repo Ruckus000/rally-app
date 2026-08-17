@@ -470,11 +470,11 @@ describe('accounts', () => {
     expect(s.yearLevels).toHaveLength(0);
     expect(s.profile.allTimePoints).toBe(0);
     expect(s.profile.currentStreak).toBe(0);
-    // Nothing staked and no circle, so both of the other tabs are empty
-    // states — the one landing the app picks with nothing of yours to show
-    // opens on the feed that has something in it.
+    // Nothing staked, so your own week is an empty state — the one landing
+    // the app picks with nothing of yours to show opens on the tab that has
+    // something in it, which the public half guarantees.
     expect(s.tab).toBe('week');
-    expect(s.scope).toBe('global');
+    expect(s.scope).toBe('feed');
   });
 
   it('does not downgrade an account that already chose the demo', () => {
@@ -542,9 +542,10 @@ describe('accounts', () => {
     expect(s.myTasks).toHaveLength(0);
     expect(s.acted).toEqual({});
     expect(s.onboardStep).toBeNull();
-    // An emptied account has no week and no circle; the demo below keeps
-    // Friends because it has one, which is the control on this.
-    expect(s.scope).toBe('global');
+    // Every mode lands on the feed now. It used to branch — an emptied
+    // account to Global and the demo below to Friends — and those two were
+    // the halves of one list.
+    expect(s.scope).toBe('feed');
   });
 
   it('resets back to the demo', () => {
@@ -552,7 +553,7 @@ describe('accounts', () => {
     expect(s.myTasks).toHaveLength(MY_TASKS.length);
     expect(s.history.length).toBeGreaterThan(0);
     expect(s.profile.allTimePoints).toBeGreaterThan(0);
-    expect(s.scope).toBe('friends');
+    expect(s.scope).toBe('feed');
     expect(s.onboardStep).toBeNull();
   });
 
@@ -632,6 +633,23 @@ describe('hydration', () => {
   it('keeps a live feed that was actually stored', () => {
     const stored = [{ ...GLOBAL_MOMENTS[0]!, id: 'from-disk' }];
     expect(hydrate({ account: 'live', globalPosts: stored }).globalPosts).toEqual(stored);
+  });
+
+  /**
+   * `scope` is persisted and has no soundness check, and this build deleted two
+   * of its three values. Restored raw, an app upgrading across that change
+   * would open on a scope no branch renders — a blank Week tab, on the tab the
+   * app opens on. Both dead values mean the merged feed.
+   */
+  it('turns a scope this build deleted into the merged feed', () => {
+    for (const gone of ['friends', 'global']) {
+      expect(hydrate({ account: 'live', scope: gone as never }).scope).toBe('feed');
+    }
+  });
+
+  it('leaves a scope that still exists alone', () => {
+    expect(hydrate({ account: 'live', scope: 'personal' }).scope).toBe('personal');
+    expect(hydrate({ account: 'live', scope: 'feed' }).scope).toBe('feed');
   });
 
   it('re-seeds the demo bell rather than restoring it', () => {
@@ -782,6 +800,21 @@ describe('merging rows from the server', () => {
     expect(s.people[jo.id]?.name).toBe('Jo Ramos');
     expect(s.people.maya).toBe(base.people.maya);
     expect(Object.getPrototypeOf(s.people)).toBeNull();
+  });
+
+  it('adopts a row that differs only by being a bot', () => {
+    // Found on device, not here. `bot` was added to `Person` and left out of
+    // `samePerson`, so a directory written before the flag existed compared
+    // equal to the flagged rows the pull carried — and an upgrading install
+    // went on counting the Oz bots as its circle through every pull. The
+    // general rule this stands for: a field `Person` has and this comparison
+    // does not is a field the server can never correct.
+    const stale = { ...maya, bot: undefined };
+    const s = reducer(
+      { ...base, account: 'live', people: { [maya.id]: stale } },
+      { type: 'SERVER_MERGE', merge: { people: [{ ...maya, bot: true }] } },
+    );
+    expect(s.people[maya.id]?.bot).toBe(true);
   });
 
   /**

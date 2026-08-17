@@ -107,6 +107,8 @@ function wireEntry(op: OutboxOp, payload: Record<string, unknown>, entry: QueueE
       return { ...head, op, note: payload.note as SyncableNote };
     case 'profile.update':
       return { ...head, op, name: String(payload.name) };
+    case 'device.register':
+      return { ...head, op, token: String(payload.token), platform: String(payload.platform) };
   }
 }
 
@@ -278,6 +280,28 @@ export const PROFILE_KEY = 'profile';
 export function queueProfileName(name: string): void {
   const trimmed = name.trim();
   if (trimmed) enqueue('profile.update', PROFILE_KEY, { name: trimmed });
+}
+
+/** One device, one row, one coalescing key. */
+const DEVICE_KEY = 'device';
+
+/**
+ * Tell the server where to reach this phone.
+ *
+ * Through the queue rather than a direct call, because this runs seconds after
+ * a permission prompt — the moment someone is most likely to be on a train.
+ * A registration that has to wait for signal is exactly what the outbox is for.
+ *
+ * Safe to drain under a different account than the one that queued it, which
+ * is not true of every op and is worth saying: `register_device` files the
+ * token against whoever is signed in *at send time*, and that is the person
+ * holding this phone. Signing out and back in as someone else between enqueue
+ * and drain lands the row on the right account rather than the stale one.
+ *
+ * Deregistration is deliberately **not** queued — see `forgetThisDevice`.
+ */
+export function queueDeviceToken(token: string, platform: string): void {
+  if (token) enqueue('device.register', DEVICE_KEY, { token, platform });
 }
 
 /**
@@ -797,7 +821,15 @@ export function createEngine(
       // directory forever. Getting here at all is what makes it trustworthy: a
       // read that failed threw inside the `Promise.all` above and left this
       // function through the `catch`, without dispatching anything.
-      const directory = dedupePeople([...people, ...bots]);
+      // Marked *after* the dedupe, from the id set, rather than by `pullBots`
+      // stamping its own rows. `dedupePeople` keeps the first copy of an id and
+      // the circle read comes first, so a bot you share a circle with — the
+      // overlap that dedupe exists for — would arrive as the unflagged copy and
+      // silently count as one of your people. Deriving the flag from the set
+      // makes it independent of which copy survived.
+      const directory = dedupePeople([...people, ...bots]).map((p) =>
+        isBot.has(p.id) ? { ...p, bot: true } : p,
+      );
       merge.people = withStats(directory, ownerRows);
 
       // Circle members only. `profiles_select` exposes the profiles of people

@@ -491,11 +491,46 @@ describe('the invariants, not just the error codes', () => {
       join pg_namespace n on n.oid = c.relnamespace
       cross join (select rolname from pg_roles where rolname in ('anon','authenticated')) r
       where n.nspname = 'public' and c.relkind = 'r'`);
-    // 12 tables × 2 roles. The count is pinned so that adding a table without
+    // 13 tables × 2 roles. The count is pinned so that adding a table without
     // thinking about its grants fails here rather than shipping — which is what
-    // it just did for `goal_ratings` and `llm_usage`.
-    expect(rows.length).toBe(24);
+    // it did for `goal_ratings` and `llm_usage`, and again for `device_tokens`,
+    // which arrived holding TRUNCATE that nobody had granted it (see below).
+    expect(rows.length).toBe(26);
     for (const r of rows) expect(r.trunc).toBe(false);
+  });
+
+  it('and a table added tomorrow will not arrive holding it either', async () => {
+    // The defect the row above only ever catches one table at a time.
+    //
+    // Supabase ships a default privilege granting `Dxtm` — TRUNCATE among them
+    // — to anon and authenticated on every table created in `public`. TRUNCATE
+    // ignores row security completely, so this is a privilege no policy can
+    // mitigate, handed out to two roles a client can act as, on every table
+    // anyone adds. `repair_write_paths` revoked it from the ten tables that
+    // existed that day; `device_tokens` was the first added since and arrived
+    // with it, which is how this was found.
+    //
+    // Asserted against the default itself rather than against today's tables,
+    // because the per-table revoke is a fix for one table and this is the fix
+    // for the class.
+    // Scoped to `postgres`, which is the role migrations run as and therefore
+    // the role that creates every table this repo owns. There is a second
+    // default belonging to `supabase_admin` that grants anon and authenticated
+    // everything; it is not ours to alter and it only fires for tables that
+    // role creates, which is none of ours. Asserting on it would be asserting
+    // on something no change here could ever satisfy.
+    const rows = await sql<{ acl: string | null }>(`
+      select array_to_string(defaclacl, ',') as acl
+      from pg_default_acl
+      where defaclnamespace = 'public'::regnamespace
+        and defaclobjtype = 'r'
+        and defaclrole = 'postgres'::regrole`);
+
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      expect(r.acl ?? '').not.toMatch(/\banon=/);
+      expect(r.acl ?? '').not.toMatch(/\bauthenticated=/);
+    }
   });
 
   it('refuses a circle name long enough to be a payload', async () => {

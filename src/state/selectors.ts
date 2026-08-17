@@ -5,7 +5,7 @@
  * must be the metric the ranking uses — showing points there would imply a
  * different sort.
  */
-import { Task } from '../data/fixtures';
+import { Moment, Task, parseHours } from '../data/fixtures';
 import { MemberStats, PersonId, makePeople } from '../data/people';
 import { seedCircle } from '../data/seed';
 import type { State } from './store';
@@ -121,9 +121,17 @@ export const totalCheersExchanged = (state: State) =>
  * the fixture it was seeded with. The header used to count the world's list
  * instead, which on a live account is one element long — so a circle of two
  * read "1 people" and a circle of eight would have too.
+ *
+ * Bots are excluded. They share the directory because every name and avatar on
+ * the public feed resolves through it, but they are in nobody's circle. Seen on
+ * device: an account that knew nobody read "5 people, ranked by follow-through"
+ * over a leaderboard of four Wizard of Oz characters — and, because it was
+ * never "alone", never saw the invite that would have given it a real one.
  */
 export const circleMembers = (state: State): PersonId[] =>
-  state.account === 'live' ? Object.keys(state.people) : seedCircle(state.account);
+  state.account === 'live'
+    ? Object.keys(state.people).filter((id) => !state.people[id]?.bot)
+    : seedCircle(state.account);
 
 /**
  * Unread drives the bell badge, and only the "needs you" tier counts.
@@ -136,6 +144,47 @@ export const circleMembers = (state: State): PersonId[] =>
  */
 export const unreadNeedsCount = (state: State) =>
   state.notifications.filter((n) => n.tier === 'needs' && !state.notifRead[n.id]).length;
+
+/**
+ * Where a card in the merged feed came from. `circle` is someone in your
+ * circle; `follow` is the public feed — the Oz bots, who nobody is in a circle
+ * with. It is what the FRIENDS / FOLLOW label on the card reads.
+ */
+export type FeedSource = 'circle' | 'follow';
+
+export type FeedEntry = { m: Moment; from: FeedSource };
+
+/**
+ * The Week tab's one social feed: your circle's moments and the public feed,
+ * interleaved by time.
+ *
+ * These were two tabs over two slices, and everything but the slice was already
+ * shared — same `Moment` shape, same `MomentItem` renderer, same sort. Merging
+ * them is why the cards carry a label: with both halves in one list, "whose
+ * feed is this" stops being answered by which tab you are standing on.
+ *
+ * Strictly chronological, not friends-first. A block of your people above a
+ * block of strangers is the two feeds stacked, which is the thing this replaces.
+ *
+ * The origin is attached here rather than stored on the `Moment`, because
+ * `Moment` is the persisted and synced shape and this is a rendering question —
+ * one the caller already knows the answer to at the moment it merges.
+ */
+export function mergedFeed(state: State, quietComebacks: boolean): FeedEntry[] {
+  const entries: FeedEntry[] = state.moments
+    .filter((m) => quietComebacks || m.kind !== 'quiet')
+    .map((m) => ({ m, from: 'circle' as const }));
+
+  // Circle wins. Nothing can be in both slices today — `pullBots` only returns
+  // bot owners, and a bot is in nobody's circle — but a card drawn twice under
+  // one React key is a bad way to find that out if it ever changes.
+  const seen = new Set(entries.map((e) => e.m.id));
+  for (const m of state.globalPosts) {
+    if (!seen.has(m.id)) entries.push({ m, from: 'follow' });
+  }
+
+  return entries.sort((a, b) => parseHours(a.m.time) - parseHours(b.m.time));
+}
 
 /** Personal feed order: closed tasks first (latest day first), then STILL OPEN. */
 export function personalFeed(state: State) {

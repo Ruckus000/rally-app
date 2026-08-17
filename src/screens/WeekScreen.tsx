@@ -1,19 +1,21 @@
 /**
- * Week — three scopes, in tab order: Personal is your own stakes, Global is the
- * wider feed, Friends is the circle's moments.
+ * Week — two scopes, in tab order: Personal is your own stakes, Feed is
+ * everyone else's, your circle and the public feed in one list.
  */
 import React from 'react';
 import { TextInput, View } from 'react-native';
 import { color, radius, shadows } from '../theme/tokens';
-import { Moment, parseHours } from '../data/fixtures';
+import { Moment } from '../data/fixtures';
 import { useStore } from '../state/store';
 import {
   allTasksDone,
   circleMembers,
+  mergedFeed,
   personalFeed,
   stakedPoints,
   weekPoints,
 } from '../state/selectors';
+import type { FeedSource } from '../state/selectors';
 import { Avatar } from '../components/Avatar';
 import { Icon } from '../components/Icon';
 import {
@@ -36,10 +38,11 @@ export function WeekScreen() {
     <View>
       {scope === 'personal' ? <PersonalHeader /> : null}
       {scope === 'personal' ? <PersonalFeed /> : null}
-      {scope === 'global' ? <GlobalFeed /> : null}
-      {scope === 'friends' ? <FriendsFeed /> : null}
+      {scope === 'feed' ? <Feed /> : null}
 
-      {scope === 'friends' && state.moments.length ? (
+      {/* Still gated on the circle's own moments: the wrap is about how *your
+          people's* week went, and the bots are not in it. */}
+      {scope === 'feed' && state.moments.length ? (
         <Tap
           onPress={() => dispatch({ type: 'OPEN_WRAP', week: null })}
           style={{ paddingTop: 16, paddingBottom: 6, paddingHorizontal: 12, alignItems: 'center' }}
@@ -199,45 +202,71 @@ function PersonalFeed() {
   );
 }
 
-/* ── friends ────────────────────────────────────────────────────────────── */
+/* ── feed ───────────────────────────────────────────────────────────────── */
 
-function FriendsFeed() {
+/**
+ * Your circle and the public feed, in one list.
+ *
+ * These were two tabs. Everything but the slice they read was already shared —
+ * the same `Moment` shape, the same card, the same sort — so what the split
+ * bought was navigation, and what it cost was a new account landing on a wall
+ * of strangers with its own people behind a tab it had to think to cross.
+ *
+ * `mergedFeed` orders and labels; this only draws.
+ */
+function Feed() {
   const { state, config, dispatch } = useStore();
+  const entries = mergedFeed(state, config.quietComebacks);
+  const alone = circleMembers(state).length < 2;
 
-  const moments = [...state.moments]
-    .filter((m) => config.quietComebacks || m.kind !== 'quiet')
-    .sort((a, b) => parseHours(a.time) - parseHours(b.time));
-
-  if (circleMembers(state).length < 2) {
-    return (
-      <EmptyState
-        title="Nobody here yet"
-        body="A circle is what makes the week count for something. Bring in someone who’d notice."
-        cta="Invite someone"
-        onPress={() => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'invite', id: null } })}
-      />
-    );
-  }
-
-  if (!moments.length) {
-    return (
-      <EmptyState
-        title="A quiet week so far"
-        body="Nobody in the circle has posted yet. That happens."
-      />
-    );
+  // Only reachable before the first pull lands, or on an account with no bots
+  // to show. It is no longer the circle-of-one case — that one has content now,
+  // and gets the footer below instead.
+  if (!entries.length) {
+    return <EmptyState title="A quiet week so far" body="Nobody has posted yet. That happens." />;
   }
 
   return (
     <>
-      {moments.map((m) => (
-        <MomentItem key={m.id} moment={m} />
+      {entries.map(({ m, from }) => (
+        <MomentItem key={m.id} moment={m} from={from} />
       ))}
+
+      {/* The public half means a brand-new account always has something to
+          read — which without a circle is a feed of people you do not know,
+          two of whom are made of straw. Say so, and offer the way out. */}
+      {alone ? (
+        <View style={{ alignItems: 'center', paddingTop: 22, paddingBottom: 6, paddingHorizontal: 20 }}>
+          <Sans size={13} lineHeight={18} color={color.muted} style={{ textAlign: 'center' }}>
+            The ones marked Follow are not real, and they’re doing fine without you. Your circle is
+            the part that counts.
+          </Sans>
+          <Tap
+            onPress={() => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'invite', id: null } })}
+            style={{
+              marginTop: 14,
+              borderRadius: 999,
+              paddingVertical: 12,
+              paddingHorizontal: 18,
+              minHeight: 44,
+              justifyContent: 'center',
+              backgroundColor: color.ink,
+            }}
+          >
+            <Bri size={13.5} weight={800} color={color.lime}>
+              Invite someone
+            </Bri>
+          </Tap>
+        </View>
+      ) : null}
     </>
   );
 }
 
-function MomentItem({ moment: m }: { moment: Moment }) {
+/** FRIENDS on your circle's cards, FOLLOW on the public feed's. */
+const BADGE: Record<FeedSource, string> = { circle: 'Friends', follow: 'Follow' };
+
+function MomentItem({ moment: m, from }: { moment: Moment; from: FeedSource }) {
   const { state, dispatch, people } = useStore();
   const first = people.first(m.who);
   const cheered = !!state.acted[`${m.id}:cheer`];
@@ -249,6 +278,7 @@ function MomentItem({ moment: m }: { moment: Moment }) {
     return (
       <BigCard
         moment={m}
+        badge={BADGE[from]}
         cheered={cheered}
         cosigned={!!state.acted[`${m.id}:cosign`]}
         onCheer={cheer}
@@ -277,6 +307,7 @@ function MomentItem({ moment: m }: { moment: Moment }) {
     <SocialCard
       who={m.who}
       name={people.name(m.who)}
+      badge={BADGE[from]}
       time={m.time}
       title={m.title ?? ''}
       quote={m.quote}
@@ -305,58 +336,3 @@ function MomentItem({ moment: m }: { moment: Moment }) {
   );
 }
 
-/* ── global ─────────────────────────────────────────────────────────────── */
-
-/**
- * The Oz bots' weeks.
- *
- * The cards are `MomentItem`s — the same component the Friends feed uses, on
- * rows of the same shape. This used to be a second renderer over a second
- * type, which is how it came to carry a pre-rendered `@handle` and a cheer
- * count with nothing behind it. What is public about this feed is now the only
- * thing that distinguishes it: whose rows it asks for.
- */
-function GlobalFeed() {
-  const { state, dispatch } = useStore();
-  const alone = circleMembers(state).length < 2;
-  // Newest first, exactly as the Friends feed orders itself. Unsorted, the feed
-  // came back grouped by owner — three cards from the Tin Man in a row, which
-  // reads as one person shouting rather than as four people having a week.
-  const posts = [...state.globalPosts].sort((a, b) => parseHours(a.time) - parseHours(b.time));
-
-  return (
-    <>
-      {posts.map((m) => (
-        <MomentItem key={m.id} moment={m} />
-      ))}
-
-      {/* The global feed is public, so a brand-new account sees it too — but
-          without a circle it's a wall of people you do not know. Say why, and
-          offer the way out. */}
-      {alone ? (
-        <View style={{ alignItems: 'center', paddingTop: 22, paddingBottom: 6, paddingHorizontal: 20 }}>
-          <Sans size={13} lineHeight={18} color={color.muted} style={{ textAlign: 'center' }}>
-            These four are not real, and they’re doing fine without you. Your circle is the part
-            that counts.
-          </Sans>
-          <Tap
-            onPress={() => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'invite', id: null } })}
-            style={{
-              marginTop: 14,
-              borderRadius: 999,
-              paddingVertical: 12,
-              paddingHorizontal: 18,
-              minHeight: 44,
-              justifyContent: 'center',
-              backgroundColor: color.ink,
-            }}
-          >
-            <Bri size={13.5} weight={800} color={color.lime}>
-              Invite someone
-            </Bri>
-          </Tap>
-        </View>
-      ) : null}
-    </>
-  );
-}

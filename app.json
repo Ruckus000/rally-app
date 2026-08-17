@@ -10,7 +10,10 @@
     "backgroundColor": "#F1F2EC",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "app.rally.weekspine"
+      "bundleIdentifier": "app.rally.weekspine",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "app.rally.weekspine",
@@ -29,6 +32,12 @@
     "plugins": [
       "expo-font",
       [
+        "expo-notifications",
+        {
+          "mode": "production"
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/splash-icon.png",
@@ -37,6 +46,12 @@
           "resizeMode": "contain"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8ea00fe8-1b14-4c07-af19-896ec6950ae6"
+      }
+    },
+    "owner": "jphilistin12"
   }
 }

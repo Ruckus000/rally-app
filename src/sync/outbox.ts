@@ -26,7 +26,8 @@ export type OutboxOp =
   | 'reaction.add'
   | 'reaction.remove'
   | 'note.add'
-  | 'profile.update';
+  | 'profile.update'
+  | 'device.register';
 
 export type OutboxEntry = {
   /** Client-minted, and the idempotency key the transport should send. */
@@ -91,6 +92,7 @@ const OPS: readonly OutboxOp[] = [
   'reaction.remove',
   'note.add',
   'profile.update',
+  'device.register',
 ];
 
 // ─── module state ─────────────────────────────────────────────────────────

@@ -39,7 +39,11 @@ export type WireOp =
   | { id: string; at: number; op: 'reaction.add'; targetId: string; kind: ReactionKind }
   | { id: string; at: number; op: 'reaction.remove'; targetId: string; kind: ReactionKind }
   | { id: string; at: number; op: 'note.add'; note: SyncableNote }
-  | { id: string; at: number; op: 'profile.update'; name: string };
+  | { id: string; at: number; op: 'profile.update'; name: string }
+  // No `profile_id`, for the same reason nothing above carries `owner_id`:
+  // `register_device` reads `auth.uid()` itself, so there is no owner for a
+  // payload to name and therefore none to forge.
+  | { id: string; at: number; op: 'device.register'; token: string; platform: string };
 
 /** A `notes` row on the way back, narrowed into the shape the client can place. */
 export type PulledNote = {
@@ -357,6 +361,22 @@ export function supabaseTransport(): Transport {
       return;
     }
 
+    if (entry.op === 'device.register') {
+      // An RPC rather than a table write, because `device_tokens` is granted to
+      // nobody: an upsert needs SELECT to resolve `on conflict`, so a client
+      // writing the table directly would have to be granted the read that keeps
+      // everyone's device list private. This is the client half of that.
+      //
+      // No profile id in the payload — the function reads `auth.uid()`, which
+      // `drain` has already resolved for this send.
+      const { error } = await supabase.rpc('register_device', {
+        p_token: entry.token,
+        p_platform: entry.platform,
+      });
+      if (error) throw error;
+      return;
+    }
+
     if (entry.op === 'profile.update') {
       // An UPDATE, never an upsert. `profiles` is granted `select, update` only
       // and has no INSERT policy — the row is made by the `on_auth_user_created`
@@ -487,6 +507,10 @@ export function supabaseTransport(): Transport {
       .select('id,handle,name')
       .eq('is_bot', true);
     if (error) fail(error);
+    // Deliberately unflagged. `circleMembers` needs to know which of these are
+    // bots, but the engine derives that from this query's *id set* after it
+    // dedupes the directory — stamping it here would be lost the moment the
+    // circle read returned the same row first. See `engine.ts`.
     return (data ?? []).map((row) => rowToPerson(row as Record<string, unknown>));
   };
 

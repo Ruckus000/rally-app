@@ -24,8 +24,9 @@ import { OnboardStake, useStore } from '../state/store';
 import { Overlay } from './Overlay';
 import { createCircle, joinCircleByCode, UnknownInviteCode } from '../sync/transport';
 import { kickSync } from '../sync/useSyncEngine';
-import { queueProfileName } from '../sync/engine';
+import { queueDeviceToken, queueProfileName } from '../sync/engine';
 import { askForReminders, scheduleWeekReminder } from '../lib/reminders';
+import { getPushToken } from '../lib/push';
 import { OnboardHeader } from './onboard/kit';
 import { IntentId, SUGG, Suggestion, pool } from './onboard/data';
 import { WelcomeScreen } from './onboard/WelcomeScreen';
@@ -166,21 +167,29 @@ export function OnboardOverlay({
   };
 
   /**
-   * The button now does what it says. It cannot promise the cheer above it —
-   * that needs remote push and a paid Apple programme — but the second preview
-   * on this screen is a Monday reminder, which is a *local* notification and
-   * needs neither.
+   * The button now does what it says, and both previews on this screen are
+   * real: the Monday reminder is a local notification scheduled on the device,
+   * and the cheer above it is a remote push, which is why the token is
+   * registered here too.
+   *
+   * One permission grant, two consequences, and this is the only moment the
+   * answer is known — `getPushToken` returns null without it, so registering
+   * anywhere else would quietly do nothing.
    *
    * The flow continues either way: someone who declines has still finished
    * onboarding, and stopping to argue about it would be worse than the silence
    * they just chose.
    */
   const allowReminders = () => {
-    void askForReminders().then((answer) => {
-      if (answer === 'granted') {
-        return scheduleWeekReminder(state.week.number, stakeSum);
-      }
-      return undefined;
+    void askForReminders().then(async (answer) => {
+      if (answer !== 'granted') return;
+      await scheduleWeekReminder(state.week.number, stakeSum);
+      // Queued, not awaited against the UI: this runs on whatever connection
+      // the user happens to have while standing in the flow, and the outbox is
+      // what makes that survivable. Null on a simulator, or before the
+      // credentials exist — both mean "no address today", not an error.
+      const device = await getPushToken();
+      if (device) queueDeviceToken(device.token, device.platform);
     });
     next();
   };

@@ -21,6 +21,15 @@ export type Person = {
   tint?: string;
   trend?: Trend;
   stats?: MemberStats;
+  /**
+   * An Oz bot. They share the directory with real people — every avatar and
+   * name on the public feed resolves through it, and an author missing from it
+   * renders as "Someone" — but they are in nobody's circle, and `circleMembers`
+   * is the directory on a live account. Without this they were counted as your
+   * circle: five people and a leaderboard of fictional characters, for an
+   * account that knew nobody.
+   */
+  bot?: boolean;
 };
 
 /** Deliberately `| undefined`: without noUncheckedIndexedAccess a plain Record would hand back a
