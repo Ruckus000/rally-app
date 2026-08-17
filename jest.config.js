@@ -25,8 +25,19 @@ module.exports = {
       // jest-expo's preset sets no testMatch, so Jest's default would sweep up
       // integration/ as well. Pin it to the app.
       testMatch: ['<rootDir>/src/**/__tests__/**/*.test.[jt]s?(x)'],
-      // Keeps the root __mocks__ directory scoped to this project.
+      // Keeps the root __mocks__ directory scoped to this project, and lets a
+      // test reach the shared `.mjs` decisions under supabase/functions —
+      // `roots` bounds where Jest *discovers* files, not what a test may import.
       roots: ['<rootDir>/src'],
+      // The edge function's shared decisions live in `.mjs`, which is the one
+      // extension Deno and Node both load. jest-expo's transform key is
+      // `\.[jt]sx?$` and does not match it, so without this an import of one
+      // fails with "Unexpected token 'export'" — the file is handed to Jest
+      // untransformed. Same babel wiring, one more extension.
+      transform: {
+        ...expoPreset.transform,
+        '\\.mjs$': expoPreset.transform['\\.[jt]sx?$'],
+      },
     },
     {
       displayName: { name: 'integration', color: 'yellow' },

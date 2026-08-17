@@ -7,13 +7,30 @@
  * The composer is the only caller, and a composer that can throw while you type
  * is worse than a composer that occasionally shows an old number.
  *
- * The timeout is longer than the function's own 2s ceiling on the model call,
- * so an abort here means the network went away rather than the model being
- * slow — the function would have answered with a fallback in that case.
+ * The timeout is longer than everything the function does, so an abort here
+ * means the network went away rather than the model being slow — the function
+ * would have answered with a fallback price in that case.
  */
 import { getSupabase, hasSupabaseConfig } from './supabase';
 
-const TIMEOUT_MS = 2500;
+/**
+ * This budget covers the whole request, not just the model.
+ *
+ * The tempting version of this number is "a bit more than the function's 4s
+ * ceiling on the model call". That is wrong, and was wrong here for a while:
+ * that ceiling bounds one `fetch` inside the handler, which also does an auth
+ * lookup, a cache read and a usage-counter round trip before it, an upsert
+ * after it, and may pay a cold start in front of all of it. Budget only for the
+ * model and this aborts calls that were about to succeed — paying for an answer
+ * and then throwing it away, which is the exact failure the old 2.5s produced
+ * once the model became a hosted one.
+ *
+ * So: 4s of model, plus room for the round trips and a cold start. Nothing
+ * blocks on any of it — the composer shows the fallback price immediately and
+ * sharpens it when the answer lands, and a changed draft aborts this anyway
+ * through its own signal. A longer ceiling costs patience nobody is spending.
+ */
+const TIMEOUT_MS = 8000;
 
 export type Rating = {
   verdict: 'ok' | 'blocked';
