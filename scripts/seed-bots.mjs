@@ -19,6 +19,7 @@
  */
 import { serviceClient } from './lib/db.mjs';
 import { complete } from './lib/llm.mjs';
+import { possible, thisMonday, todayIndex } from './lib/week.mjs';
 
 const { db, url } = serviceClient();
 
@@ -158,7 +159,7 @@ const RHYTHM_SCHEMA = {
  * decoration. The fallback is stated out loud so a run that quietly produced a
  * duller week cannot look like a run that did not.
  */
-async function rhythm(drawn) {
+async function rhythm(drawn, today) {
   const listed = drawn
     .map((g, i) => `${i}: ${g.name} — ${g.title} (${g.category}, ${g.points} points)`)
     .join('\n');
@@ -179,6 +180,15 @@ async function rhythm(drawn) {
     'worse. Nobody should miss all of theirs either.',
     '',
     'Harder and vaguer goals are likelier to be missed than small specific ones.',
+    '',
+    `Today is day ${today} of this week, counting Monday as 0. Nothing on a`,
+    'later day can have been finished yet, so mark those not done — the days',
+    'ahead are the ones still to play for.',
+    '',
+    'Put at least two or three goals on today or a day already past, and close',
+    'most of those. A week where every goal is still ahead reads as one nobody',
+    'has started, and the feed is meant to show people who are already going.',
+    '',
     'Return one entry per goal, using the id given.',
   ].join('\n');
 
@@ -194,28 +204,20 @@ async function rhythm(drawn) {
     // discarding the whole answer, so a half-answer still beats no answer.
     return drawn.map((g, i) => {
       const said = byId.get(i);
-      const day = Number(said?.day);
+      const raw = Number(said?.day);
+      const day = Number.isInteger(raw) && raw >= 0 && raw <= 6 ? raw : i % 7;
       return {
-        day: Number.isInteger(day) && day >= 0 && day <= 6 ? day : i % 7,
-        done: typeof said?.done === 'boolean' ? said.done : i % 3 !== 2,
+        day,
+        done: possible(day, typeof said?.done === 'boolean' ? said.done : i % 3 !== 2, today),
       };
     });
   } catch (err) {
     console.error(`  (no rhythm from the model: ${err.message.split('\n')[0]})`);
     console.error('  Falling back to a fixed spread — the week will read flatter.');
-    return drawn.map((_, i) => ({ day: i % 7, done: i % 3 !== 2 }));
+    return drawn.map((_, i) => ({ day: i % 7, done: possible(i % 7, i % 3 !== 2, today) }));
   }
 }
 
-/** The Monday of the current week, in the server's own `week_start` shape. */
-function thisMonday() {
-  const now = new Date();
-  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  // getDay(): Sunday is 0, so Monday is 1 and Sunday is six days into the week.
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
 
 /** Existing bot, by handle. The signup trigger writes the row; this finds it. */
 async function findByHandle(handle) {
@@ -237,7 +239,13 @@ async function ensureAccount(bot) {
   return { id: data.user.id, created: true };
 }
 
-const monday = thisMonday();
+// One reading of the clock, not two. `week_start` and the day index have to
+// describe the same week, and computing them separately leaves a window —
+// small, but real — where a run that crosses midnight stakes one week and
+// judges its outcomes against the next, forcing almost everything open.
+const now = new Date();
+const monday = thisMonday(now);
+const today = todayIndex(now);
 console.log(`Seeding the Oz bots into ${new URL(url).host}, week of ${monday}.`);
 
 try {
@@ -283,7 +291,7 @@ async function seed() {
     console.error(`  ${b.name} has no approved goals — staking nothing for them.`);
   }
 
-  const shape = await rhythm(drawn);
+  const shape = await rhythm(drawn, today);
 
   let cursor = 0;
   for (const [botIndex, bot] of BOTS.entries()) {

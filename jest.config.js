@@ -24,11 +24,18 @@ module.exports = {
       setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
       // jest-expo's preset sets no testMatch, so Jest's default would sweep up
       // integration/ as well. Pin it to the app.
-      testMatch: ['<rootDir>/src/**/__tests__/**/*.test.[jt]s?(x)'],
+      // `scripts/` is included because the authoring scripts had no test of any
+      // kind, and one of them decides what the Global feed says — the first
+      // screen a new account sees. Only the pure parts are reachable this way;
+      // anything needing a database or a model stays a thing you run.
+      testMatch: [
+        '<rootDir>/src/**/__tests__/**/*.test.[jt]s?(x)',
+        '<rootDir>/scripts/**/__tests__/**/*.test.[jt]s?(x)',
+      ],
       // Keeps the root __mocks__ directory scoped to this project, and lets a
       // test reach the shared `.mjs` decisions under supabase/functions —
       // `roots` bounds where Jest *discovers* files, not what a test may import.
-      roots: ['<rootDir>/src'],
+      roots: ['<rootDir>/src', '<rootDir>/scripts'],
       // The edge function's shared decisions live in `.mjs`, which is the one
       // extension Deno and Node both load. jest-expo's transform key is
       // `\.[jt]sx?$` and does not match it, so without this an import of one
