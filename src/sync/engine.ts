@@ -41,8 +41,9 @@ import {
 import { syncRealtime, stopRealtime } from './realtime';
 import { reconcileTasks } from './reconcile';
 import { startScheduler, stopScheduler } from './scheduler';
-import { currentUserId, onSessionChange } from './session';
+import { currentUserId, onSessionChange, reportAuthFailure } from './session';
 import {
+  isAuthExpired,
   supabaseTransport,
   type PulledNote,
   type WireOp as WireEntry,
@@ -122,10 +123,28 @@ function queueTransport(wire: Transport): QueueTransport {
       // risking a different answer mid-drain.
       const owner = String(payload.owner_id ?? '');
       const result = await wire.push(wireEntry(op, payload, entry), owner);
+      if (result.ok) return { ok: true };
+
+      // Not permanent, whatever the transport said about this request. A 401 the
+      // refresh could not fix says nothing about the entry and everything about
+      // the session, and calling it permanent is how the queue used to eat
+      // itself: `drop` splices the entry out and *continues*, so the next one is
+      // refused for the same reason and dropped too — a whole week of staked
+      // work deleted in one pass, with no rollback and nothing on screen.
+      //
+      // Reported here rather than in the outbox so the queue keeps knowing
+      // nothing about auth. `reportAuthFailure` drops `currentUserId()` to null,
+      // which is what actually stops the drain: `retry` holds this entry and
+      // breaks the loop, and the next tick returns early on a null owner.
+      if (!result.retryable && isAuthExpired(result)) {
+        reportAuthFailure();
+        return { ok: false, permanent: false, error: result.error };
+      }
+
       // A straight relabelling. The transport already decided whether another
       // attempt could ever help; this used to throw so the queue could work it
       // out again from a code, which meant the same judgement written twice.
-      return result.ok ? { ok: true } : { ok: false, permanent: !result.retryable, error: result.error };
+      return { ok: false, permanent: !result.retryable, error: result.error };
     },
   };
 }
@@ -902,9 +921,15 @@ export function createEngine(
       }
       if (merge.notes) mergingNotes = new Set(merge.notes.map((n) => n.id));
       dispatch({ type: 'SERVER_MERGE', merge });
-    } catch {
+    } catch (err) {
       // Offline, or a server that will be there next minute. A pull has no
       // queue behind it and nothing to retire; the next tick asks again.
+      //
+      // Except when the server answered that it does not know who we are. That
+      // one *will* say the same thing next minute and every minute after, and
+      // asking again forever while the screen shows the last week we managed to
+      // pull is the failure nobody would ever think to report.
+      if (isAuthExpired(err)) reportAuthFailure();
     } finally {
       pulling = false;
     }

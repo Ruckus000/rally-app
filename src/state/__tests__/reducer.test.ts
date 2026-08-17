@@ -1098,6 +1098,20 @@ describe('who you are comes from the session', () => {
     const off = reducer(live, { type: 'SESSION', session: { status: 'offline' } });
     expect(off.selfId).toBe(uid);
   });
+
+  it('keeps who you are when the server rejects your token', () => {
+    // A dead token is not a different person. Re-minting an identity here would
+    // orphan everything the old one owns on the server and hand this device a
+    // new name for work it has already done — and `lastSelfId` would clear the
+    // outbox on the way past, which is the queue this whole change protects.
+    const live: State = { ...base, account: 'live', selfId: uid };
+    const s = reducer(live, { type: 'SESSION', session: { status: 'expired' } });
+
+    expect(s.session).toEqual({ status: 'expired' });
+    expect(s.selfId).toBe(uid);
+    expect(s.myTasks).toBe(live.myTasks);
+    expect(s.history).toBe(live.history);
+  });
 });
 
 describe('config', () => {
