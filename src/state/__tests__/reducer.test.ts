@@ -1147,6 +1147,42 @@ describe('who you are comes from the session', () => {
   });
 });
 
+describe('what the server refused', () => {
+  it('stores the count the outbox announced', () => {
+    const s = reducer(base, { type: 'UNSAVED', count: 2 });
+    expect(s.unsaved).toBe(2);
+  });
+
+  it('returns by identity when the count has not moved', () => {
+    // Every drain announces, and every dispatch re-renders every screen. The
+    // answer is the same number almost every time.
+    const once = reducer(base, { type: 'UNSAVED', count: 1 });
+    expect(reducer(once, { type: 'UNSAVED', count: 1 })).toBe(once);
+  });
+
+  it('is never restored from disk', () => {
+    // It is derived from the outbox, which keeps its own record and announces
+    // the real number on hydration. A stored one could only disagree — and
+    // would show a notice for a refusal already acknowledged.
+    expect(hydrate({ unsaved: 4 } as Partial<State>).unsaved).toBe(0);
+  });
+
+  it('does not follow you into a world that cannot have caused it', () => {
+    // Onboarding grants an account and is one back-press from its own front
+    // door, so a live account that collected a refusal can become a demo one.
+    // Carried across, the notice would sit on a world that never touched the
+    // network — and be unclearable, because `clearOutbox` has already emptied
+    // the list that `Got it` would have had to clear.
+    const live: State = { ...base, account: 'live', unsaved: 1 };
+    expect(reducer(live, { type: 'SET_ACCOUNT', mode: 'seeded' }).unsaved).toBe(0);
+    expect(reducer(live, { type: 'RESET', mode: 'seeded' }).unsaved).toBe(0);
+  });
+
+  it('is not written to disk either', () => {
+    expect(pick({ ...base, unsaved: 3 })).not.toHaveProperty('unsaved');
+  });
+});
+
 describe('config', () => {
   it('defaults to the friends audience', () => {
     expect(DEFAULT_CONFIG.defaultAudience).toBe('friends');

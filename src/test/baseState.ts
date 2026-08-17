@@ -30,6 +30,9 @@ export const baseState: State = {
   globalPosts: seedGlobalPosts('seeded'),
   // A demo account never signs in, so `off` is the only value it can hold.
   session: { status: 'off' },
+  // Nothing has been refused. The banner that reads this must stay silent
+  // unless a test says otherwise.
+  unsaved: 0,
   people: seedPeople('seeded'),
   // Pinned, so the suite doesn't drift with the calendar.
   week: FIXTURE_WEEK,

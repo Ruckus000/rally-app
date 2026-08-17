@@ -165,6 +165,8 @@ function Probe() {
           .join(',')}
       </Text>
       <Text testID="tasks">{store.state.myTasks.map((t) => t.title).join(',')}</Text>
+      {/* What the server refused outright, as the banner above every tab reads it. */}
+      <Text testID="unsaved">{String(store.state.unsaved)}</Text>
       {/* The ids are minted in the reducer, so a note or a cheer aimed at a real
           row has to read them back off state rather than invent one. */}
       <Text testID="ids">{store.state.myTasks.map((t) => t.id).join(',')}</Text>
@@ -330,6 +332,30 @@ it('holds the queue when the server stops accepting the token, and goes quiet', 
   const quiet = fakeSupabase.calls.length;
   await settle(120_000);
   expect(fakeSupabase.calls.length).toBe(quiet);
+});
+
+it('says so when the server refuses a write outright, and keeps the row', async () => {
+  mount();
+  await settle();
+
+  fakeSupabase.goOffline();
+  stake('ride to the bridge');
+  await settle(6_000);
+
+  // A constraint, not a network or a token: the one class of failure the queue
+  // gives up on. Everything answers this way so the drain cannot slip past it.
+  fakeSupabase.goOnline();
+  fakeSupabase.failNext(200, { code: '23514', message: 'tasks_day_check' });
+  await settle(10_000);
+
+  // The reducer is deliberately never rolled back, so the task is still there —
+  // which is exactly why somebody has to be told the server has no copy of it.
+  expect(screen.getByTestId('tasks').props.children).toContain('ride to the bridge');
+  expect(screen.getByTestId('unsaved').props.children).toBe('1');
+  expect(deadLetters()).toHaveLength(1);
+  // And the queue is not still holding it: dropped is dropped, or the count
+  // would climb by one on every tick for the rest of the session.
+  expect(pending()).toHaveLength(0);
 });
 
 /** The circle that makes your own `profiles` row come back on a pull. */
