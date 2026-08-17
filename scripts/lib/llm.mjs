@@ -13,61 +13,156 @@
  * the standard a goal is held to. A bot goal priced on a laptop and a user's
  * goal priced in production have to be answering the same question.
  *
- * Ollama, which is the whole point of these scripts running here: free,
- * unmetered, no key, and no reason to send a developer's drafts anywhere. Point
- * LLM_BASE_URL at another machine to use one that is not this one.
+ * Gemini, because the local box these scripts once assumed was never stood up,
+ * and a rubric that silently falls back to category prices is not a rubric.
+ * There is no provider flag, because there is one provider — point
+ * LLM_BASE_URL and LLM_MODEL elsewhere if that ever stops being true.
  */
 // RUBRIC prices a goal; SCREENING decides whether it is safe to stake.
 export { RUBRIC } from '../../supabase/functions/_shared/rubric.mjs';
 export { SCREENING } from '../../supabase/functions/_shared/screening.mjs';
 
+import { fromEnvFile } from './env.mjs';
+
 /**
  * No timeout here, unlike the edge function. Nobody is waiting on a keystroke —
- * a 3B model on a laptop can take its time, and cutting it off at 2s would only
- * mean drafting fails on exactly the machines that need it most.
+ * a drafting run of forty goals can take its time, and cutting it off would
+ * only mean drafting fails on exactly the connections that need the slack.
+ *
+ * Throws on every failure, which is the whole contract. The edge function's
+ * twin returns null and lets the caller fall open, because a model having a bad
+ * day must not stop somebody staking a goal. Nothing here is on that path: a
+ * failed draft is a draft you run again.
  */
 export async function complete({ system, user, schema }) {
-  return parseJson(await ollama({ system, user, schema }));
+  return parseJson(await gemini({ system, user, schema }));
 }
 
-async function ollama({ system, user, schema }) {
-  const base = process.env.LLM_BASE_URL ?? 'http://127.0.0.1:11434';
-  const model = process.env.LLM_MODEL ?? 'llama3.2';
-  let res;
-  try {
-    res = await fetch(`${base}/api/chat`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-        format: schema,
-        stream: false,
-        options: { temperature: 0 },
-      }),
-    });
-  } catch (err) {
-    // Much the most likely failure, and worth naming rather than showing a
-    // bare ECONNREFUSED to somebody who has simply not started Ollama.
+async function gemini({ system, user, schema }) {
+  const base = process.env.LLM_BASE_URL ?? 'https://generativelanguage.googleapis.com/v1beta';
+  // Lite, and not for cost: `gemini-3.5-flash`'s free tier is twenty requests a
+  // *day*, which one drafting run exhausts before it reaches the second bot.
+  // The lite models have their own, far larger allowance. Measured on the
+  // twelve-goal screening list, lite answered all twelve correctly — including
+  // "Finish module 3 of the SQL course", the false positive that made SCREENING
+  // a separate prompt from RUBRIC in the first place.
+  const model = process.env.LLM_MODEL ?? 'gemini-3.5-flash-lite';
+  const key = fromEnvFile('GEMINI_API_KEY');
+
+  if (!key) {
     throw new Error(
-      `Could not reach Ollama at ${base}.\n` +
-        `  brew install ollama && ollama serve\n` +
-        `  ollama pull ${model}\n` +
-        `(${err.message})`,
+      'GEMINI_API_KEY is not set.\n' +
+        '  Get one from https://aistudio.google.com/apikey\n' +
+        '  Put it in .env as GEMINI_API_KEY=…, or export it before running.',
     );
   }
-  if (res.status === 404) {
-    // Ollama is running, it simply has never been given this model. Much the
-    // second-likeliest failure, and the fix is one command.
-    throw new Error(`Ollama has no model "${model}". Run: ollama pull ${model}`);
+
+  const request = {
+    method: 'POST',
+    headers: {
+      // A header, never the query string: a key in a URL ends up in every
+      // proxy log and shell history between here and Google.
+      'x-goog-api-key': key,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      systemInstruction: { role: 'user', parts: [{ text: system }] },
+      contents: [{ role: 'user', parts: [{ text: user }] }],
+      generationConfig: {
+        // `schema` is passed straight through. Gemini's responseSchema takes
+        // the same JSON Schema objects the callers already hand to this
+        // function, so there is no translation layer to keep in step.
+        responseMimeType: 'application/json',
+        responseSchema: schema,
+        temperature: 0,
+      },
+    }),
+  };
+
+  const body = await send(`${base}/models/${model}:generateContent`, request, base, model);
+  const candidate = body?.candidates?.[0];
+  const text = candidate?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
+
+  if (!text) {
+    // A refusal, not an outage: Gemini's safety filters block the *response*,
+    // so there is a 200 with a finishReason and no content. Naming it matters —
+    // treated as an empty answer it would read as "nothing wrong with this
+    // goal", which is the one conclusion it does not support.
+    const why = candidate?.finishReason ?? body?.promptFeedback?.blockReason ?? 'no content';
+    throw new Error(`Gemini returned nothing (${why}). It declined to answer rather than failing.`);
   }
-  if (!res.ok) throw new Error(`Ollama returned ${res.status}: ${await res.text()}`);
-  return (await res.json())?.message?.content ?? '';
+  return text;
 }
 
+/**
+ * One call, and the waiting the free tier makes unavoidable.
+ *
+ * The free tier allows twenty requests a minute. Pricing and screening are two
+ * calls per goal, so drafting ten goals for four bots is eighty-four — a 429 is
+ * not an edge case here, it is the normal shape of a full run. Google says
+ * exactly how long to wait, in a `RetryInfo` on the error, so the only sensible
+ * thing to do is wait that long and carry on. A run that takes four minutes is
+ * fine; a run that dies a third of the way through is not.
+ *
+ * 503 is retried on the same path: it means the model is busy, which is also
+ * temporary and also not the caller's problem.
+ */
+async function send(endpoint, request, base, model) {
+  for (let attempt = 0; ; attempt += 1) {
+    let res;
+    try {
+      res = await fetch(endpoint, request);
+    } catch (err) {
+      throw new Error(`Could not reach Gemini at ${base}.\n(${err.message})`);
+    }
+
+    if (res.ok) return res.json();
+
+    const detail = await res.text();
+    const parsed = (() => {
+      try {
+        return JSON.parse(detail);
+      } catch {
+        return null;
+      }
+    })();
+    const message = parsed?.error?.message ?? detail;
+
+    const wait = attempt < MAX_RETRIES ? retryDelay(parsed, res.status) : null;
+    if (wait !== null) {
+      // stderr, so it does not land in the middle of a table on stdout.
+      process.stderr.write(`  waiting ${Math.ceil(wait / 1000)}s for Gemini's rate limit…\n`);
+      await new Promise((r) => setTimeout(r, wait));
+      continue;
+    }
+
+    // Google retires models on the free tier and says so precisely, naming the
+    // replacement. Quoting it beats anything this file could guess.
+    if (res.status === 404) throw new Error(`Gemini has no model "${model}".\n  ${message}`);
+    if (res.status === 429) {
+      throw new Error(
+        `Gemini rate limit or quota reached, and waiting did not clear it.\n` +
+          `  This is usually the daily quota rather than the per-minute one —\n` +
+          `  "${model}" is spent until tomorrow. Try LLM_MODEL=gemini-flash-lite-latest.\n` +
+          `  ${message}`,
+      );
+    }
+    if (res.status === 503) throw new Error(`Gemini is busy (503).\n  ${message}`);
+    throw new Error(`Gemini returned ${res.status}: ${message}`);
+  }
+}
+
+const MAX_RETRIES = 4;
+
+/** Milliseconds to wait, or null if this status is not worth retrying. */
+function retryDelay(parsed, status) {
+  if (status !== 429 && status !== 503) return null;
+  const info = parsed?.error?.details?.find((d) => `${d['@type']}`.endsWith('RetryInfo'));
+  const seconds = Number(`${info?.retryDelay ?? ''}`.replace(/s$/, ''));
+  // Google usually says. When it does not, a minute clears a per-minute limit
+  // by definition, and one extra minute is cheaper than a failed run.
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds * 1000) + 1000 : 60_000;
+}
 
 /** Tolerates a model that wrapped its object in prose. */
 function parseJson(raw) {
