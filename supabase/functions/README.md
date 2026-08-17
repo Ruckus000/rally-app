@@ -22,6 +22,16 @@ It reads `payload` and nothing else — the trigger put `actor_name` and
 `task_title` there so the bell needed no second read, and this is the second
 reader.
 
+**A bot's cheer never reaches this function.** The Oz bots cheer real people's
+public tasks on purpose — a Global feed that never reacts to you reads as a room
+full of people ignoring you — so the bell showing "🔥 Dorothy Gale cheered you"
+is wanted. The buzz is not: a fictional character is not a good enough reason to
+light somebody's phone at three in the morning. `private.push_notification`
+skips the call when `payload -> 'actor_id'` names an `is_bot` profile, and the
+notification row is written either way. `integration/rls/push_suppression.test.ts`
+pins both halves, including the control that a *real* person's cheer still
+queues one.
+
 ### Deploying
 
 ```bash

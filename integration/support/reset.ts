@@ -45,6 +45,41 @@ export async function sql<T = unknown>(text: string, values?: unknown[]): Promis
 }
 
 /**
+ * Run several statements on one connection, then roll the whole thing back.
+ * Returns the rows of the last statement.
+ *
+ * For side effects that have to be *caught in the act*. `pg_net` queues a push
+ * by inserting into `net.http_request_queue`, and a background worker drains
+ * that queue — so counting it in a later statement is a race with a process
+ * this suite does not control. Inside one transaction the row is certainly
+ * still there, because nothing outside can have seen it yet.
+ *
+ * The rollback is the other half: setting up a test needs Vault secrets that
+ * would otherwise make every notification written by every later test fire a
+ * real request. Created and discarded here, no other file can observe them.
+ */
+export async function sqlInTx<T = unknown>(statements: string[]): Promise<T[]> {
+  const client = await getPool().connect();
+  // An ordinary SQL error just aborts the transaction and `rollback` still
+  // succeeds, so the client is genuinely clean and goes back to the pool. A
+  // rollback that *fails* means the connection itself is broken — handing that
+  // back would poison whichever later test happened to draw it, so it is passed
+  // to `release` instead, which destroys it.
+  let broken: Error | undefined;
+  try {
+    await client.query('begin');
+    let last: unknown[] = [];
+    for (const text of statements) last = (await client.query(text)).rows;
+    return last as T[];
+  } finally {
+    await client.query('rollback').catch((err) => {
+      broken = err as Error;
+    });
+    client.release(broken);
+  }
+}
+
+/**
  * Run a statement as a given role, which is how EXECUTE and USAGE grants are
  * asserted — REST cannot express "is this callable by `authenticated`?".
  */
