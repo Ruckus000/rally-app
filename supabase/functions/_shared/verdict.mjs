@@ -33,6 +33,54 @@
  */
 export const REFUSED_REASON = 'This one did not pass the safety check.';
 
+/**
+ * `finishReason` values that mean the model was stopped rather than finished.
+ *
+ * `STOP` and `MAX_TOKENS` are deliberately absent: those are answers, complete
+ * or truncated, and nothing was withheld. Truncation must not read as a refusal
+ * or an ordinary long reply would block a goal.
+ */
+const BLOCKING_FINISH_REASONS = new Set([
+  'SAFETY',
+  'PROHIBITED_CONTENT',
+  'RECITATION',
+  'SPII',
+  'BLOCKLIST',
+  'IMAGE_SAFETY',
+]);
+
+/**
+ * Did the model decline to answer, given a raw Gemini response body?
+ *
+ * Asked about the whole body rather than about the text, because **a block does
+ * not always come back empty**. The filter can fire after some tokens have been
+ * emitted, leaving truncated JSON — or prose explaining itself instead of the
+ * object the schema asked for. A check gated on emptiness would take those for
+ * answers, fail to parse them, and report an outage: a refusal failing open,
+ * which is the one thing this module exists to prevent.
+ *
+ * A block can also land on the prompt rather than the response, in which case
+ * there is no candidate at all and `promptFeedback.blockReason` carries it.
+ *
+ * An empty reply with no reason given counts too. That is an unknown, and on a
+ * guard the conservative direction is closed: being wrong that way costs one
+ * goal the person is told did not pass, which is visible and recoverable, where
+ * being wrong the other way is silence on the goals this exists to catch.
+ */
+export function refusedResponse(body) {
+  const candidate = body?.candidates?.[0];
+  if (BLOCKING_FINISH_REASONS.has(String(candidate?.finishReason ?? ''))) return true;
+  if (body?.promptFeedback?.blockReason) return true;
+  return responseText(body) === '';
+}
+
+/** The model's reply, joined across parts. Empty string if there is none. */
+export function responseText(body) {
+  const parts = body?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return '';
+  return parts.map((p) => p?.text ?? '').join('');
+}
+
 /** Reasons are model-written text on a card; a paragraph would not fit. */
 const REASON_MAX = 160;
 

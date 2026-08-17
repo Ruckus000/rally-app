@@ -18,6 +18,8 @@
 import {
   REFUSED_REASON,
   cacheable,
+  refusedResponse,
+  responseText,
   screeningVerdict,
 } from '../../../supabase/functions/_shared/verdict.mjs';
 
@@ -129,5 +131,86 @@ describe('what is worth remembering forever', () => {
     // have fired on the phrasing.
     const ok = { status: 'ok', value: {} };
     expect(cacheable(ok, { status: 'refused' })).toBe(false);
+  });
+});
+
+/**
+ * Reading the response body, which is where the refusal has to be *recognised*
+ * before anything above can act on it.
+ *
+ * The trap: a block does not reliably arrive empty. Gating on "no text" reads a
+ * partially-emitted refusal as an answer, fails to parse it, and reports an
+ * outage — which resolves `ok`. That is the same fail-open bug one layer down,
+ * and it is invisible from the tests above because they are handed a status
+ * somebody else already decided.
+ */
+const reply = (finishReason: string, text?: string) => ({
+  candidates: [
+    { finishReason, content: { parts: text === undefined ? [] : [{ text }] } },
+  ],
+});
+
+describe('recognising a refusal in the raw body', () => {
+  it('an ordinary answer is not one', () => {
+    expect(refusedResponse(reply('STOP', '{"harmful":false}'))).toBe(false);
+  });
+
+  it('a safety block with no content is', () => {
+    expect(refusedResponse(reply('SAFETY'))).toBe(true);
+  });
+
+  it('a safety block that already emitted tokens is TOO', () => {
+    // The case that matters. There is text here, so anything keyed on emptiness
+    // would call this an answer, fail to parse the truncated JSON, and report
+    // an outage — letting the goal through.
+    expect(refusedResponse(reply('SAFETY', '{"harmful":'))).toBe(true);
+  });
+
+  it('every blocking reason counts, not just SAFETY', () => {
+    for (const why of ['PROHIBITED_CONTENT', 'RECITATION', 'SPII', 'BLOCKLIST']) {
+      expect(refusedResponse(reply(why, 'partial'))).toBe(true);
+    }
+  });
+
+  it('a block on the prompt counts, and outranks any content beside it', () => {
+    // Normally a prompt-level block leaves no candidate, so an emptiness check
+    // would catch it by accident. Asserted against a body that carries text as
+    // well, so the rule is the one actually wanted — a stated block wins — and
+    // not a coincidence of the fallback below.
+    expect(refusedResponse({ candidates: [], promptFeedback: { blockReason: 'SAFETY' } })).toBe(
+      true,
+    );
+    expect(
+      refusedResponse({
+        promptFeedback: { blockReason: 'SAFETY' },
+        candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{"harmful":false}' }] } }],
+      }),
+    ).toBe(true);
+  });
+
+  it('a truncated answer is NOT a refusal', () => {
+    // MAX_TOKENS means the model ran out of room, not that it was stopped.
+    // Reading it as a refusal would block goals for being long.
+    expect(refusedResponse(reply('MAX_TOKENS', '{"harmful":'))).toBe(false);
+  });
+
+  it('an empty reply with no reason given is treated as one', () => {
+    // An unknown. On a guard the conservative direction is closed.
+    expect(refusedResponse({ candidates: [] })).toBe(true);
+    expect(refusedResponse({})).toBe(true);
+  });
+});
+
+describe('reading the text out of a body', () => {
+  it('joins the parts', () => {
+    expect(
+      responseText({ candidates: [{ content: { parts: [{ text: '{"a":' }, { text: '1}' }] } }] }),
+    ).toBe('{"a":1}');
+  });
+
+  it('is empty rather than throwing on every shape that lacks one', () => {
+    for (const body of [undefined, null, {}, { candidates: [] }, { candidates: [{}] }]) {
+      expect(responseText(body)).toBe('');
+    }
   });
 });

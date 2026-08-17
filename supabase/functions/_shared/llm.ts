@@ -26,9 +26,10 @@
  * the caller's answer to all of them was the same: fall back to the category
  * price and let the person get on with their week.
  *
- * A hosted model breaks that. Its safety filters block the *response* — a 200,
- * a `finishReason`, and no content — and the goals that trigger it are exactly
- * the self-harm and violence cases the screening prompt exists to catch. Folded
+ * A hosted model breaks that. Its safety filters block the *response* — a 200
+ * carrying a `finishReason` and usually no content, though sometimes a few
+ * tokens it had already emitted — and the goals that trigger it are exactly the
+ * self-harm and violence cases the screening prompt exists to catch. Folded
  * into the same null as a timeout, a refusal would resolve `ok`: the guard
  * would fail open precisely where it must not.
  *
@@ -54,8 +55,13 @@ const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
  * set when the model was a local Ollama, and against a hosted one it would
  * abort roughly one call in five — spending the request and then discarding the
  * answer, which is the worst of both. 4s clears the observed spread with room
- * for a slow day, and still sits inside the client's own 5s patience so that an
- * abort *there* means the network went away rather than the model being slow.
+ * for a slow day.
+ *
+ * This bounds the model call and nothing else. The handler also does an auth
+ * lookup, a cache read, a usage-counter RPC and (on the way out) an upsert, and
+ * a cold start sits in front of all of it — so the *request* can take
+ * meaningfully longer than this number. `rateGoal.ts` budgets for the sum, not
+ * for this ceiling; see the note there before changing either.
  *
  * The composer shows a fallback price while it waits, so the cost of waiting is
  * a number that sharpens a moment later, not a stall.
@@ -88,6 +94,10 @@ function env(key: string): string {
   const d = (globalThis as any).Deno;
   return d?.env?.get(key) ?? '';
 }
+
+// Reading a Gemini response is a judgement, not a field access, so it lives in
+// the file the unit suite can import. Nothing under this directory is testable.
+import { refusedResponse, responseText } from './verdict.mjs';
 
 // Imported, not read off disk. Supabase bundles a function from its module
 // graph, so a prompt loaded with `Deno.readTextFile` is missing the moment it
@@ -162,21 +172,19 @@ async function callGemini({
   }
 
   const body = await res.json();
-  const candidate = body?.candidates?.[0];
-  const text: string =
-    candidate?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('') ?? '';
 
-  if (!text) {
-    // The refusal path. A 200 with no content is the safety filter blocking the
-    // response, and `finishReason` (or a top-level `promptFeedback`) says so.
-    // Read as an empty answer this would mean "nothing wrong with this goal",
-    // which is the one conclusion it does not support.
-    const why = candidate?.finishReason ?? body?.promptFeedback?.blockReason ?? 'no content';
+  // Both questions asked of the whole body, in `verdict.mjs`, because neither
+  // can be answered from the text alone — a block can arrive with content
+  // already emitted, or with no candidate at all. That file is importable by
+  // the unit suite; nothing in this one is.
+  if (refusedResponse(body)) {
+    const why =
+      body?.candidates?.[0]?.finishReason ?? body?.promptFeedback?.blockReason ?? 'no content';
     console.warn(`llm: gemini declined to answer (${why})`);
     return REFUSED;
   }
 
-  return { status: 'ok', value: text };
+  return { status: 'ok', value: responseText(body) };
 }
 
 /**
