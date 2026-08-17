@@ -136,7 +136,7 @@ GEMINI_API_KEY=…
 npx supabase secrets set GEMINI_API_KEY=…
 ```
 
-**`rate-goal` is not deployed yet.** Until `npx supabase functions deploy rate-goal` runs with that secret set, the composer prices every goal by its category — which is the same fallback an outage produces, and is why nothing breaks in the meantime. `supabase/functions/README.md` has the rest.
+`rate-goal` is deployed, gated by `verify_jwt`. If the secret is ever missing or spent, the function logs an error and prices every goal by its category — the same fallback an outage produces, so a lapsed key degrades the composer rather than breaking it. `supabase/functions/README.md` has the rest.
 
 `LLM_MODEL` overrides the model, `LLM_BASE_URL` the endpoint. **Free-tier quotas are per-model and per-day, and small.** `gemini-3.5-flash` allows twenty requests a *day* — one drafting run does not finish. The default is `gemini-3.5-flash-lite`, whose allowance is far larger; the client waits out per-minute limits automatically and tells you when the daily one is spent.
 
