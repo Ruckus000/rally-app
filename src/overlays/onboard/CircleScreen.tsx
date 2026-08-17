@@ -8,6 +8,7 @@ import { ScrollView, TextInput, View } from 'react-native';
 import { color, shadows } from '../../theme/tokens';
 import { Icon } from '../../components/Icon';
 import { Bri, Caps, Sans, Tap, fill, row } from '../../components/primitives';
+import { Trouble } from '../../components/Trouble';
 import { CIRCLE_NAME_MAX } from '../../state/store';
 import { ExpandingCard, PillButton } from './kit';
 
@@ -177,27 +178,6 @@ export function CircleScreen({
  * smallest honest thing that fits: one line, same voice, announced to screen
  * readers when it appears.
  */
-function Trouble({ message }: { message?: string | null }) {
-  if (!message) return null;
-  return (
-    <View
-      accessibilityRole="alert"
-      accessibilityLiveRegion="polite"
-      style={{
-        marginTop: 10,
-        borderRadius: 12,
-        paddingHorizontal: 12,
-        paddingVertical: 9,
-        backgroundColor: color.chip,
-      }}
-    >
-      <Sans size={12} weight={600} lineHeight={16.5} color={color.ink}>
-        {message}
-      </Sans>
-    </View>
-  );
-}
-
 /** The inline confirm beside an input — 46px to match the field it follows. */
 function SmallButton({
   label,

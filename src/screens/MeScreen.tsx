@@ -7,6 +7,7 @@ import { color, onDark, radius, shadows, yearLevelColor } from '../theme/tokens'
 import { CIRCLE_NAME, ME, weekPointsLabel } from '../data/fixtures';
 import { NAME_MAX } from '../data/people';
 import { queueProfileName } from '../sync/engine';
+import { deadLetters } from '../sync/outbox';
 import { nextWeekAfter, useStore } from '../state/store';
 import { allTasksDone, cheersGiven, circleMembers, weekPoints } from '../state/selectors';
 import { Avatar } from '../components/Avatar';
@@ -415,6 +416,47 @@ export function MeScreen() {
         been built yet.
       */}
       {__DEV__ ? <DevControls /> : null}
+      {__DEV__ ? <DeadLetters /> : null}
+    </View>
+  );
+}
+
+/**
+ * What the queue gave up on.
+ *
+ * An entry lands in the dead list when the server refuses it in a way no retry
+ * can fix — a check constraint, an enum it does not recognise, a row the
+ * mappers could not build. The reducer is deliberately never rolled back for
+ * one: deleting the task a person is looking at because the server disliked it
+ * would be worse than the divergence. So the divergence is real, and permanent,
+ * and until now completely silent — `deadLetters()` has been exported since it
+ * was written, commented "kept so a debug screen can say what went wrong", with
+ * no debug screen and no other caller anywhere in the app.
+ *
+ * `__DEV__` only, and that is a judgement rather than laziness. A permanently
+ * refused write means this client sent something the schema rejects, which is a
+ * bug here and not anything the person holding the phone can act on; telling
+ * them their task never saved while offering no way to save it would be anxiety
+ * without a remedy. Whether they should be told anyway is a real product
+ * question, and it is raised in the PR rather than answered at this hour.
+ *
+ * Reads module state, so it shows the list as of the last render rather than
+ * subscribing to it. For this audience that is the right amount of machinery.
+ */
+function DeadLetters() {
+  const dead = deadLetters();
+  if (dead.length === 0) return null;
+
+  return (
+    <View style={{ marginTop: 14, gap: 4 }} accessibilityLabel="Never sent">
+      <Caps size={10} color={color.faintInk}>
+        {`Never sent · ${dead.length}`}
+      </Caps>
+      {dead.map((entry) => (
+        <Sans key={entry.id} size={11} weight={500} color={color.faintInk}>
+          {`${entry.op} ${entry.key} — ${entry.lastError ?? 'refused'}`}
+        </Sans>
+      ))}
     </View>
   );
 }
