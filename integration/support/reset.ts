@@ -60,14 +60,22 @@ export async function sql<T = unknown>(text: string, values?: unknown[]): Promis
  */
 export async function sqlInTx<T = unknown>(statements: string[]): Promise<T[]> {
   const client = await getPool().connect();
+  // An ordinary SQL error just aborts the transaction and `rollback` still
+  // succeeds, so the client is genuinely clean and goes back to the pool. A
+  // rollback that *fails* means the connection itself is broken — handing that
+  // back would poison whichever later test happened to draw it, so it is passed
+  // to `release` instead, which destroys it.
+  let broken: Error | undefined;
   try {
     await client.query('begin');
     let last: unknown[] = [];
     for (const text of statements) last = (await client.query(text)).rows;
     return last as T[];
   } finally {
-    await client.query('rollback').catch(() => {});
-    client.release();
+    await client.query('rollback').catch((err) => {
+      broken = err as Error;
+    });
+    client.release(broken);
   }
 }
 
