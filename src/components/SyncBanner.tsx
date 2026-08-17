@@ -35,17 +35,20 @@ function Action({ label, onPress }: { label: string; onPress: () => void }) {
 }
 
 /**
- * A new anonymous identity, which is the only kind this app mints. Whatever the
- * old one owns on the server stays there, unreachable — nothing else holds its
- * id — so this asks first, in those words rather than in "are you sure".
+ * A new anonymous identity, which is the only kind this app mints.
  *
- * The queue is not cleared here. `store.tsx`'s `lastSelfId` effect does it when
- * the new id lands, which is the one place that decision already lives.
+ * Two things are lost and the wording has to carry both. Whatever the old id
+ * owns on the server stays there unreachable, because nothing else holds that
+ * id. And the queue is cleared — `store.tsx`'s `lastSelfId` effect does it when
+ * the new id lands, which is the one place that decision already lives — so
+ * work written before the switch keeps rendering while never reaching the
+ * server. "Everything on this device stays" was true about the screen and false
+ * about the sync, which is the half a person would care about.
  */
 function confirmStartOver(): void {
   Alert.alert(
     'Start over on this device?',
-    'You’ll sync as a new account. Everything already on this device stays; anything the old account had on the server becomes unreachable.',
+    'You’ll sync as a new account. This week stays on your screen, but nothing written before now will reach the server — and whatever the old account has there becomes unreachable.',
     [
       { text: 'Cancel', style: 'cancel' },
       {

@@ -78,6 +78,18 @@ function isFatal(err: unknown): boolean {
   return e.code === 'anonymous_provider_disabled';
 }
 
+/**
+ * True only while `signOutEverywhere` is in flight.
+ *
+ * gotrue announces SIGNED_OUT for a sign-out we asked for exactly as it does for
+ * one the server imposed, and `watchAuth` cannot tell them apart. `set(OFF)`
+ * alone does not close the gap: `signOut` is awaited, and a foreground landing
+ * inside that await calls `ensureSession`, reads the not-yet-cleared session
+ * back to `ready`, and is then condemned by the SIGNED_OUT that follows — so
+ * "Start over" would hand the user straight back to the banner.
+ */
+let signingOut = false;
+
 let watching = false;
 
 /**
@@ -100,8 +112,23 @@ function watchAuth(): void {
   if (watching) return;
   watching = true;
   getSupabase().auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_OUT' && !session) reportAuthFailure();
+    if (event === 'SIGNED_OUT' && !session && !signingOut) reportAuthFailure();
   });
+}
+
+/**
+ * Every road to `ready` goes through here, because every one of them has to put
+ * the refresh timer back.
+ *
+ * `reportAuthFailure` stops it — refreshing a rejected token is a timer burning
+ * for nothing — and the store only ever starts it on mount and on foreground.
+ * Neither of those happens when the user taps their way out of the banner while
+ * looking at the screen, so recovery would otherwise return to a session that
+ * never proactively refreshes, which is the state that produced the banner.
+ */
+function ready(userId: string): SessionState {
+  startAutoRefresh();
+  return set({ status: 'ready', userId });
 }
 
 async function resolveSession(): Promise<SessionState> {
@@ -112,13 +139,13 @@ async function resolveSession(): Promise<SessionState> {
     // Reads AsyncStorage, not the network — this is the path that works on a
     // plane, and the reason sign-in is not attempted on every launch.
     const { data, error } = await supabase.auth.getSession();
-    if (!error && data.session) return set({ status: 'ready', userId: data.session.user.id });
+    if (!error && data.session) return ready(data.session.user.id);
 
     const signIn = await supabase.auth.signInAnonymously();
     if (signIn.error) throw signIn.error;
     if (!signIn.data.session) return set({ status: 'error', message: 'Sign-in returned no session.' });
 
-    return set({ status: 'ready', userId: signIn.data.session.user.id });
+    return ready(signIn.data.session.user.id);
   } catch (err) {
     if (isOffline(err)) return set({ status: 'offline' });
     const message = describe(err);
@@ -133,6 +160,10 @@ async function resolveSession(): Promise<SessionState> {
  */
 export async function ensureSession(): Promise<SessionState> {
   if (!hasSupabaseConfig()) return set(OFF);
+  // A foreground can land inside `signOutEverywhere`'s await. Signing in there
+  // would race the sign-out it is standing next to, and read back the session it
+  // is in the middle of destroying.
+  if (signingOut) return state;
   if (state.status === 'ready') return state;
   if (expired) return set({ status: 'expired' });
   if (fatal) return set({ status: 'error', message: fatal });
@@ -197,11 +228,22 @@ export async function retrySession(): Promise<SessionState> {
   if (!hasSupabaseConfig()) return set(OFF);
   if (inFlight) return inFlight;
 
+  /**
+   * Only a session that once existed is worth re-testing. An `error` never got
+   * one — a project with anonymous sign-ins disabled is the case that reaches
+   * the banner — so `refreshSession` would answer `AuthSessionMissingError`,
+   * which is not a verdict on any token. Latching `expired` on it would trade
+   * the one message naming the actual misconfiguration for "this device is
+   * signed out", and offer a "Start over" that cannot mint an identity either.
+   */
+  const hadSession = state.status === 'expired';
+
   expired = false;
   fatal = null;
   set({ status: 'signing-in' });
 
   inFlight = (async (): Promise<SessionState> => {
+    if (!hadSession) return resolveSession();
     const outcome = await refreshed();
     if (outcome === 'ok') return resolveSession();
     if (outcome === 'offline') return set({ status: 'offline' });
@@ -218,18 +260,21 @@ export async function signOutEverywhere(): Promise<void> {
   stopAutoRefresh();
   fatal = null;
   expired = false;
-  // Before the call, not after. `signOut` makes gotrue announce SIGNED_OUT, and
-  // `watchAuth` cannot tell that one from the involuntary kind — leaving `ready`
-  // in place here would have this condemn the very session it is retiring, and
-  // land on the banner instead of on a clean start.
+  signingOut = true;
+  // Before the call, not after, so the sync layer stops immediately rather than
+  // for the length of a round trip it does not need to wait on.
   set(OFF);
-  if (hasSupabaseConfig()) {
-    try {
-      await getSupabase().auth.signOut({ scope: 'global' });
-    } catch {
-      // A sign-out that never reached the server still has to clear locally,
-      // or the app is stuck signed in to a session it is refusing to use.
+  try {
+    if (hasSupabaseConfig()) {
+      try {
+        await getSupabase().auth.signOut({ scope: 'global' });
+      } catch {
+        // A sign-out that never reached the server still has to clear locally,
+        // or the app is stuck signed in to a session it is refusing to use.
+      }
     }
+  } finally {
+    signingOut = false;
   }
 }
 
@@ -272,5 +317,6 @@ export function __resetSessionForTests(): void {
   fatal = null;
   expired = false;
   watching = false;
+  signingOut = false;
   listeners.clear();
 }

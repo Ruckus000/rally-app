@@ -13,6 +13,7 @@ import * as supabaseModule from '../../lib/supabase';
 const { getSupabase } = supabaseModule;
 import {
   __resetSessionForTests,
+  startAutoRefresh,
   currentUserId,
   ensureSession,
   reportAuthFailure,
@@ -144,6 +145,96 @@ it('does not condemn the session it is deliberately retiring', async () => {
 
   const next = await ensureSession();
   expect(next.status).toBe('ready');
+});
+
+/** The real client, with a `refreshSession` the fake does not have. */
+const withRefresh = (refreshSession: jest.Mock) => {
+  const real = getSupabase() as unknown as { auth: Record<string, unknown> };
+  jest.spyOn(supabaseModule, 'getSupabase').mockReturnValue({
+    ...real,
+    auth: { ...real.auth, refreshSession },
+  } as unknown as ReturnType<typeof supabaseModule.getSupabase>);
+};
+
+it('does not ask a project that never signed us in to refresh a token', async () => {
+  fakeSupabase.setAnonymousDisabled(true);
+  const failed = await ensureSession();
+  expect(failed).toEqual({ status: 'error', message: expect.stringMatching(/Anonymous sign-in/) });
+
+  // What `refreshSession` answers with no session: not a verdict on a token.
+  const refreshSession = jest.fn(async () => ({
+    error: { name: 'AuthSessionMissingError', status: 400, message: 'Auth session missing!' },
+  }));
+  withRefresh(refreshSession);
+  fakeSupabase.setAnonymousDisabled(false);
+
+  const retried = await retrySession();
+
+  // Treating that as a rejection would replace the one message naming the
+  // actual misconfiguration with "this device is signed out".
+  expect(refreshSession).not.toHaveBeenCalled();
+  expect(retried.status).toBe('ready');
+});
+
+it('does re-test the token when there was one', async () => {
+  await signedIn();
+  reportAuthFailure();
+
+  const refreshSession = jest.fn(async () => ({ error: null }));
+  withRefresh(refreshSession);
+
+  await retrySession();
+  expect(refreshSession).toHaveBeenCalled();
+});
+
+it('puts the refresh timer back on the way out of the banner', async () => {
+  startAutoRefresh();
+  await signedIn();
+
+  reportAuthFailure();
+  expect(fakeSupabase.calls.map((c) => c.method)).toContain('auth.stopAutoRefresh');
+
+  const before = fakeSupabase.calls.filter((c) => c.method === 'auth.startAutoRefresh').length;
+  await retrySession();
+
+  // The store only starts it on mount and on foreground, and the user is
+  // looking at the screen when they tap — so without this the recovered session
+  // runs with no proactive refresh, which is how it died the first time.
+  const after = fakeSupabase.calls.filter((c) => c.method === 'auth.startAutoRefresh').length;
+  expect(after).toBeGreaterThan(before);
+});
+
+it('a foreground landing mid sign-out does not resurrect the session', async () => {
+  await signedIn();
+
+  let release: () => void = () => {};
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  const real = getSupabase() as unknown as { auth: Record<string, unknown> };
+  const realSignOut = real.auth.signOut as () => Promise<unknown>;
+  jest.spyOn(supabaseModule, 'getSupabase').mockReturnValue({
+    ...real,
+    auth: {
+      ...real.auth,
+      signOut: async () => {
+        await gate;
+        return realSignOut.call(real.auth);
+      },
+    },
+  } as unknown as ReturnType<typeof supabaseModule.getSupabase>);
+
+  const out = signOutEverywhere();
+  // The AppState listener fires on every foreground, including this instant.
+  // Signing in here would read back the session being destroyed, and the
+  // SIGNED_OUT still in flight would then condemn it — so "Start over" would
+  // hand the user straight back to the banner it was meant to clear.
+  expect((await ensureSession()).status).toBe('off');
+
+  release();
+  await out;
+  expect(currentUserId()).toBeNull();
+  expect((await ensureSession()).status).toBe('ready');
 });
 
 it('signing out clears the latch, so the next sign-in is allowed to work', async () => {

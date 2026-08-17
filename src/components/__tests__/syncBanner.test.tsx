@@ -84,6 +84,7 @@ it('confirms before minting a new identity rather than doing it on one tap', () 
   // this goes through — nothing else holds its id. So it asks, in those words.
   expect(alert).toHaveBeenCalled();
   expect(String(alert.mock.calls[0][1])).toMatch(/unreachable/);
+  expect(String(alert.mock.calls[0][1])).toMatch(/nothing written before now will reach the server/);
   alert.mockRestore();
 });
 
