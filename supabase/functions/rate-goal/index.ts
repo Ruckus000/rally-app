@@ -27,6 +27,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { clampPoints, isCategory } from '../_shared/points.ts';
 import { RUBRIC, SCREENING, complete } from '../_shared/llm.ts';
+import { cacheable, screeningVerdict } from '../_shared/verdict.mjs';
 
 /** Matches the composer: 8 is short enough to be nothing, 50 is the feed's ceiling. */
 const TITLE_MIN = 8;
@@ -140,16 +141,16 @@ Deno.serve(async (req) => {
     }),
   ]);
 
-  // A screening call that did not come back is not a block. Failing closed here
-  // would mean a slow model silently refusing to let anyone write anything
-  // down, which is a far worse failure than the one it would be guarding
-  // against.
-  const verdict = screened?.harmful === true ? 'blocked' : 'ok';
+  // A screening call that did not come back is not a block; one the model
+  // *declined* is. `verdict.mjs` holds that distinction, and holds it in a file
+  // the unit suite can import — the two cases resolve opposite ways and neither
+  // is reachable from a test that can only talk to this handler over HTTP.
+  const { verdict, reason } = screeningVerdict(screened);
+
   // A blocked goal has no price — it cannot be staked — but the field still
   // carries a real number so a client that ignores the verdict cannot end up
   // rendering a zero or a NaN on the button.
-  const points = clampPoints(priced?.points, cat);
-  const reason = verdict === 'blocked' ? String(screened?.reason ?? '').slice(0, 160) : '';
+  const points = clampPoints(priced.status === 'ok' ? priced.value.points : undefined, cat);
 
   // Answer with whatever came back, but only remember a *complete* answer.
   //
@@ -159,7 +160,7 @@ Deno.serve(async (req) => {
   // the cache, because the cache is permanent: one timed-out pricing call would
   // otherwise freeze that goal at its category price for every user who ever
   // types it, long after the model came back.
-  if (!priced || !screened) return json({ verdict, points, reason });
+  if (!cacheable(priced, screened)) return json({ verdict, points, reason });
 
   // Best-effort. A failed write costs the caller nothing — it has its rating
   // already, and the next request simply asks again.

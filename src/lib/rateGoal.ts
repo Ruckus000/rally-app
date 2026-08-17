@@ -7,13 +7,23 @@
  * The composer is the only caller, and a composer that can throw while you type
  * is worse than a composer that occasionally shows an old number.
  *
- * The timeout is longer than the function's own 2s ceiling on the model call,
+ * The timeout is longer than the function's own 4s ceiling on the model call,
  * so an abort here means the network went away rather than the model being
  * slow — the function would have answered with a fallback in that case.
  */
 import { getSupabase, hasSupabaseConfig } from './supabase';
 
-const TIMEOUT_MS = 2500;
+/**
+ * Both halves of this budget moved when the model became a hosted one.
+ *
+ * Measured, Gemini answers in 1.3–2.2s where a local Ollama was quicker, and
+ * the function spends a little more on its own round trips either side. At the
+ * old 2.5s a slow-but-successful rating was routinely thrown away here after
+ * being paid for — the worst of both. Nothing blocks on this: the composer
+ * shows the fallback price immediately and sharpens it when the answer lands,
+ * so a longer ceiling costs patience nobody is spending.
+ */
+const TIMEOUT_MS = 5000;
 
 export type Rating = {
   verdict: 'ok' | 'blocked';

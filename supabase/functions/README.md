@@ -82,6 +82,69 @@ devices"}`. With a made-up token registered it answers
 `DeviceNotRegistered` and the function deletes the row, which is the pruning
 path doing its job. Both were exercised this way before it ever shipped.
 
+## `rate-goal` — what a goal is worth, and whether it is safe to stake
+
+`POST { title, cat } -> { verdict, points, reason }`, behind `verify_jwt`. Two
+prompts run in parallel: `rubric.mjs` prices, `screening.mjs` judges harm. A
+cache keyed on the title hash means a repeated goal costs one indexed lookup and
+no model call, and a per-user daily cap keeps one client's debounce loop out of
+everybody else's queue.
+
+**Every failure path returns 200 with a usable price.** The composer shows the
+category price immediately and sharpens it when the answer lands, so nothing a
+model does can stop somebody writing down their week.
+
+### The one distinction worth understanding
+
+A screening call that **did not arrive** — timeout, 429, no network — says
+nothing about the goal and resolves `ok`. Failing closed there would mean a slow
+model quietly refusing to let anyone write anything down.
+
+A screening call the model **declined** is different. Gemini's safety filters
+block the response itself: a 200, a `finishReason`, and no content. The goals
+that trigger it are exactly the ones `screening.mjs` exists to catch, so a
+refusal resolves `blocked`.
+
+Both used to arrive as `null`, which meant a refusal failed open on precisely
+the goals that must not. `_shared/verdict.mjs` holds that decision now, in a
+`.mjs` both Deno and Node import, and `src/lib/__tests__/screeningVerdict.test.ts`
+pins the pair.
+
+### Deploying
+
+```bash
+npx supabase functions deploy rate-goal
+npx supabase secrets set GEMINI_API_KEY=<from https://aistudio.google.com/apikey>
+```
+
+`LLM_MODEL` and `LLM_BASE_URL` are optional overrides. The default is
+`gemini-3.5-flash-lite` — **not** `gemini-3.5-flash`, whose free tier is twenty
+requests a *day*. With no key the function logs an error and prices everything
+by category, which is the same fallback as an outage.
+
+### Running it locally
+
+```bash
+npx supabase functions serve --env-file supabase/functions/.env.local
+```
+
+with `GEMINI_API_KEY=` in that file. `.env*.local` is gitignored.
+
+To exercise the refusal and outage paths without waiting for a real refusal,
+point `LLM_BASE_URL` at a stub in the same file and have it answer:
+
+| To simulate | Stub responds |
+| --- | --- |
+| an answer | `200 {"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"{\"points\":40}"}]}}]}` |
+| a refusal | `200 {"candidates":[{"finishReason":"SAFETY","content":{"parts":[]}}]}` |
+| an outage | any non-2xx |
+
+Driven that way through the real edge runtime, the three answer `ok` (cached),
+`blocked` (not cached), and `ok` (not cached) respectively. Only a complete
+answer is ever written to `goal_ratings` — the cache is permanent and shared, so
+one timed-out call written there would freeze a goal at its category price for
+everybody who ever types it.
+
 ## What cannot be tested without hardware
 
 The last hop. Expo hands the message to APNs, and APNs delivers to a real

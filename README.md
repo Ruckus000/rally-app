@@ -119,18 +119,24 @@ Two prompts, not one: `supabase/functions/_shared/rubric.mjs` prices a goal and 
 
 ### Reaching a model
 
-The two runtimes are on **different models right now**, and it is worth stating plainly rather than discovering.
+Both runtimes call **Gemini**, through the same two prompts and the same clamp: `scripts/lib/llm.mjs` for the authoring scripts, `supabase/functions/_shared/llm.ts` for the composer. A bot goal and a goal you type are priced by the same thing, which is the only definition of parity that means anything.
 
-The authoring scripts (`scripts/lib/llm.mjs`) call **Gemini**, because the Ollama box the edge function assumes was never stood up, and a rubric that always falls back to the category price is not a rubric. The edge function (`supabase/functions/_shared/llm.ts`) still points at Ollama and is **not deployed**, so every goal a user types falls back to its category price and the composer never blocks — the verified fallback path, not a failure.
+It used to be a self-hosted Ollama, which is the shape Supabase documents — [the built-in AI API hosts embeddings, and anything larger is expected to be a box you run](https://supabase.com/docs/guides/functions/ai-models). Neither Supabase nor Vercel will run a model for you; [Vercel has no GPUs](https://vercel.com/blog/ai-gateway), and its AI Gateway is a router in front of other people's models. That box was never stood up, so every goal fell back to its category price — and a rubric that never runs is not a rubric. A hosted API is the way round it.
 
-So parity is broken, but not in a way anyone can currently observe: nothing is pricing user goals at all. Moving the edge function to Gemini closes it, and until then do not read a bot's points as a promise about what the composer would charge.
+**Not answering has two meanings, and they resolve opposite ways.** A call that never arrived — timeout, 429, no network — says nothing about a goal, and resolves `ok`; failing closed there would mean a model having a bad day quietly stopping anybody writing anything down. A call the model *declined* is the safety filter firing on exactly the goals screening exists to catch, and resolves `blocked`. Both used to arrive as `null`. See `supabase/functions/_shared/verdict.mjs`, and `screeningVerdict.test.ts` which pins the pair.
 
-Supabase documents the self-hosted shape for language models in an edge function — [the built-in AI API hosts embeddings, and anything larger is expected to be a self-managed Ollama or Llamafile server](https://supabase.com/docs/guides/functions/ai-models). Neither Supabase nor Vercel will run a model for you — [Vercel has no GPUs](https://vercel.com/blog/ai-gateway), and its AI Gateway is a router in front of other people's models. A hosted API is the way round that.
+The key goes in two places, because the two runtimes read their environment differently. Get one from [AI Studio](https://aistudio.google.com/apikey), then:
 
 ```bash
-# Get a key from https://aistudio.google.com/apikey, then put it in .env:
+# For the authoring scripts — in .env, which is gitignored. No EXPO_PUBLIC_
+# prefix, deliberately: that prefix is what would bake it into the app bundle.
 GEMINI_API_KEY=…
+
+# For the composer's edge function — Supabase's own secret store, not a file.
+npx supabase secrets set GEMINI_API_KEY=…
 ```
+
+**`rate-goal` is not deployed yet.** Until `npx supabase functions deploy rate-goal` runs with that secret set, the composer prices every goal by its category — which is the same fallback an outage produces, and is why nothing breaks in the meantime. `supabase/functions/README.md` has the rest.
 
 `LLM_MODEL` overrides the model, `LLM_BASE_URL` the endpoint. **Free-tier quotas are per-model and per-day, and small.** `gemini-3.5-flash` allows twenty requests a *day* — one drafting run does not finish. The default is `gemini-3.5-flash-lite`, whose allowance is far larger; the client waits out per-minute limits automatically and tells you when the daily one is spent.
 
