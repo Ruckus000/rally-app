@@ -127,42 +127,22 @@ describe('week_rollups visibility', () => {
   });
 });
 
-describe('week_rollups are not client-writable', () => {
-  // A rollup is written server-side when a week closes (phase 5). If a client
-  // could author one it could mint its own points and streaks, so the absence
-  // of any insert/update/delete policy is the feature under test here.
-  it('refuses an insert even of your own row', async () => {
-    const { error } = await asUser('maya')
-      .from('week_rollups')
-      .insert({ profile_id: idOf('maya'), week_start: WEEK, points: 999 });
-
-    expect(error?.code).toBe('42501');
-  });
-
-  it('refuses an update of your own row loudly, not silently', async () => {
-    await seedRollup('maya', WEEK, { points: 42 });
-
-    const { error } = await asUser('maya')
-      .from('week_rollups')
-      .update({ points: 999 })
-      .eq('profile_id', idOf('maya'));
-
-    // Not the usual silent no-op: `authenticated` holds only SELECT on this
-    // table, so the grant refuses the statement before RLS is ever consulted.
-    expect(error?.code).toBe('42501');
-  });
-
-  it('refuses a delete of your own row', async () => {
-    await seedRollup('maya', WEEK);
-
-    const { error } = await asUser('maya')
-      .from('week_rollups')
-      .delete()
-      .eq('profile_id', idOf('maya'));
-
-    expect(error?.code).toBe('42501');
-  });
-});
+/**
+ * The write side of `week_rollups` moved, and so did its tests.
+ *
+ * This block used to assert that a client could not insert one at all, on the
+ * reasoning that "if a client could author one it could mint its own points and
+ * streaks". Wave D grants insert — a rollover happens in the reducer, so no
+ * trigger can see a week close, and history that never reaches the server cannot
+ * come back on a reinstall.
+ *
+ * The objection was answered rather than dropped: a client could already mint
+ * points, because `tasks.points` is client-written and bounded only by
+ * `>= 0`. See `20260818150000_write_your_own_rollups.sql`, which says so at
+ * length, and `week_rollups.test.ts`, which now owns every assertion about who
+ * may write one — including the two that did not change, that an update and a
+ * delete are both still refused.
+ */
 
 // ─── notifications ─────────────────────────────────────────────────────────
 

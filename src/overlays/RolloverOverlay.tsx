@@ -10,6 +10,9 @@ import React, { useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { color, gutter, radius, shadows } from '../theme/tokens';
 import { useStore } from '../state/store';
+import { closingWeek } from '../state/selectors';
+import { queueRollup } from '../sync/engine';
+import { mondayOf } from '../sync/mappers';
 import { Icon } from '../components/Icon';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
 import { Overlay } from './Overlay';
@@ -178,7 +181,14 @@ export function RolloverOverlay({
         }}
       >
         <Tap
-          onPress={() => dispatch({ type: 'COMMIT_ROLLOVER', carryIds: carry })}
+          onPress={() => {
+            // Queued in the same tick as the dispatch, the way a rename is —
+            // see `queueRollup` for why this is not derived from state. The
+            // numbers come from the same function the reducer uses, so the week
+            // on the server and the week in `history` cannot disagree.
+            queueRollup({ weekStart: mondayOf(state.week), ...closingWeek(state.myTasks) });
+            dispatch({ type: 'COMMIT_ROLLOVER', carryIds: carry });
+          }}
           accessibilityLabel={`Start ${to.label}`}
           style={{
             minHeight: 54,

@@ -435,6 +435,25 @@ export const weekLevel = (done: number, total: number): number => {
 /** A week holds the streak if you closed at least one stake. */
 export const weekHeldStreak = (done: number) => done > 0;
 
+/**
+ * How a closed week describes itself: the line under the number, and whether it
+ * reads as quiet.
+ *
+ * Extracted because it now has two callers that must not drift. `COMMIT_ROLLOVER`
+ * writes it when a week closes on this device, and `rowToHistoryWeek` writes it
+ * again when the same week comes back from the server on a reinstall — and a
+ * week that read "5 of 6 done" before would then read something else after,
+ * which is the kind of difference nobody notices until they are staring at it.
+ *
+ * Lives beside `weekLevel` because that is already a real rule in this file. If a
+ * third arrives, the three should move out together: this file is documented as
+ * fixtures rather than spec, and the rules have been quietly outgrowing that.
+ */
+export const weekSummary = (done: number, total: number): { sub: string; quiet: boolean } => ({
+  sub: total ? `${done} of ${total} done` : 'nothing staked',
+  quiet: done === 0,
+});
+
 export const WEEK_HISTORY: Record<number, HistoryWeek> = {
   32: {
     n: 32,
