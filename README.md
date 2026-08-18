@@ -32,7 +32,7 @@ npm run typecheck
 npm run lint
 ```
 
-`npm test` is the unit suite — four files covering reducer rules, selector maths, persistence round-trips, and render tests that drive the real screens through the store. It runs in a few seconds and needs nothing installed beyond `npm install`. There is a second suite, `npm run test:integration`, which talks to a real local Postgres and needs Docker; it is deliberately kept out of `npm test` so a contributor without Docker is never blocked. See [TESTING.md](TESTING.md) for both. TypeScript runs in strict mode, and CI runs typecheck, lint and the unit suite on every push — not the integration suite, which would need a database stood up in the runner.
+`npm test` is the unit suite — 38 files and 682 tests covering reducer rules, selector maths, persistence round-trips, the sync engine and its outbox, and render tests that drive the real screens through the store. It runs in a few seconds and needs nothing installed beyond `npm install`. There is a second suite, `npm run test:integration`, which talks to a real local Postgres and needs Docker; it is deliberately kept out of `npm test` so a contributor without Docker is never blocked. See [TESTING.md](TESTING.md) for both. TypeScript runs in strict mode. CI runs typecheck, lint and the unit suite in one job, plus the integration suite in a second that stands the local stack up on the runner — expect 4–7 minutes for that one, almost all of it the Docker image pull. Both fire on pushes to `main` and on every pull request; a feature branch with no PR open is not checked by anything.
 
 ## Layout
 
@@ -42,7 +42,9 @@ npm run lint
 | `src/theme/motion.ts` | The four keyframes as RN easings, plus the `prefers-reduced-motion` hook every animated component checks. |
 | `src/data/week.ts` | Week context and ISO week maths. `liveWeek()` for the real clock, `FIXTURE_WEEK` for tests. |
 | `src/data/seed.ts` | Which fixtures an account gets: the demo, or nothing. |
-| `supabase/`, `docs/backend.md` | Schema, migrations, seed data and sync design. Applied and verified, but not wired to anything — see the note at the top of the doc. |
+| `supabase/`, `docs/backend.md` | Schema, migrations, seed data, the two edge functions, and the sync design. Applied to the hosted project and verified. |
+| `src/sync/` | The session, the outbox, the transport, reconciliation and realtime — everything between the reducer and the server. |
+| `src/lib/supabase.ts` | The client, built lazily on first use so the local account modes never open one. |
 | `integration/` | Tests that run against a real local Postgres — `rls/` covers every policy and write path. Needs Docker, so it is a separate suite. |
 | `jest.config.js` | Two Jest projects, `unit` and `integration`, because they need different presets and only one of them can run without Docker. |
 | `src/data/fixtures.ts` | Mock people, tasks, moments, history, notifications. Explicitly not spec. |
@@ -170,10 +172,14 @@ iOS data protection is deliberately left at its default. Raising it needs the `c
 
 **Reset app data** at the bottom of Me offers *Fresh start* (empty account) or *Reload demo*, so both states are reachable without reinstalling.
 
-## A schema, but no backend in the app
+## The backend, and what still is not on it
 
-State lives on device only. Nothing in `src/` makes a network call, and the app runs exactly as it did before — offline, instantly, with AsyncStorage as its only store.
+The reducer is still the source of truth and every tap still lands instantly. What changed is that the state now also goes somewhere: `src/sync/` holds a session, an outbox, a transport, a reconciler and a realtime subscription, and the app talks to the Supabase project the schema was applied to.
 
-What now exists alongside it is a Supabase schema: ten tables with row-level security on every one of them, the policies that decide who can see whose tasks, and a local development stack you can bring up with `npm run db:start`. It has been applied to a real project and checked (`docs/backend.md` records what was verified), and `integration/` tests the policies against a live database. None of that is reachable from the app: there is no client, no session, no sync layer.
+**Three account modes, and only one of them has a network.** `fresh` and `seeded` are the local accounts onboarding offers — they make **zero** network calls, ever, which is why `src/lib/supabase.ts` builds its client lazily rather than at import. `live` signs in anonymously (`supabase.auth.signInAnonymously`) and syncs.
 
-The reducer's shape is what the schema was drawn from — week-scoped task CRUD with audience and pairing, a cheer ledger keyed by actor, threaded notes per task and per person, a per-week rollup, a ranked circle, and a tiered notification service with batching. Getting the storage right first is the cheap half; the wiring is the half that can spoil how the app feels, and it has not been started.
+**Up** is an outbox of seven operations — `task.upsert`, `task.delete`, `reaction.add`, `reaction.remove`, `note.add`, `profile.update`, `device.register` — queued from observed state changes, retried with backoff, and stamped with the project they belong to so one project's queue can never drain into another. **Down** is a pull of your circle, the Oz bots, the circle you are in, your notifications, your week, your circle's and the bots' weeks, reactions and notes, folded in by `reconcile.ts` and re-triggered by realtime.
+
+Phases 1 through 4 of the plan in [`docs/backend.md`](docs/backend.md) are done, and the push half of phase 5 is: `device_tokens`, a `push_on_notification` trigger and a deployed `push` edge function that a cheer reaches a closed phone through.
+
+**What is still local, and is the thing to know.** Nothing writes `week_rollups`. Your history, your running totals and week rollover are computed on the device and persisted only to AsyncStorage — see the note at `src/sync/mappers.ts`, which counts the rows it already has rather than reading a rollup nothing produces. Combined with anonymous auth, that has a consequence worth being explicit about: **there is no way back into an account.** Delete the app, or change phones, and the session, the history and the totals are all gone. Sign-in with Apple and Google are the cure and are stubbed on the Welcome screen as "coming soon"; until they exist, this is a build for people who will not need their account tomorrow.
