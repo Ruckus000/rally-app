@@ -24,12 +24,16 @@ const fileFlag = process.argv.find((a) => a.startsWith('--file='));
 /**
  * A goal per line. `Title | Category` if you want to fix the category; bare
  * titles are rated as Fitness, which only matters as context for the model.
+ *
+ * Blank lines and `#` comments are skipped, and anything after the category is
+ * ignored — which is what lets `scripts/fixtures/goal-eval.txt` be read both by
+ * this script and by the scorer that also reads its expected columns.
  */
 const lines = fileFlag
   ? readFileSync(fileFlag.slice('--file='.length), 'utf8')
       .split('\n')
       .map((l) => l.trim())
-      .filter(Boolean)
+      .filter((l) => l && !l.startsWith('#'))
   : args;
 
 if (!lines.length) {
@@ -47,9 +51,15 @@ console.log(`Rating ${lines.length} goal${lines.length === 1 ? '' : 's'}.\n`);
 for (const line of lines) {
   const [title, cat = 'Fitness'] = line.split('|').map((s) => s.trim());
   try {
-    const { points, harmful, reason } = await rateGoal({ title, category: cat });
-    console.log(`${String(points).padStart(3)}  ${title}${harmful ? ' BLOCKED' : ''}`);
-    if (harmful) console.log(`     ↳ ${reason}`);
+    const { points, verdict, reason } = await rateGoal({ title, category: cat });
+    const blocked = verdict === 'blocked';
+    // `?` for a goal the model declined to price. Kept in the same column as a
+    // number so a run can be read down the left edge, and distinct from the
+    // `??` above, which is a call that failed rather than one that came back
+    // without an answer.
+    const column = points === null ? '?' : String(points);
+    console.log(`${column.padStart(3)}  ${title}${blocked ? ' BLOCKED' : ''}`);
+    if (blocked) console.log(`     ↳ ${reason}`);
   } catch (err) {
     console.error(`  ??  ${title}\n     ↳ ${err.message}`);
   }

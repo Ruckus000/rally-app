@@ -13,9 +13,12 @@
  * fixtures already assume.
  *
  * Mirrored at `src/lib/points.ts` for the app, which cannot import across the
- * Deno/React Native boundary. `src/lib/__tests__/points.test.ts` asserts the two
- * agree — this repo has one hand-copied constant already (`POINTS` in
- * scripts/seed-bots.mjs) and the comment above it has not been enough.
+ * Deno/React Native boundary, and the band is restated a third time in
+ * `scripts/lib/rate.mjs`, which is a `.mjs` and cannot import a `.ts` at all.
+ * Every one of those copies is held against this file by a test that reads it
+ * off disk — `src/lib/__tests__/points.test.ts` and
+ * `scripts/lib/__tests__/rate.test.ts` — because a comment asking for two
+ * numbers to stay equal is not the same thing as them being equal.
  */
 
 export const POINT_MIN = 10;
@@ -46,7 +49,12 @@ export function isCategory(value: unknown): value is Category {
  */
 export function clampPoints(value: unknown, cat: string): number {
   const fallback = CATEGORY_POINTS[cat] ?? 30;
-  const n = typeof value === 'number' ? value : Number(value);
+  // Numbers, and the numeric strings a model sometimes sends instead. Anything
+  // else is an absent answer rather than a zero — `Number(null)` and `Number('')`
+  // are both 0, which would clamp to the bottom of the band and read as "the
+  // model priced this at almost nothing" when the model said nothing at all.
+  const numeric = typeof value === 'number' || (typeof value === 'string' && value.trim() !== '');
+  const n = numeric ? Number(value) : NaN;
   if (!Number.isFinite(n)) return fallback;
   const snapped = Math.round(n / POINT_STEP) * POINT_STEP;
   return Math.min(POINT_MAX, Math.max(POINT_MIN, snapped));

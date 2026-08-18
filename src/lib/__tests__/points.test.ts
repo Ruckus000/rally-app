@@ -3,12 +3,12 @@
  *
  * `src/lib/points.ts` and `supabase/functions/_shared/points.ts` state the same
  * three numbers in two runtimes that cannot import from each other. That is a
- * copy, and this repo has already learned what happens to copies: the `POINTS`
- * map in scripts/seed-bots.mjs carries a comment explaining that it must match
- * `CATEGORY_POINTS`, which is not the same thing as it matching.
+ * copy, and a copy asked to stay in step by a comment is a copy that will not.
  *
  * So the parity check reads the other file off disk rather than trusting the
  * comment. It fails on the edit, not months later on a goal priced 62.
+ * `scripts/lib/__tests__/rate.test.ts` does the same for the third copy, the
+ * one in `scripts/lib/rate.mjs`.
  */
 import { readFileSync } from 'fs';
 import { join } from 'path';
