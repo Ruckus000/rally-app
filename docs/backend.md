@@ -1,31 +1,67 @@
 # Backend design
 
-> **The schema exists; the app does not use it.** The migration has been
+> **The schema exists and the app uses it.** All fourteen migrations are
 > applied to the Rally project (`zproxpxkxduzgxmzpeqa`, free plan, ca-central-1)
-> and verified — see *Status* below. But there is still no client code, no
-> `@supabase/supabase-js` dependency and no network call anywhere in the app.
-> Everything below the *Status* section is design, not working software.
+> and verified — see *Status* below. `src/sync/` is the client this document
+> describes: a session, an outbox, a transport, reconciliation and realtime.
+> Phases 1 to 4 of *Phasing* are built, and so is the push half of phase 5.
+> What is **not** built is the rollup half — nothing writes `week_rollups`, so
+> history, running totals and week rollover are still computed on the device.
 
-The app is complete and entirely local. This describes what a server would look
-like and, more importantly, how to add one **without losing what makes the app
-feel good** — every tap lands instantly and it works with no network.
+This describes how the server was added **without losing what makes the app
+feel good** — every tap lands instantly and it works with no network. The
+reducer is still the source of truth; the server is a sync target. Two of the
+three account modes (`fresh` and `seeded`) make no network call at all.
 
 ## Status
 
-Applied 2026-08-10 with `supabase db push`, then checked:
+First applied 2026-08-10 with `supabase db push`. Re-counted against the hosted
+project on 2026-08-18, after all fourteen migrations:
 
 | Check | Result |
 |---|---|
-| Tables in `public` | 10 |
-| Tables with RLS enabled | 10 |
-| Policies | 23 |
+| Tables in `public` | 14 |
+| Tables with RLS enabled | 14 |
+| Policies | 24 |
 | Enums | 5 |
-| `private` helpers | 4, none executable by `anon` or `authenticated` |
-| `supabase db advisors --type all` | no security finding against this schema |
+| `private` helpers | 10 |
+| `supabase db advisors --type all` | see *What the advisors say* below |
+
+Four of those tables — `device_tokens`, `goal_ratings`, `llm_usage` and
+`bot_goal_candidates` — carry RLS with **no policy at all**, which is the
+deny-everything default and is deliberate. Two different things write them, and
+neither is a client: the edge functions, which hold the service-role key and so
+bypass RLS as `service_role`; and `SECURITY DEFINER` RPCs such as
+`register_device`, which hold no key at all and bypass RLS by executing as the
+function's owner, each one deriving its actor from `auth.uid()` rather than
+trusting an argument. No client has any business reading these tables. The advisor reports each as an INFO, and each is
+answered by that sentence.
 
 Probed from the `anon` role with the publishable key: `select` on `tasks`
 returns `[]`, `insert` is refused with `42501 new row violates row-level
 security policy`, and `private.can_see_task` is not reachable over REST.
+
+**One correction to what this page used to claim.** It said the `private`
+helpers were "none executable by `anon` or `authenticated`". That is not true of
+`authenticated`, which holds `USAGE` on the `private` schema and `EXECUTE` on
+eight of the ten functions in it — the default `PUBLIC` grant, never revoked.
+What keeps them out of reach is one layer further out: `private` is not in
+PostgREST's exposed schemas, so there is no `/rest/v1/rpc/` route to any of
+them, which is what the probe above actually established. The functions are
+each scoped to `auth.uid()` regardless, so the grant buys a caller nothing even
+if a route to it ever appeared. Worth revoking anyway, as the belt to that
+brace — it is defence in depth that was described as already done.
+
+## What the advisors say
+
+Every current finding, and why it stands:
+
+| Finding | Level | Why it is there |
+|---|---|---|
+| `rls_enabled_no_policy` ×4 | INFO | The four server-only tables above. Deny-everything is the intent. |
+| `authenticated_security_definer_function_executable` ×4 | WARN | `create_circle`, `join_circle_by_code`, `register_device`, `unregister_device`. This is the RPC surface — `authenticated` calling them is the whole point, and each scopes its writes to `auth.uid()`. |
+| `auth_allow_anonymous_sign_ins` ×10 | WARN | Every account in the app **is** an anonymous sign-in. The advisor is flagging the design, not a slip. |
+| `auth_leaked_password_protection` | WARN | There are no passwords. Nothing to protect. |
 
 Two advisor WARNs once pointed at `public.rls_auto_enable()`, the event trigger
 function that auto-enables RLS on new tables. It was described here as a
@@ -37,9 +73,10 @@ put it under review for the first time. Not exploitable either way: it returns
 `event_trigger`, so calling it over REST fails with *"cannot display a value of
 type event_trigger"* before it can do anything.
 
-The performance INFOs are all `unused_index` and `unindexed_foreign_keys` on an
-empty database — meaningless until there is traffic, so nothing has been
-changed in response to them.
+The performance INFOs are all `unused_index` and `unindexed_foreign_keys` on a
+near-empty database — meaningless until there is traffic, so nothing has been
+changed in response to them. They become worth re-reading after the first week
+of real use, not before.
 
 **What this does not prove.** Every policy above was exercised as `anon`
 against empty tables, which is why this page once said the audience model would
@@ -48,9 +85,12 @@ only be genuinely tested "once two real signed-in users exist, which is phase 1"
 That gap has since been closed by `integration/`, not by phase 1.
 `rls/tasks.test.ts` signs in as real seeded users and covers every branch of
 `tasks_select` — `friends`, `everyone`, `private`, and a `private` task a second
-user is paired on — with real JWTs rather than the `anon` key. What phase 1 is
-still for is everything a test cannot stand in for: two people on two devices,
-on a network, over a week.
+user is paired on — with real JWTs rather than the `anon` key.
+
+What is *still* outstanding is neither of those: it is everything no test can
+stand in for — **two people, two devices, a real network, a whole week.** Phase
+1 shipped; that test has not been run. It is the last unticked box before
+anyone outside this repo is handed a build.
 
 ## The decision that matters: local-first
 
@@ -140,23 +180,39 @@ Supabase docs:
 
 Each phase leaves the app working.
 
-1. **Auth and profiles.** Replace the hardcoded `ME` with a real session.
+1. ✅ **Auth and profiles.** Replace the hardcoded `ME` with a real session.
    Everything else stays local. This is where the app stops being single-user
-   and is the biggest behavioural change.
-2. **Tasks up.** The outbox, one table, one direction. Proves the pipe with
-   the least surface.
-3. **Tasks down, and the circle.** Reconciliation and real membership. The
-   Circle screen stops reading fixtures.
-4. **Reactions and notes.** Realtime becomes worth having here — a cheer
-   landing on someone's phone is the product's whole thesis.
-5. **Rollups and notifications.** Rollover moves server-side; push arrives,
+   and is the biggest behavioural change. *Anonymous sign-in, in
+   `src/sync/session.ts`.*
+2. ✅ **Tasks up.** The outbox, one table, one direction. Proves the pipe with
+   the least surface. *`src/sync/outbox.ts`, `task.upsert` and `task.delete`.*
+3. ✅ **Tasks down, and the circle.** Reconciliation and real membership. The
+   Circle screen stops reading fixtures. *`reconcile.ts`; `pullCircle` and
+   `pullMyCircle` in `transport.ts`.*
+4. ✅ **Reactions and notes.** Realtime becomes worth having here — a cheer
+   landing on someone's phone is the product's whole thesis. *`realtime.ts`,
+   plus `reaction.add` / `reaction.remove` / `note.add`.*
+5. ◐ **Rollups and notifications.** Rollover moves server-side; push arrives,
    which needs the paid Apple programme.
+   - **Push: built.** `device_tokens`, the `push_on_notification` trigger, and
+     the deployed `push` edge function. Untestable on a simulator — a physical
+     device is the only way to see it work.
+   - **Rollups: not built.** Nothing writes `week_rollups`. `mappers.ts` counts
+     the rows it already holds instead, which is cheaper and current. The
+     consequence is that history, running totals and rollover live on one
+     device and nowhere else — see the caveat in the README about there being
+     no way back into an account.
 
 ## Open questions this design does not settle
 
-- **Auth method.** Email OTP works without an Apple developer account; Sign in
-  with Apple needs the paid programme and is effectively required by the App
-  Store once any social login exists.
+- **Auth method.** Settled provisionally, and it is the largest open risk in
+  the build: every account is an **anonymous** sign-in. That needs no Apple
+  developer account and asks a new user for nothing, which is why it was
+  right for getting the sync layer working — but it has no recovery path.
+  Delete the app and the account is unreachable forever. Email OTP works
+  without a paid membership; Sign in with Apple needs the paid programme and
+  is effectively required by the App Store once any social login exists. The
+  Welcome screen already stubs Apple and Google as "coming soon".
 - **Humans on the global feed.** The feed is scoped to the Oz bots, who are
   openly fictional and readable by everyone. Letting real users' `everyone`
   tasks in implies moderation, reporting and abuse handling — out of scope

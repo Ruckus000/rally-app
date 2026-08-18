@@ -67,7 +67,7 @@ Everything is configured — bundle id `app.rally.weekspine`, scheme set, both n
 3. Plug the phone in, then on the device: **Settings → General → VPN & Device Management** → trust your certificate.
 4. `npm run ios:dev -- --device`
 
-With a **free Apple ID** the build expires after seven days and needs re-signing; you also can't have push notifications or Sign in with Apple. With the **paid programme** ($99/yr) the build lasts a year, and push becomes possible — which is what the handoff's notification tiers ultimately want, though that also needs `expo-notifications` and an APNs key, neither of which is set up.
+With a **free Apple ID** the build expires after seven days and needs re-signing; you also can't have push notifications or Sign in with Apple. With the **paid programme** ($99/yr) the build lasts a year, and push becomes possible. Everything on this side of that is built: `expo-notifications` is configured in `app.json`, `src/lib/push.ts` mints the token, `device_tokens` stores it, and the `push_on_notification` trigger carries a notification row to the deployed `push` edge function. **Test it with a cheer from a real person**, not a bot: `20260817112928_bot_cheers_do_not_push` writes the row and rings the bell for an Oz bot's cheer but deliberately skips the last hop, so a bot cheer is the one case that correctly produces no buzz. What is missing is the APNs key, which the paid programme is a prerequisite for. **A simulator can never receive a remote push**, so none of that chain can be seen working until it runs on a plugged-in phone.
 
 Android needs none of this: the release APK from `npm run android:build` sideloads onto any device with developer mode on.
 
@@ -108,7 +108,7 @@ npm run typecheck
 npm run lint
 ```
 
-`npm test` is the unit suite and takes about six seconds: reducer rules, selector maths, persistence round-trips, and render tests that drive the real screens (tap a checkbox, assert the count moves). Supabase is mocked there, so it needs no Docker and no database. `tsc` runs in strict mode; CI runs typecheck, lint and this suite.
+`npm test` is the unit suite — 38 files, 682 tests, a few seconds: reducer rules, selector maths, persistence round-trips, the sync engine and its outbox, and render tests that drive the real screens (tap a checkbox, assert the count moves). Supabase is mocked there, so it needs no Docker and no database. `tsc` runs in strict mode. CI runs typecheck, lint and this suite in one job, and the integration suite below in a second — on pushes to `main` and on every pull request, so a feature branch with no PR open gets no CI at all.
 
 The database tests are separate:
 
@@ -116,7 +116,7 @@ The database tests are separate:
 npm run test:integration
 ```
 
-That needs Docker running. It starts a local Supabase stack for you if one isn't up, and **reuses one that already is** — which also means it won't stop a stack it didn't start, so a second run begins in seconds rather than a minute. Then it resets the database once, and each test truncates the mutable tables rather than paying for another reset. Everything currently lives in `integration/rls/`, which walks the policies person by person — what maya can see of dre, of sofia, of a stranger — and covers the write paths alongside them: joining a circle by code, pairing on a task, reacting, accepting an invite. `integration/sync/` is empty; it's where the outbox and realtime tests will go once there is a client to test. They run serially on purpose: `aud = 'everyone'` rows are visible to everyone by definition, so parallel workers sharing one database would leak into each other's negative assertions.
+That needs Docker running. It starts a local Supabase stack for you if one isn't up, and **reuses one that already is** — which also means it won't stop a stack it didn't start, so a second run begins in seconds rather than a minute. Then it resets the database once, and each test truncates the mutable tables rather than paying for another reset. Everything currently lives in `integration/rls/`, which walks the policies person by person — what maya can see of dre, of sofia, of a stranger — and covers the write paths alongside them: joining a circle by code, pairing on a task, reacting, accepting an invite. There is still **no** integration coverage of the sync layer itself: `src/sync/` is exercised entirely by unit tests against the fake in `src/__mocks__/@supabase/supabase-js.ts`, which `mock.test.ts` keeps honest by pinning the fake's refusals to the real constraints in `supabase/migrations/`. A fake that agrees with the schema is not the same as the schema, and that gap is deliberate rather than forgotten. They run serially on purpose: `aud = 'everyone'` rows are visible to everyone by definition, so parallel workers sharing one database would leak into each other's negative assertions.
 
 To drive the stack yourself:
 
@@ -128,7 +128,7 @@ npm run db:start
 npm run db:reset
 ```
 
-`db:start` brings the containers up; `db:reset` reapplies both migrations and `supabase/seed.sql`, which is how you get back to a known world after poking at rows by hand.
+`db:start` brings the containers up; `db:reset` reapplies every migration and `supabase/seed.sql`, which is how you get back to a known world after poking at rows by hand.
 
 Rally's local stack uses ports in the **553xx** range rather than Supabase's default 543xx — 55321 for the API, 55322 for Postgres, 55323 for Studio. That's so it can run at the same time as another local Supabase project on the same machine without either of them refusing to start. Nothing reads those numbers from a hardcoded constant; the test harness asks `supabase status` for the real URLs, so changing `supabase/config.toml` is enough.
 
@@ -144,6 +144,9 @@ Driving the app on a second platform and writing render tests each turned up def
 ## Known limits
 
 - **Simulator only.** Running on a physical iPhone needs an Apple developer team for signing, which I can't set up for you. Once you add one in Xcode, `npx expo run:ios --device` will do it.
+- **The two-device test has not been run.** One person, one simulator, is the whole of the testing so far. Two accounts on two devices over a real network — the thing the sync layer exists for — is untested outside `integration/`, and is the last box to tick before handing anyone a build.
+- **No way back into a live account.** A live account is an anonymous sign-in (the demo accounts sign in to nothing at all), and history and totals live only in this device's AsyncStorage. Delete the app and all of it is gone, permanently. Apple and Google sign-in are stubbed as "coming soon" on the Welcome screen; until they land, don't put anything into a build you'd mind losing.
+- **Nothing reports crashes.** There is no Sentry or equivalent, so a crash on someone else's phone is a crash you never hear about.
 - **Android is verified but less exercised.** I built the release APK, walked Join → Plan → Week → Me on a Pixel 9 Pro emulator and fixed the two platform bugs it surfaced (above), but I didn't drive every screen there the way I did on iOS.
 - **The Feed tab stays populated on a fresh account** — it is where a new account lands, and it holds your circle and the public feed in one list, each card labelled Friends or Follow. The public half is the four Oz bots: openly fictional, readable by everyone, and real rows rather than a fixture on a live account. With no circle it closes with a line saying the Follow accounts are not real, and an invite CTA.
 - **Not encrypted at rest** beyond what iOS and Android do themselves. It is kept out of both platforms' backups. See the README for what to do before this holds real content.
