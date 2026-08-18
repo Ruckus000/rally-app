@@ -34,8 +34,9 @@ neither is a client: the edge functions, which hold the service-role key and so
 bypass RLS as `service_role`; and `SECURITY DEFINER` RPCs such as
 `register_device`, which hold no key at all and bypass RLS by executing as the
 function's owner, each one deriving its actor from `auth.uid()` rather than
-trusting an argument. No client has any business reading these tables. The advisor reports each as an INFO, and each is
-answered by that sentence.
+trusting an argument. No client has any business reading these tables. The
+advisor reports each of the four as an INFO, and this paragraph is the answer
+to all of them.
 
 Probed from the `anon` role with the publishable key: `select` on `tasks`
 returns `[]`, `insert` is refused with `42501 new row violates row-level
