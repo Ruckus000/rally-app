@@ -222,14 +222,27 @@ Each phase leaves the app working.
 
 ## Open questions this design does not settle
 
-- **Auth method.** Settled provisionally, and it is the largest open risk in
-  the build: every account is an **anonymous** sign-in. That needs no Apple
-  developer account and asks a new user for nothing, which is why it was
-  right for getting the sync layer working — but it has no recovery path.
-  Delete the app and the account is unreachable forever. Email OTP works
-  without a paid membership; Sign in with Apple needs the paid programme and
-  is effectively required by the App Store once any social login exists. The
-  Welcome screen already stubs Apple and Google as "coming soon".
+- **Auth method.** Half settled. Every account still *starts* as an anonymous
+  sign-in, which asks a new user for nothing and is why it was right for
+  getting the sync layer working. Wave D adds the way out on iOS: Me attaches
+  an Apple identity with `linkIdentity` and a native id token, keeping the same
+  user id, and the Welcome screen signs that account back in on a fresh
+  install. **Android is still unreachable** — `expo-apple-authentication` is
+  iOS-only, so Google is the outstanding half. Email OTP remains an option and
+  is not built; Sign in with Apple is effectively required by the App Store
+  once any social login exists, which is the other reason it went first.
+- **Manual linking, which linking required.** `enable_manual_linking = true` is
+  now set in `supabase/config.toml` and must be set on the hosted project too.
+  The cost, recorded rather than discovered later: with it on, anyone holding a
+  stolen session can attach *their own* identity to that account and keep it.
+  Proportionate for a beta whose sessions live in AsyncStorage behind the OS's
+  own disk encryption, and worth revisiting before this holds anything a
+  stranger would want.
+- **Two accounts that both hold data.** Linking refuses with
+  `identity_already_exists` when the Apple id belongs to another Rally account,
+  and the app says so rather than merging. Merging is the conflict-resolution
+  case the Supabase docs sketch and leave to the application, and there is no
+  version of it here that does not silently lose one of the two weeks.
 - **Humans on the global feed.** The feed is scoped to the Oz bots, who are
   openly fictional and readable by everyone. Letting real users' `everyone`
   tasks in implies moderation, reporting and abuse handling — out of scope

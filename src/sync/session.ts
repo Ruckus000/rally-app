@@ -9,11 +9,18 @@
  */
 import { getSupabase, hasSupabaseConfig } from '../lib/supabase';
 import { getPushToken } from '../lib/push';
+import { requestAppleIdentity } from '../lib/appleAuth';
 
 export type SessionState =
   | { status: 'off' } // demo mode or no config — never touches the network
   | { status: 'signing-in' }
-  | { status: 'ready'; userId: string }
+  /**
+   * `anonymous` is "this account cannot be got back". It is a fact about the
+   * session rather than a slice of app state, so it lives here and the UI reads
+   * it — a parallel flag in the store would be a second copy of something gotrue
+   * already knows, and the two would disagree the moment a link succeeded.
+   */
+  | { status: 'ready'; userId: string; anonymous: boolean }
   | { status: 'offline' } // tried, no network; retries
   | { status: 'expired' } // the server rejected this token and a refresh did not help
   | { status: 'error'; message: string };
@@ -127,9 +134,23 @@ function watchAuth(): void {
  * looking at the screen, so recovery would otherwise return to a session that
  * never proactively refreshes, which is the state that produced the banner.
  */
-function ready(userId: string): SessionState {
+function ready(userId: string, anonymous: boolean): SessionState {
   startAutoRefresh();
-  return set({ status: 'ready', userId });
+  return set({ status: 'ready', userId, anonymous });
+}
+
+/**
+ * Whether this user has any way back in.
+ *
+ * `is_anonymous` is a real claim on the JWT, which is what makes it the right
+ * thing to read rather than counting `identities`. Absent is treated as
+ * anonymous: the only accounts this app has ever minted are anonymous ones, so
+ * on an older client or a shape we do not recognise, offering to secure an
+ * account that is already secure is a harmless extra row — where hiding it from
+ * an account that is not would leave the person believing they are safe.
+ */
+function isAnonymous(user: { is_anonymous?: boolean } | undefined): boolean {
+  return user?.is_anonymous !== false;
 }
 
 async function resolveSession(): Promise<SessionState> {
@@ -140,13 +161,15 @@ async function resolveSession(): Promise<SessionState> {
     // Reads AsyncStorage, not the network — this is the path that works on a
     // plane, and the reason sign-in is not attempted on every launch.
     const { data, error } = await supabase.auth.getSession();
-    if (!error && data.session) return ready(data.session.user.id);
+    if (!error && data.session) {
+      return ready(data.session.user.id, isAnonymous(data.session.user));
+    }
 
     const signIn = await supabase.auth.signInAnonymously();
     if (signIn.error) throw signIn.error;
     if (!signIn.data.session) return set({ status: 'error', message: 'Sign-in returned no session.' });
 
-    return ready(signIn.data.session.user.id);
+    return ready(signIn.data.session.user.id, isAnonymous(signIn.data.session.user));
   } catch (err) {
     if (isOffline(err)) return set({ status: 'offline' });
     const message = describe(err);
@@ -304,6 +327,125 @@ export async function signOutEverywhere(): Promise<void> {
   } finally {
     signingOut = false;
   }
+}
+
+/**
+ * What the two Apple paths can tell the UI. `ok` needs no copy; the rest each
+ * get one line, and the caller owns the wording.
+ */
+export type AppleResult =
+  | { ok: true }
+  /** The sheet was dismissed. Say nothing at all. */
+  | { ok: false; reason: 'cancelled' }
+  /** Not iOS, or no provider. The button should not have been there. */
+  | { ok: false; reason: 'unavailable' }
+  /** This Apple account already belongs to a different Rally account. */
+  | { ok: false; reason: 'taken' }
+  /** Everything else: no network, misconfigured project, Apple refused. */
+  | { ok: false; reason: 'failed' };
+
+/**
+ * Turn the account on this device into one that can be got back.
+ *
+ * The account **keeps its id**, which is the whole reason this is `linkIdentity`
+ * and not a sign-in: every task, note and circle membership is owned by that
+ * uuid, so linking has to leave it alone. Nothing else in the app moves — no
+ * outbox clear, no realtime teardown, no `selfId` change — and the store's
+ * identity effect stays quiet precisely because there is nothing for it to react
+ * to.
+ *
+ * Only meaningful while signed in and anonymous. Called on an account that is
+ * already linked it would ask Apple for a token nobody needs, so the UI hides the
+ * affordance and this refuses as well rather than trusting it to.
+ */
+export async function linkApple(): Promise<AppleResult> {
+  if (state.status !== 'ready') return { ok: false, reason: 'failed' };
+  if (!state.anonymous) return { ok: true };
+
+  const apple = await requestAppleIdentity();
+  if (!apple.ok) return { ok: false, reason: apple.reason };
+
+  try {
+    const { error } = await getSupabase().auth.linkIdentity({
+      provider: 'apple',
+      // Raw, never the hash. Apple was handed the hash and echoed it into the
+      // token; gotrue hashes this to compare against that claim. See
+      // `src/lib/appleAuth.ts` for why sending the same value to both fails.
+      token: apple.identityToken,
+      nonce: apple.rawNonce,
+    });
+    if (error) return { ok: false, reason: reasonFor(error) };
+  } catch {
+    // Offline and "gotrue threw" both read the same to somebody holding a phone,
+    // and neither leaves the account any less anonymous than it was.
+    return { ok: false, reason: 'failed' };
+  }
+
+  // gotrue has updated the user in place, so re-read rather than assuming: the
+  // banner and the Me row both key off `anonymous`, and guessing it here would
+  // be a third copy of a fact the session already has one home for.
+  const { data } = await getSupabase().auth.getSession();
+  if (data.session) ready(data.session.user.id, isAnonymous(data.session.user));
+  return { ok: true };
+}
+
+/**
+ * Sign in as whoever owns this Apple account — the recovery path.
+ *
+ * Unlike `linkApple` this **changes `selfId`**, and that is the point: the device
+ * has an id of its own (a throwaway anonymous account minted on first launch) and
+ * has to stop using it. The store's `lastSelfId` effect in `store.tsx` clears
+ * the outbox and tears down realtime when it sees the change, which is exactly
+ * right — anything queued under the throwaway id was never going to arrive.
+ */
+export async function signInWithApple(): Promise<AppleResult> {
+  if (!hasSupabaseConfig()) return { ok: false, reason: 'unavailable' };
+
+  const apple = await requestAppleIdentity();
+  if (!apple.ok) return { ok: false, reason: apple.reason };
+
+  try {
+    const { data, error } = await getSupabase().auth.signInWithIdToken({
+      provider: 'apple',
+      token: apple.identityToken,
+      nonce: apple.rawNonce,
+    });
+    if (error) return { ok: false, reason: reasonFor(error) };
+    if (!data.session) return { ok: false, reason: 'failed' };
+
+    /**
+     * `ready` is the whole of it, and deliberately does **not** also clear
+     * `expired` / `fatal`.
+     *
+     * Clearing them was the first version, and mutation testing showed no test
+     * could tell the difference — because `ensureSession` returns early on
+     * `state.status === 'ready'` before it ever consults either latch. So the
+     * assignments were unobservable, and unobservable code that looks like
+     * safety is worse than none: the next reader assumes something depends on it.
+     *
+     * The coupling this leaves behind, named so it is not discovered by accident:
+     * recovery relies on that check order. Move the `expired` check above the
+     * `ready` check in `ensureSession` and this needs the clear back.
+     */
+    ready(data.session.user.id, isAnonymous(data.session.user));
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: 'failed' };
+  }
+}
+
+/**
+ * The one gotrue error worth its own line of copy.
+ *
+ * A taken identity is the only failure here the user can act on — it means they
+ * have two accounts and this Apple id belongs to the other one. Everything else
+ * is ours or the network's, and reads the same to them either way.
+ */
+function reasonFor(error: unknown): 'taken' | 'failed' {
+  if (!error || typeof error !== 'object') return 'failed';
+  const e = error as { code?: string; message?: string };
+  if (e.code === 'identity_already_exists') return 'taken';
+  return 'failed';
 }
 
 export function currentUserId(): string | null {

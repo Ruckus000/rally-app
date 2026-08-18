@@ -14,10 +14,13 @@ import {
   startAutoRefresh,
   currentUserId,
   ensureSession,
+  linkApple,
   reportAuthFailure,
   retrySession,
+  signInWithApple,
   signOutEverywhere,
 } from '../session';
+import { fakeApple } from '../../__mocks__/expo-apple-authentication';
 
 const { getSupabase } = supabaseModule;
 
@@ -29,6 +32,7 @@ beforeEach(() => {
   process.env.EXPO_PUBLIC_SUPABASE_URL = 'http://127.0.0.1:55321';
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
   fakeSupabase.reset();
+  fakeApple.reset();
   __resetSessionForTests();
 });
 
@@ -76,6 +80,10 @@ it('is ignored unless we currently believe we are signed in', async () => {
   await expect(ensureSession()).resolves.toEqual({
     status: 'ready',
     userId: expect.any(String),
+    // A fresh sign-in is anonymous, which is the fact the "Secure this account"
+    // row keys off. Asserted rather than ignored: the whole of Wave D depends on
+    // this being true here and false after a link.
+    anonymous: true,
   });
 });
 
@@ -83,7 +91,7 @@ it('retrying clears the latch and can reach ready again', async () => {
   const me = await signedIn();
   reportAuthFailure();
 
-  await expect(retrySession()).resolves.toEqual({ status: 'ready', userId: me });
+  await expect(retrySession()).resolves.toEqual({ status: 'ready', userId: me, anonymous: true });
   expect(currentUserId()).toBe(me);
 });
 
@@ -245,4 +253,104 @@ it('signing out clears the latch, so the next sign-in is allowed to work', async
 
   const next = await ensureSession();
   expect(next.status).toBe('ready');
+});
+
+/**
+ * Wave D: the two Apple paths, which differ in exactly one way that matters.
+ *
+ * `linkApple` must leave `selfId` alone — every task and membership is owned by
+ * that uuid, so a link that changed it would strand all of it. `signInWithApple`
+ * must change it, because the device's throwaway id is the thing being abandoned.
+ * Those two facts are the whole reason there are two functions, so both are
+ * asserted on the id itself rather than on a status.
+ */
+describe('attaching an Apple identity', () => {
+  it('keeps the same account, and stops calling it anonymous', async () => {
+    const me = await signedIn();
+
+    await expect(linkApple()).resolves.toEqual({ ok: true });
+
+    expect(currentUserId()).toBe(me);
+    expect(await ensureSession()).toEqual({ status: 'ready', userId: me, anonymous: false });
+  });
+
+  it('sends gotrue the raw nonce, not the one Apple was given', async () => {
+    await signedIn();
+    await linkApple();
+
+    const call = fakeSupabase.calls.find((c) => c.method === 'auth.linkIdentity');
+    const body = call?.body as { token?: string; nonce?: string } | undefined;
+
+    // The mock digest is `${algorithm}:${data}`, so a hashed nonce arriving here
+    // would carry that prefix. This is the assertion that stops the two being
+    // swapped — a swap that works locally and fails against real Apple.
+    expect(body?.nonce).not.toMatch(/^SHA-256:/);
+    expect(body?.token).toBe('apple-identity-token');
+  });
+
+  it('says nothing when the sheet is dismissed', async () => {
+    await signedIn();
+    fakeApple.cancels();
+
+    await expect(linkApple()).resolves.toEqual({ ok: false, reason: 'cancelled' });
+    // Still recoverable-not, and still the same account.
+    expect((await ensureSession()).status).toBe('ready');
+  });
+
+  it('reports a taken identity as its own reason, because the user can act on it', async () => {
+    const me = await signedIn();
+    fakeSupabase.identityOwnedBy('apple-identity-token', 'somebody-else');
+
+    await expect(linkApple()).resolves.toEqual({ ok: false, reason: 'taken' });
+    expect(currentUserId()).toBe(me);
+  });
+
+  it('fails, rather than half-succeeding, on a project without manual linking', async () => {
+    await signedIn();
+    fakeSupabase.disableManualLinking();
+
+    await expect(linkApple()).resolves.toEqual({ ok: false, reason: 'failed' });
+    // The account must not be reported as secured when nothing was attached.
+    expect((await ensureSession()) as { anonymous?: boolean }).toMatchObject({ anonymous: true });
+  });
+});
+
+describe('signing back in with Apple', () => {
+  it('returns the account the identity was linked to, not a new one', async () => {
+    const original = await signedIn();
+    await linkApple();
+
+    // A different device: no session, no stored id, nothing local at all.
+    await signOutEverywhere();
+    __resetSessionForTests();
+
+    await expect(signInWithApple()).resolves.toEqual({ ok: true });
+    expect(currentUserId()).toBe(original);
+  });
+
+  it('gets an expired account back, and keeps it back across a foreground', async () => {
+    const original = await signedIn();
+    await linkApple();
+    reportAuthFailure();
+    expect(currentUserId()).toBeNull();
+
+    await expect(signInWithApple()).resolves.toEqual({ ok: true });
+
+    // The same account, not a replacement for it — recovering into a fresh id
+    // would be the failure that looks most like success.
+    expect(currentUserId()).toBe(original);
+    // And it survives the next foreground rather than dropping back to the
+    // banner. This is what makes the recovery worth anything.
+    await expect(ensureSession()).resolves.toMatchObject({
+      status: 'ready',
+      userId: original,
+      anonymous: false,
+    });
+  });
+
+  it('is unavailable rather than failed when there is no provider', async () => {
+    fakeApple.unavailable();
+
+    await expect(signInWithApple()).resolves.toEqual({ ok: false, reason: 'unavailable' });
+  });
 });

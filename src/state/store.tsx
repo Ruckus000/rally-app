@@ -1191,7 +1191,13 @@ export function reducer(state: State, action: Action): State {
       const same =
         cur.status === next.status &&
         (cur as { userId?: string }).userId === (next as { userId?: string }).userId &&
-        (cur as { message?: string }).message === (next as { message?: string }).message;
+        (cur as { message?: string }).message === (next as { message?: string }).message &&
+        // `anonymous` belongs in here because a successful Apple link changes
+        // *only* this: same status, same uuid, an account that can now be got
+        // back. Without it the comparison calls that "same", the store keeps the
+        // old session, and Me goes on offering to secure an account that already
+        // is — the one visible confirmation the user gets, withheld.
+        (cur as { anonymous?: boolean }).anonymous === (next as { anonymous?: boolean }).anonymous;
       if (same) return state;
 
       // Identity comes from the session that just authenticated, never from

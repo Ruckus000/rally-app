@@ -23,6 +23,8 @@ import { CIRCLE_NAME, Category } from '../data/fixtures';
 import { OnboardStake, useStore } from '../state/store';
 import { Overlay } from './Overlay';
 import { createCircle, joinCircleByCode, UnknownInviteCode } from '../sync/transport';
+import { signInWithApple } from '../sync/session';
+import { appleTrouble } from '../lib/appleCopy';
 import { kickSync } from '../sync/useSyncEngine';
 import { queueDeviceToken, queueProfileName } from '../sync/engine';
 import { askForReminders, scheduleWeekReminder } from '../lib/reminders';
@@ -226,6 +228,40 @@ export function OnboardOverlay({
     }
   };
 
+  /**
+   * Sign back into an account that already exists, and leave the flow at once.
+   *
+   * The order is the load-bearing part. Apple **first**, while the account is
+   * still not `live`: flipping to live starts the provider's session effect,
+   * which signs in anonymously, and that would mint a throwaway user and a
+   * `profiles` row before the real session replaced it. Signed in first, that
+   * effect finds `ensureSession` already `ready` and does nothing.
+   *
+   * Then `SKIP_ONBOARD` rather than walking the remaining screens. Somebody
+   * recovering has a name, a circle and a week already on the server; asking
+   * them to invent them again would be the flow overwriting the thing it just
+   * went to the trouble of getting back. `SKIP_ONBOARD` keeps the account it
+   * finds and lands on the feed, and the pull fills the rest in.
+   */
+  const recoverWithApple = async () => {
+    setBusy(true);
+    setTrouble(null);
+    try {
+      const result = await signInWithApple();
+      if (!result.ok) {
+        // A dismissed sheet says nothing at all — the person changed their mind
+        // and does not need telling. Everything else gets one line.
+        if (result.reason !== 'cancelled') setTrouble(appleTrouble(result.reason));
+        return;
+      }
+      dispatch({ type: 'SET_ACCOUNT', mode: 'live' });
+      dispatch({ type: 'SKIP_ONBOARD' });
+      kickSync();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const joinLiveCircle = (code: string) =>
     void runCircleCall(async () => {
       await joinCircleByCode(code.trim());
@@ -263,6 +299,9 @@ export function OnboardOverlay({
 
         {step === 0 ? (
           <WelcomeScreen
+            busy={busy}
+            trouble={trouble}
+            onApple={() => void recoverWithApple()}
             onStart={() => {
               // Anonymous sign-in is the provider's session effect, which fires
               // on the account flipping to live. Nothing to await here.

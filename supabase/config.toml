@@ -179,7 +179,14 @@ enable_signup = true
 # project needs the matching dashboard toggle — this only covers the local stack.
 enable_anonymous_sign_ins = true
 # Allow/disallow testing manual linking of accounts
-enable_manual_linking = false
+# `linkIdentity()` refuses without this, and it is how an anonymous account
+# attaches an Apple identity and so becomes recoverable. It must be enabled on
+# the hosted project too (Authentication → Providers); local-only would mean the
+# integration suite proves a flow production refuses.
+#
+# The cost, recorded rather than hidden: with manual linking on, anyone holding a
+# stolen session can attach *their* identity to that account and keep it.
+enable_manual_linking = true
 # Passwords shorter than this value will be rejected as weak. Minimum 6, recommended 8 or more.
 minimum_password_length = 6
 # Passwords that do not meet the following requirements will be rejected as weak. Supported values

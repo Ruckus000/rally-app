@@ -313,6 +313,24 @@ const state = {
   anonymousDisabled: false,
   session: null as Session | null,
   listeners: new Set<AuthListener>(),
+  /**
+   * Provider identity → the user who owns it, which is the whole of what makes
+   * an account recoverable.
+   *
+   * Keyed by the id token, and that is a **simplification worth knowing about**:
+   * a real Apple token is minted fresh on every sign-in, so it identifies a
+   * sign-in, not an account. What has to be modelled is "the same Apple account
+   * comes back to the same user", so here the token stands for the account and a
+   * test says "same account" by passing the same string. Two different strings
+   * are two different Apple accounts.
+   */
+  identities: new Map<string, string>(),
+  /**
+   * On by default, matching `enable_manual_linking = true` in
+   * `supabase/config.toml`. A test turns it off to pin what happens on a project
+   * where somebody forgot — which is a 422, not a silent no-op.
+   */
+  manualLinkingEnabled: true,
 };
 
 const emptyDb = (): Record<string, Row[]> => {
@@ -695,6 +713,43 @@ const anonError = (): AuthErrorShape => ({
   code: 'anonymous_provider_disabled',
 });
 
+/** gotrue's answer to linking with nothing signed in. */
+const sessionMissingError = (): AuthErrorShape => ({
+  name: 'AuthSessionMissingError',
+  message: 'Auth session missing!',
+  status: 400,
+  code: 'session_not_found',
+});
+
+/** `enable_manual_linking` off. Configuration, not the user's problem. */
+const manualLinkingError = (): AuthErrorShape => ({
+  name: 'AuthApiError',
+  message: 'Manual linking is disabled',
+  status: 422,
+  code: 'manual_linking_disabled',
+});
+
+const badIdTokenError = (): AuthErrorShape => ({
+  name: 'AuthApiError',
+  message: 'Invalid id token',
+  status: 400,
+  code: 'validation_failed',
+});
+
+/**
+ * The Apple account is already attached to a different Rally account.
+ *
+ * Deliberately not merged. Reassigning one user's rows onto another is the
+ * conflict-resolution case the Supabase docs sketch and leave to the app, and
+ * this app has no answer that would not silently lose one of the two weeks.
+ */
+const identityTakenError = (): AuthErrorShape => ({
+  name: 'AuthApiError',
+  message: 'Identity is already linked to another user',
+  status: 422,
+  code: 'identity_already_exists',
+});
+
 const announce = (event: string): void => {
   for (const l of state.listeners) l(event, state.session);
 };
@@ -733,6 +788,94 @@ const makeAuth = () => ({
         name: 'Someone',
       }),
     );
+
+    announce('SIGNED_IN');
+    return { data: { user, session: state.session }, error: null };
+  },
+
+  /**
+   * Attach a provider identity to the user who is already signed in.
+   *
+   * The account keeps its id — that is the entire point, and the reason this is
+   * not `signInWithIdToken`. Everything the anonymous user already owns stays
+   * owned by the same uuid, so nothing has to be reassigned and no row moves.
+   *
+   * Modelled refusals, each one a thing that really happens:
+   *  - no session at all, because there is nothing to link *to*
+   *  - manual linking disabled on the project, which answers 422
+   *  - the identity already belongs to somebody else, which is the conflict the
+   *    docs describe and which this app deliberately does not try to merge
+   */
+  async linkIdentity(credentials: { provider: string; token?: string; access_token?: string }) {
+    if (state.offline) throw new TypeError('Network request failed');
+    state.calls.push({ method: 'auth.linkIdentity', table: null, body: credentials });
+
+    if (!state.session) {
+      return { data: { user: null, session: null }, error: sessionMissingError() };
+    }
+    if (!state.manualLinkingEnabled) {
+      return { data: { user: null, session: null }, error: manualLinkingError() };
+    }
+
+    const subject = credentials.token ?? '';
+    if (!subject) {
+      return { data: { user: null, session: null }, error: badIdTokenError() };
+    }
+
+    const owner = state.identities.get(subject);
+    if (owner && owner !== state.session.user.id) {
+      return { data: { user: null, session: null }, error: identityTakenError() };
+    }
+
+    state.identities.set(subject, state.session.user.id);
+    // The one visible consequence: this account is no longer throwaway.
+    state.session.user.is_anonymous = false;
+    announce('USER_UPDATED');
+    return { data: { user: state.session.user, session: state.session }, error: null };
+  },
+
+  /**
+   * Sign in as whoever owns this provider identity — the recovery path, used on
+   * a device that has never seen this account.
+   *
+   * An identity nobody has claimed creates a permanent user, which is what makes
+   * "Continue with Apple" work for somebody who never had an account here. The
+   * interesting case is the other one: a token whose subject was linked earlier
+   * returns **that** user id, which is the difference between recovering an
+   * account and quietly minting a second one.
+   */
+  async signInWithIdToken(credentials: { provider: string; token: string; nonce?: string }) {
+    if (state.offline) throw new TypeError('Network request failed');
+    state.calls.push({ method: 'auth.signInWithIdToken', table: null, body: credentials });
+
+    if (!credentials.token) {
+      return { data: { user: null, session: null }, error: badIdTokenError() };
+    }
+
+    let id = state.identities.get(credentials.token);
+    if (!id) {
+      id = uuid();
+      state.identities.set(credentials.token, id);
+      // Same trigger as the anonymous path: no profile row, and every write
+      // afterwards fails its owner_id foreign key.
+      rowsOf('profiles').push(
+        withDefaults('profiles', {
+          id,
+          handle: `anon_${id.replace(/-/g, '').slice(0, 12)}`,
+          name: 'Someone',
+        }),
+      );
+    }
+
+    const user = { id, is_anonymous: false, aud: 'authenticated', role: 'authenticated' };
+    state.session = {
+      access_token: `fake-access-${id}`,
+      refresh_token: `fake-refresh-${id}`,
+      token_type: 'bearer',
+      expires_in: 3600,
+      expires_at: Math.floor(EPOCH / 1000) + 3600,
+      user,
+    };
 
     announce('SIGNED_IN');
     return { data: { user, session: state.session }, error: null };
@@ -934,8 +1077,28 @@ export const fakeSupabase = {
     state.anonymousDisabled = false;
     state.session = null;
     state.listeners.clear();
+    state.identities.clear();
+    state.manualLinkingEnabled = true;
     seq = 0;
     ticks = 0;
+  },
+
+  /** A project where nobody ticked the box. `linkIdentity` answers 422. */
+  disableManualLinking(): void {
+    state.manualLinkingEnabled = false;
+  },
+
+  /**
+   * Pretend this Apple account already belongs to somebody else, so the next
+   * link hits the conflict rather than succeeding.
+   */
+  identityOwnedBy(token: string, userId: string): void {
+    state.identities.set(token, userId);
+  },
+
+  /** Which user an Apple account resolves to, or undefined for unclaimed. */
+  ownerOfIdentity(token: string): string | undefined {
+    return state.identities.get(token);
   },
 
   /**
