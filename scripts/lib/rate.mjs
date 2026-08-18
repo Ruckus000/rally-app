@@ -12,6 +12,7 @@
  * --write` stores it. Same rule, one implementation.
  */
 import { RUBRIC, SCREENING, complete } from './llm.mjs';
+import { screeningVerdict } from '../../supabase/functions/_shared/verdict.mjs';
 
 // The band, restated here because the two files that own it are TypeScript and
 // a .mjs script cannot import them. `src/lib/__tests__/points.test.ts` pins the
@@ -36,8 +37,21 @@ export const SCREEN_SCHEMA = {
 
 /**
  * Both questions at once, because they are independent and the round trip is
- * the slow part. Returns what a task row would actually carry, not what the
- * model happened to say — the clamp is applied here so no caller can forget it.
+ * the slow part. Returns `{points, verdict, reason}` — the same shape the edge
+ * function answers with, deliberately.
+ *
+ * The verdict comes from the shared `screeningVerdict`, the same call the edge
+ * function makes, so a goal blocked by the model's own safety filter reads as
+ * blocked here too rather than as an error.
+ *
+ * **`points` is null when the model did not price it**, and no caller should
+ * turn that into a number. The edge function does fall back, to what the
+ * category has always been worth, because somebody is mid-sentence and staking
+ * has to keep working when the model is down. Nothing here is on that path: a
+ * failed draft is a draft you run again. This file used to answer 10 instead —
+ * the bottom of the band, indistinguishable from a real price, and stored in
+ * `bot_goal_candidates` for a human to approve without ever knowing the goal
+ * had not been priced.
  */
 export async function rateGoal({ title, category }) {
   const [priced, screened] = await Promise.all([
@@ -50,13 +64,17 @@ export async function rateGoal({ title, category }) {
   ]);
 
   return {
-    points: clamp(priced.points),
-    harmful: screened.harmful === true,
-    reason: screened.reason ?? '',
+    points: priced.status === 'ok' ? clamp(priced.value.points) : null,
+    ...screeningVerdict(screened),
   };
 }
 
-/** The same clamp the server applies: snapped to the step, held in the band. */
+/**
+ * A price the model gave, made storable: snapped to the step, held in the band.
+ *
+ * Only ever handed a number the model actually returned. An absent price is
+ * `null` before it gets here — see `rateGoal`.
+ */
 export function clamp(n) {
   const value = Number(n);
   if (!Number.isFinite(value)) return POINT_MIN;

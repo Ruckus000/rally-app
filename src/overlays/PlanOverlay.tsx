@@ -213,6 +213,10 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
               cursorColor={color.lime}
               returnKeyType="done"
               accessibilityLabel="What will you do?"
+              // The length the rating function accepts. Without it a longer
+              // goal is staked unscreened — the function 400s and the client
+              // reads that as "nothing wrong with this one".
+              maxLength={50}
               multiline
               style={{
                 marginTop: 9,

@@ -18,7 +18,7 @@
  * the install.
  */
 import { serviceClient } from './lib/db.mjs';
-import { complete } from './lib/llm.mjs';
+import { answer } from './lib/llm.mjs';
 import { possible, thisMonday, todayIndex } from './lib/week.mjs';
 
 const { db, url } = serviceClient();
@@ -193,7 +193,7 @@ async function rhythm(drawn, today) {
   ].join('\n');
 
   try {
-    const { week } = await complete({
+    const { week } = await answer({
       system,
       user: `The goals, by id:\n\n${listed}`,
       schema: RHYTHM_SCHEMA,

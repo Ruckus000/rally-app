@@ -22,8 +22,18 @@ import { categoryPoints } from '../lib/points';
  */
 const DEBOUNCE_MS = 600;
 
-/** Matches the function, which rejects anything shorter before calling a model. */
+/**
+ * Matches the function, which 400s outside this range before calling a model.
+ *
+ * The upper bound is load-bearing and was missing. `rateGoal` turns every error
+ * into `null`, and `null` means "fall back to the category price, verdict ok" —
+ * so a title over the limit was not screened *and* looked like it had passed.
+ * A harmful goal is not usually short. The composer caps the input too, but the
+ * cap is a courtesy and this is the contract: paste, autocorrect and any future
+ * composer all arrive here.
+ */
 const MIN_TITLE = 8;
+const MAX_TITLE = 50;
 
 export type Rated = { points: number; verdict: 'ok' | 'blocked'; reason: string };
 
@@ -37,7 +47,7 @@ export function useGoalRating(opts: {
 }): void {
   const { title, cat, enabled, onRating } = opts;
   const trimmed = title.trim();
-  const asking = enabled && trimmed.length >= MIN_TITLE;
+  const asking = enabled && trimmed.length >= MIN_TITLE && trimmed.length <= MAX_TITLE;
 
   useEffect(() => {
     if (!asking) {

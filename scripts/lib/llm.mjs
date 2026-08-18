@@ -22,6 +22,11 @@
 export { RUBRIC } from '../../supabase/functions/_shared/rubric.mjs';
 export { SCREENING } from '../../supabase/functions/_shared/screening.mjs';
 
+// Reading a Gemini response is a judgement, not a field access. Same file the
+// edge function uses, for the same reason the prompts are shared: a refusal
+// must mean the same thing on a laptop as it does in production.
+import { refusedResponse, responseText } from '../../supabase/functions/_shared/verdict.mjs';
+
 import { fromEnvFile } from './env.mjs';
 
 /**
@@ -29,13 +34,41 @@ import { fromEnvFile } from './env.mjs';
  * a drafting run of forty goals can take its time, and cutting it off would
  * only mean drafting fails on exactly the connections that need the slack.
  *
- * Throws on every failure, which is the whole contract. The edge function's
- * twin returns null and lets the caller fall open, because a model having a bad
- * day must not stop somebody staking a goal. Nothing here is on that path: a
- * failed draft is a draft you run again.
+ * Throws on every *failure*, which is the whole contract. The edge function's
+ * twin falls open instead, because a model having a bad day must not stop
+ * somebody staking a goal. Nothing here is on that path: a failed draft is a
+ * draft you run again.
+ *
+ * A refusal is not a failure. The model declining to answer is the safety
+ * filter firing on exactly the goals SCREENING exists to catch, so it comes
+ * back as `{status:'refused'}` for `screeningVerdict` to read — the same two
+ * states, in the same words, as the edge function. Throwing on it, as this file
+ * used to, meant the only harness that can be pointed at a list of goals was
+ * the one harness that could not report a blocked one.
+ *
+ * @returns {{status: 'ok', value: object} | {status: 'refused'}}
  */
 export async function complete({ system, user, schema }) {
-  return parseJson(await gemini({ system, user, schema }));
+  const raw = await gemini({ system, user, schema });
+  return raw.status === 'ok' ? { status: 'ok', value: parseJson(raw.value) } : raw;
+}
+
+/**
+ * The answer itself, for callers a refusal simply defeats.
+ *
+ * Screening is the one question where "the model declined" is information, and
+ * `complete` returns the two states apart so `screeningVerdict` can read them.
+ * Drafting goals and writing a bot's week are not that: there is nothing to
+ * infer from a refusal except that the run did not work, and every one of those
+ * call sites would otherwise have to unwrap the same envelope and say the same
+ * sentence about it.
+ */
+export async function answer(opts) {
+  const result = await complete(opts);
+  if (result.status !== 'ok') {
+    throw new Error('Gemini declined to answer this one. Nothing was written; run it again.');
+  }
+  return result.value;
 }
 
 async function gemini({ system, user, schema }) {
@@ -80,18 +113,18 @@ async function gemini({ system, user, schema }) {
   };
 
   const body = await send(`${base}/models/${model}:generateContent`, request, base, model);
-  const candidate = body?.candidates?.[0];
-  const text = candidate?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
 
-  if (!text) {
-    // A refusal, not an outage: Gemini's safety filters block the *response*,
-    // so there is a 200 with a finishReason and no content. Naming it matters —
-    // treated as an empty answer it would read as "nothing wrong with this
-    // goal", which is the one conclusion it does not support.
-    const why = candidate?.finishReason ?? body?.promptFeedback?.blockReason ?? 'no content';
-    throw new Error(`Gemini returned nothing (${why}). It declined to answer rather than failing.`);
+  // Asked of the whole body, not of the text: a block can arrive with tokens
+  // already emitted, or with no candidate at all. `verdict.mjs` owns that
+  // judgement for both runtimes.
+  if (refusedResponse(body)) {
+    const why =
+      body?.candidates?.[0]?.finishReason ?? body?.promptFeedback?.blockReason ?? 'no content';
+    process.stderr.write(`  gemini declined to answer (${why})\n`);
+    return { status: 'refused' };
   }
-  return text;
+
+  return { status: 'ok', value: responseText(body) };
 }
 
 /**

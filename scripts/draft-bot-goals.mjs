@@ -20,7 +20,7 @@
  * Ask for forty and keep eight. Rejecting most of the output is the expected
  * way to use this, not a sign it went wrong.
  */
-import { RUBRIC, complete } from './lib/llm.mjs';
+import { RUBRIC, answer } from './lib/llm.mjs';
 import { rateGoal } from './lib/rate.mjs';
 import { serviceClient } from './lib/db.mjs';
 
@@ -118,11 +118,12 @@ console.log(
 let kept = 0;
 let blocked = 0;
 let repeats = 0;
+let unpriced = 0;
 
 for (const [handle, who] of Object.entries(chosen)) {
   console.log(`── ${handle} ${'─'.repeat(Math.max(0, 60 - handle.length))}`);
   try {
-    const { goals } = await complete({
+    const { goals } = await answer({
       system,
       user: `${who}\n\nWrite ${count} candidate goals for this person's week.`,
       schema: SCHEMA,
@@ -140,8 +141,16 @@ for (const [handle, who] of Object.entries(chosen)) {
         console.log(`  ${String(g.title.length).padStart(3)}c  ${g.title}  ← too long, dropped`);
         continue;
       }
-      const { points, harmful, reason } = await rateGoal({ title: g.title, category: g.category });
-      if (harmful) {
+      const { points, verdict, reason } = await rateGoal({ title: g.title, category: g.category });
+      if (points === null) {
+        // The rubric did not answer, so there is no price to store. Storing one
+        // anyway — the category's, the band's floor, any number at all — puts a
+        // goal in front of a reviewer that looks priced and was not.
+        unpriced += 1;
+        console.log(`  ???  ${g.title}  ← not priced, dropped`);
+        continue;
+      }
+      if (verdict === 'blocked') {
         // Not stored at all. A blocked goal is not a pending one — putting it
         // in the queue would only mean rejecting it again by hand.
         blocked += 1;
@@ -178,7 +187,11 @@ for (const [handle, who] of Object.entries(chosen)) {
 
 console.log(
   write
-    ? `Stored ${kept} pending, blocked ${blocked}, already had ${repeats}.\n` +
-      'Next: npm run bots:review, then npm run db:bots.'
+    ? `Stored ${kept} pending, blocked ${blocked}, already had ${repeats}` +
+      // Only mentioned when it happened. A zero here is the normal state and
+      // does not need a word; a number is worth running again for, because
+      // those goals were drafted and then thrown away unpriced.
+      (unpriced ? `, could not price ${unpriced}` : '') +
+      '.\nNext: npm run bots:review, then npm run db:bots.'
     : 'Next: run again with --write to store these for review.',
 );

@@ -113,6 +113,26 @@ describe('useGoalRating', () => {
     expect(onRating).toHaveBeenCalledWith(FALLBACK);
   });
 
+  it('does not ask about a title the function will refuse for being too long', async () => {
+    // The failure this prevents is specific. Over the limit the function 400s,
+    // `rateGoal` turns every error into null, and null means "category price,
+    // verdict ok" — so the goal was never screened *and* came back looking like
+    // it had passed. Harmful goals are not usually short ones.
+    const { onRating } = render('Cut myself with a razor every night this week when numb');
+    await settle();
+
+    expect(mockRate).not.toHaveBeenCalled();
+    expect(onRating).toHaveBeenCalledWith(FALLBACK);
+  });
+
+  it('asks about a title of exactly the length the function accepts', async () => {
+    mockRate.mockResolvedValue({ verdict: 'ok', points: 45, reason: '' });
+    render('x'.repeat(50));
+    await settle();
+
+    expect(mockRate).toHaveBeenCalled();
+  });
+
   it('sends the reason along with a blocked verdict, never one without the other', async () => {
     // The pair travels together or the composer ends up disabled with nothing
     // written under it, which is a refusal the person cannot act on.

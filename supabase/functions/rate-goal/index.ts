@@ -152,6 +152,23 @@ Deno.serve(async (req) => {
   // rendering a zero or a NaN on the button.
   const points = clampPoints(priced.status === 'ok' ? priced.value.points : undefined, cat);
 
+  // Said out loud, because otherwise it cannot be found. Neither half of a
+  // failed rating is recorded anywhere else — failures are deliberately not
+  // cached, so `goal_ratings` will never show a day the model was down, and
+  // the answer sent to the client is indistinguishable from a real one.
+  //
+  // Screening is named separately and first. An unpriced goal costs its
+  // category price, which is what this function replaced and is survivable.
+  // An unscreened goal is returned `ok`, which is the guard not running — and
+  // on a quota that is shared by every user, that is a thing users trigger
+  // rather than a thing you do. It is the only trace that it happened.
+  if (screened.status !== 'ok') {
+    console.warn(`rate-goal: NOT SCREENED, passed as ok — screening ${screened.status}`);
+  }
+  if (priced.status !== 'ok') {
+    console.warn(`rate-goal: priced by category — pricing ${priced.status}`);
+  }
+
   // Answer with whatever came back, but only remember a *complete* answer.
   //
   // Either half can fail on its own, and a half-answer is still perfectly
