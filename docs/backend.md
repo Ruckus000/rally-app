@@ -209,16 +209,20 @@ Each phase leaves the app working.
 4. ✅ **Reactions and notes.** Realtime becomes worth having here — a cheer
    landing on someone's phone is the product's whole thesis. *`realtime.ts`,
    plus `reaction.add` / `reaction.remove` / `note.add`.*
-5. ◐ **Rollups and notifications.** Rollover moves server-side; push arrives,
-   which needs the paid Apple programme.
+5. ✅ **Rollups and notifications.** Rollover moves server-side; push arrives,
+   which needs the paid Apple programme. Both halves are now built, though the
+   rollup half arrived by the opposite route to the one planned — see below.
    - **Push: built.** `device_tokens`, the `push_on_notification` trigger, and
      the deployed `push` edge function. Untestable on a simulator — a physical
      device is the only way to see it work.
-   - **Rollups: not built.** Nothing writes `week_rollups`. `mappers.ts` counts
-     the rows it already holds instead, which is cheaper and current. The
-     consequence is that history, running totals and rollover live on one
-     device and nowhere else — see the caveat in the README about there being
-     no way back into an account.
+   - **Rollups: built, client-side.** `week_rollups` gained an insert policy in
+     `20260818150000_write_your_own_rollups.sql`, and a week is queued when you
+     confirm the rollover — not by a trigger, because rollover happens in the
+     reducer and the server never sees the week close. Insert only: a week
+     closes once, and a replayed queue entry is absorbed by
+     on-conflict-do-nothing rather than by an update path nobody needs.
+     Rollover itself stays on the device, which is the half of this phase that
+     was never really about storage.
 
 ## Open questions this design does not settle
 

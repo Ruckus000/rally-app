@@ -5,7 +5,8 @@
  * must be the metric the ranking uses — showing points there would imply a
  * different sort.
  */
-import { Moment, Task, parseHours } from '../data/fixtures';
+import { HistoryWeek, Moment, Task, parseHours, weekHeldStreak } from '../data/fixtures';
+import type { Profile } from '../data/seed';
 import { MemberStats, PersonId, makePeople } from '../data/people';
 import { seedCircle } from '../data/seed';
 import type { State } from './store';
@@ -48,6 +49,99 @@ export const weekPoints = (state: State) =>
   state.myTasks.filter((t) => t.done).reduce((a, t) => a + t.pts, 0);
 
 export const stakedPoints = (state: State) => state.myTasks.reduce((a, t) => a + t.pts, 0);
+
+/**
+ * Your running totals, rebuilt from the weeks themselves.
+ *
+ * Used on exactly one path — a reinstall, where `history` arrived from the server
+ * and the totals did not. Everywhere else `COMMIT_ROLLOVER` keeps them, and it
+ * stays the only writer: two writers for one number is how a total quietly ends
+ * up counting a week twice, and the second writer would only run on a path
+ * nobody exercises often enough to notice.
+ *
+ * Every field is derived from `points`, `done` and `total`, which is why
+ * `week_rollups`' `perfect` and `streak_held` columns are never read back. They
+ * are restatements of `done` and `total`, and a restatement that can disagree is
+ * worse than one that cannot exist.
+ *
+ * `history` is newest-first, as the reducer keeps it.
+ */
+export const aggregatesFrom = (
+  history: HistoryWeek[],
+): Pick<
+  Profile,
+  | 'allTimePoints'
+  | 'weeksIn'
+  | 'bestWeekPoints'
+  | 'bestWeekLabel'
+  | 'longestStreak'
+  | 'currentStreak'
+  | 'mostTasksClosed'
+  | 'perfectWeeks'
+> => {
+  let best = history[0];
+  let longest = 0;
+  let run = 0;
+
+  for (const w of history) {
+    if (w.points > (best?.points ?? -1)) best = w;
+    // Walking newest-first, so the run that is still going when the loop starts
+    // is the current one — captured below before it can be reset by an older
+    // quiet week.
+    if (weekHeldStreak(w.done)) {
+      run += 1;
+      longest = Math.max(longest, run);
+    } else {
+      run = 0;
+    }
+  }
+
+  // The current streak is the unbroken run at the *newest* end, which is however
+  // many weeks pass before the first quiet one.
+  let current = 0;
+  for (const w of history) {
+    if (!weekHeldStreak(w.done)) break;
+    current += 1;
+  }
+
+  return {
+    allTimePoints: history.reduce((a, w) => a + w.points, 0),
+    weeksIn: history.length,
+    bestWeekPoints: best?.points ?? 0,
+    bestWeekLabel: best?.label ?? '',
+    longestStreak: longest,
+    currentStreak: current,
+    mostTasksClosed: history.reduce((a, w) => Math.max(a, w.done), 0),
+    perfectWeeks: history.filter((w) => w.total > 0 && w.done === w.total).length,
+  };
+};
+
+/**
+ * What a week scored, as the closing of it records the score.
+ *
+ * Extracted for two callers who must agree exactly. `COMMIT_ROLLOVER` writes
+ * these numbers into `history` and into your running totals; `RolloverOverlay`
+ * reads the same numbers to queue the rollup for the server, in the tick it
+ * dispatches. If those two ever disagreed, the week on your phone and the week
+ * on the server would be different weeks — and the disagreement would only
+ * surface on a reinstall, months later, as history that does not match what you
+ * remember.
+ *
+ * Takes the tasks rather than the state so the caller can pass the week it is
+ * closing, which is not always the week the state is on by the time this runs.
+ */
+export const closingWeek = (
+  tasks: Task[],
+): { points: number; done: number; total: number; perfect: boolean; streakHeld: boolean } => {
+  const done = tasks.filter((t) => t.done);
+  return {
+    points: done.reduce((a, t) => a + t.pts, 0),
+    done: done.length,
+    total: tasks.length,
+    perfect: tasks.length > 0 && done.length === tasks.length,
+    streakHeld: weekHeldStreak(done.length),
+  };
+};
 
 export const allTasksDone = (state: State) =>
   state.myTasks.length > 0 && state.myTasks.every((t) => t.done);

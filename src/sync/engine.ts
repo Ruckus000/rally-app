@@ -20,7 +20,14 @@ import type { Moment, Note, Task } from '../data/fixtures';
 import type { Person, PersonId } from '../data/people';
 import type { WeekContext } from '../data/week';
 import type { Action, CircleRef, ServerMerge, State } from '../state/store';
-import { batchCheers, memberStats, mondayOf, rowToNotification, taskRowToMoment } from './mappers';
+import {
+  batchCheers,
+  memberStats,
+  mondayOf,
+  rowToHistoryWeek,
+  rowToNotification,
+  taskRowToMoment,
+} from './mappers';
 import { noteKey, syncableNote, type NoteSite, type SyncableNote } from './notes';
 import {
   ackedTaskIds,
@@ -109,6 +116,17 @@ function wireEntry(op: OutboxOp, payload: Record<string, unknown>, entry: QueueE
       return { ...head, op, name: String(payload.name) };
     case 'device.register':
       return { ...head, op, token: String(payload.token), platform: String(payload.platform) };
+    case 'rollup.add':
+      return {
+        ...head,
+        op,
+        weekStart: String(payload.weekStart),
+        points: Number(payload.points),
+        done: Number(payload.done),
+        total: Number(payload.total),
+        perfect: !!payload.perfect,
+        streakHeld: !!payload.streakHeld,
+      };
   }
 }
 
@@ -302,6 +320,41 @@ const DEVICE_KEY = 'device';
  */
 export function queueDeviceToken(token: string, platform: string): void {
   if (token) enqueue('device.register', DEVICE_KEY, { token, platform });
+}
+
+/**
+ * Send a week that has just closed.
+ *
+ * Queued from the dispatch site rather than derived in `observe`, and that is a
+ * deliberate departure from how tasks, reactions and notes reach the queue —
+ * for the reason `queueProfileName` gives, plus one of its own.
+ *
+ * `observe` diffs slices of state, and history is a slice the **server also
+ * writes**: `SERVER_MERGE` fills it on a reinstall. A diff cannot tell a week
+ * this device just closed from a week the server just handed back, so it would
+ * enqueue the ones it was given and push them straight back where they came
+ * from. Harmless in effect — the insert is on-conflict-do-nothing — but it would
+ * be a queue full of writes nobody asked for, on every fresh install, and an
+ * echo guard to suppress them would be a second mechanism existing only to undo
+ * the first. Queueing at the one dispatch site means the echo cannot arise.
+ *
+ * The reducer still knows nothing about sync: `RolloverOverlay` calls this in
+ * the same tick it dispatches, exactly as `MeScreen` does when you rename
+ * yourself.
+ *
+ * The coalescing key is the week itself, so a second close of the same week —
+ * which the reducer refuses anyway — could never queue twice.
+ */
+export function queueRollup(rollup: {
+  weekStart: string;
+  points: number;
+  done: number;
+  total: number;
+  perfect: boolean;
+  streakHeld: boolean;
+}): void {
+  if (!rollup.weekStart) return;
+  enqueue('rollup.add', `rollup:${rollup.weekStart}`, { ...rollup });
 }
 
 /**
@@ -749,15 +802,21 @@ export function createEngine(
       // The week is whatever the last observation saw. Without one there is no
       // week to ask for, and guessing is worse than waiting a cycle.
       const week = lastWeek;
-      const [people, bots, myCircle, notifications, rows, reactions, notes] = await Promise.all([
-        wire.pullCircle(userId),
-        wire.pullBots(),
-        wire.pullMyCircle(userId),
-        wire.pullNotifications(userId, NOTIFICATION_MAX),
-        week ? wire.pullTasks(userId, mondayOf(week)) : Promise.resolve(null),
-        wire.pullReactions(userId),
-        wire.pullNotes(userId),
-      ]);
+      const [people, bots, myCircle, notifications, rows, reactions, notes, rollups] =
+        await Promise.all([
+          wire.pullCircle(userId),
+          wire.pullBots(),
+          wire.pullMyCircle(userId),
+          wire.pullNotifications(userId, NOTIFICATION_MAX),
+          week ? wire.pullTasks(userId, mondayOf(week)) : Promise.resolve(null),
+          wire.pullReactions(userId),
+          wire.pullNotes(userId),
+          // Unconditional, unlike `pullTasks` above: closed weeks do not depend
+          // on which week is on screen, and the one moment this answer matters —
+          // the first pull after a reinstall — is a moment when `lastWeek` may
+          // not have been observed yet.
+          wire.pullRollups(userId),
+        ]);
 
       // The feed is a second wave rather than a fifth entry in the one above:
       // it can only ask about people `pullCircle` has just named, and asking
@@ -870,6 +929,22 @@ export function createEngine(
       if (!sameMoments(lastGlobal, globalPosts)) {
         merge.globalPosts = globalPosts;
         lastGlobal = globalPosts;
+      }
+
+      /**
+       * Closed weeks, oldest first, mapped here rather than in the reducer —
+       * rows becoming domain objects is this layer's job, and `mappers.ts` is
+       * where the shape of one is decided.
+       *
+       * Sent on every pull that answered, with no diff against a previous
+       * answer. There is no cheap reference comparison to make (each pull mints
+       * new objects), and the reducer's own rule makes a repeat free: it folds
+       * these only onto a device whose history is empty, so the second pull and
+       * every one after it changes nothing and returns the same state by
+       * identity.
+       */
+      if (rollups.length > 0) {
+        merge.rollups = rollups.map(rowToHistoryWeek);
       }
 
       // Two questions, both answered by folding the rows here first. Would this

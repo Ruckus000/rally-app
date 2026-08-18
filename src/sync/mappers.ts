@@ -11,10 +11,24 @@
  * narrowed back into its union rather than cast into one: a category the client
  * has never heard of must not reach `CATEGORY_POINTS[task.cat]`.
  */
-import type { Audience, Category, Moment, Notification, NotifTier, Task } from '../data/fixtures';
-import { NOTIF_TIERS } from '../data/fixtures';
+import type {
+  Audience,
+  Category,
+  HistoryWeek,
+  Moment,
+  Notification,
+  NotifTier,
+  Task,
+} from '../data/fixtures';
+import { NOTIF_TIERS, weekSummary } from '../data/fixtures';
 import { personOf, type MemberStats, type Person, type PersonId } from '../data/people';
-import { dayIndexOf, type DayIndex, type WeekContext } from '../data/week';
+import {
+  buildWeekContext,
+  dayIndexOf,
+  isoWeekNumber,
+  type DayIndex,
+  type WeekContext,
+} from '../data/week';
 
 const NOTIF_TIER_VALUES: readonly string[] = NOTIF_TIERS.map((t) => t.key);
 
@@ -130,6 +144,47 @@ export function rowToTask(row: Record<string, unknown>): Task {
  * beyond that — first name, initials, tint — is derived by `personOf`. The
  * handle stands in for a blank name rather than rendering an empty avatar.
  */
+/**
+ * A `week_rollups` row, back into the week the Ledger and the year grid draw.
+ *
+ * The table carries five numbers and a date; `HistoryWeek` carries those plus a
+ * number, a label, a summary line and three lists. Every one of the extras is
+ * rebuilt here rather than stored, and each for its own reason:
+ *
+ *  - `n` and `label` come from `buildWeekContext`, which already turns a Monday
+ *    into "Week 33". Storing them would be a second copy of the calendar.
+ *  - `sub` and `quiet` come from `weekSummary`, the same function
+ *    `COMMIT_ROLLOVER` uses, so a restored week describes itself exactly as it
+ *    did before the reinstall.
+ *  - `did` stays **empty**, and that is the one real loss. The titles are on the
+ *    server already, in `tasks`, so putting them in `week_rollups` too would
+ *    duplicate them — and the engine only pulls the current week, so reading
+ *    them back is a wider change than this. `helpedBy` and `helped` are empty
+ *    for a stronger reason: they are empty on a live rollover too, so a restored
+ *    week matches a locally-closed one exactly.
+ */
+export function rowToHistoryWeek(rollup: {
+  weekStart: string;
+  points: number;
+  done: number;
+  total: number;
+}): HistoryWeek {
+  const start = asDate(rollup.weekStart) ?? new Date();
+  const week = buildWeekContext(start, isoWeekNumber(start));
+
+  return {
+    n: week.number,
+    label: week.label,
+    points: rollup.points,
+    done: rollup.done,
+    total: rollup.total,
+    ...weekSummary(rollup.done, rollup.total),
+    did: [],
+    helpedBy: [],
+    helped: [],
+  };
+}
+
 export function rowToPerson(row: Record<string, unknown>): Person {
   const id = str(row.id) as PersonId;
   const name = str(row.name).trim();

@@ -27,7 +27,11 @@ export type OutboxOp =
   | 'reaction.remove'
   | 'note.add'
   | 'profile.update'
-  | 'device.register';
+  | 'device.register'
+  // A week that closed. Named `add` rather than `upsert` because that is what it
+  // is: `week_rollups` grants insert and nothing else, and a replay is absorbed
+  // by on-conflict-do-nothing rather than by writing the row a second time.
+  | 'rollup.add';
 
 export type OutboxEntry = {
   /** Client-minted, and the idempotency key the transport should send. */
