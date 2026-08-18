@@ -174,14 +174,45 @@ describe('the private helpers stay unreachable', () => {
     expect(error).toBe('42501');
   });
 
-  it('authenticated CAN execute them, which is what makes the policies work', async () => {
+  it('authenticated keeps EXECUTE on every policy helper', async () => {
     // The init migration revoked this and silently broke every policy that
-    // calls a helper. Regression test for that repair.
+    // calls a helper; `repair_write_paths` section 1b put it back. An RLS
+    // policy is evaluated as the *calling* role, so this grant is
+    // load-bearing — the friends and private branches in `tasks.test.ts` are
+    // what it holds up. Asserted as a privilege rather than by calling the
+    // function, because `close_private_to_clients` deliberately removed the
+    // caller's ability to resolve the name (see the test below) and a direct
+    // call can no longer tell the two failures apart.
+    const { error } = await asRole(
+      'postgres',
+      `do $$
+         declare fn text;
+         begin
+           foreach fn in array array[
+             'is_circle_member', 'shares_circle_with', 'is_paired_on', 'can_see_task'
+           ] loop
+             if not has_function_privilege(
+               'authenticated', 'private.' || fn || '(uuid)', 'EXECUTE'
+             ) then
+               raise exception 'authenticated lost EXECUTE on private.%', fn;
+             end if;
+           end loop;
+         end $$`,
+    );
+    expect(error).toBeUndefined();
+  });
+
+  it('authenticated cannot resolve the helpers by name', async () => {
+    // The other half of `close_private_to_clients`. Schema USAGE is checked
+    // when a name is resolved; a stored policy already holds the function's
+    // OID and never consults the schema again. So this 42501 and a green
+    // `tasks.test.ts` are the same fact, and that is the whole point of
+    // revoking USAGE while leaving EXECUTE alone.
     const { error } = await asRole(
       'authenticated',
       `select private.shares_circle_with('${idOf('maya')}'::uuid)`,
     );
-    expect(error).toBeUndefined();
+    expect(error).toBe('42501');
   });
 });
 
