@@ -256,7 +256,12 @@ export function OnboardOverlay({
       }
       dispatch({ type: 'SET_ACCOUNT', mode: 'live' });
       dispatch({ type: 'SKIP_ONBOARD' });
-      kickSync();
+      // No `kickSync()` here, though the shape of the other flows invites one.
+      // It would do nothing: `active` is set by the sync engine's effect, which
+      // has not run yet — `state.account` is still not `live` this render, so
+      // `syncOn` is false. The first pull comes from that effect's own
+      // `start()`, once. A call here would read like the thing that fetches the
+      // recovered week, and would not be it.
     } finally {
       setBusy(false);
     }
