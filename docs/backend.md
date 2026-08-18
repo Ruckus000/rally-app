@@ -24,7 +24,7 @@ project on 2026-08-18, after all fourteen migrations:
 | Tables with RLS enabled | 14 |
 | Policies | 24 |
 | Enums | 5 |
-| `private` helpers | 10 |
+| `private` helpers | 10, four of them called by policies |
 | `supabase db advisors --type all` | see *What the advisors say* below |
 
 Four of those tables — `device_tokens`, `goal_ratings`, `llm_usage` and
@@ -44,14 +44,30 @@ security policy`, and `private.can_see_task` is not reachable over REST.
 
 **One correction to what this page used to claim.** It said the `private`
 helpers were "none executable by `anon` or `authenticated`". That is not true of
-`authenticated`, which holds `USAGE` on the `private` schema and `EXECUTE` on
-eight of the ten functions in it — the default `PUBLIC` grant, never revoked.
-What keeps them out of reach is one layer further out: `private` is not in
-PostgREST's exposed schemas, so there is no `/rest/v1/rpc/` route to any of
-them, which is what the probe above actually established. The functions are
-each scoped to `auth.uid()` regardless, so the grant buys a caller nothing even
-if a route to it ever appeared. Worth revoking anyway, as the belt to that
-brace — it is defence in depth that was described as already done.
+`authenticated`, which holds `EXECUTE` on eight of the ten functions.
+
+That grant is **deliberate and load-bearing, not an oversight.** An RLS policy
+is evaluated as the *calling* role, so `authenticated` must be able to execute
+any helper a policy calls. `20260810000000_init.sql` ended with exactly the
+revoke this page implied had happened, and it silently broke every policy that
+calls a helper; `20260811025743_repair_write_paths.sql` §1b took it back out
+and wrote down why. Re-running the revoke against the seeded local database
+still fails the same way — `permission denied for function
+shares_circle_with`, and 47 of `rls/tasks.test.ts` with it. It hides on an
+empty database, because `tasks_select` short-circuits before reaching a helper.
+
+What *was* removable is the schema grant, and
+`20260818124000_close_private_to_clients.sql` removes it. Schema `USAGE` is
+checked when a **name** is resolved; a stored policy already holds the
+function's OID and never consults the schema again. So revoking `USAGE` blocks
+`authenticated` from calling `private.shares_circle_with(...)` by name and
+costs the policies nothing — measured both ways before it was written, and
+pinned by two tests in `rls/profiles.test.ts` that were each mutation-tested.
+
+The gain is a second lock, not a hole closed: `private` is absent from the
+exposed schemas, so there is no `/rest/v1/rpc/` route to these functions
+anyway, and each is scoped to `auth.uid()` so a caller who reached one would
+learn nothing about anybody else.
 
 ## What the advisors say
 
