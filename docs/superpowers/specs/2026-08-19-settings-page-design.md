@@ -85,8 +85,9 @@ rather than a restructure.
 Three additions to `src/state/store.tsx`:
 
 - `settingsOpen: boolean` on `State`, initial `false`. Joins `CLEARED` so any
-  `GO_PLACE` transition closes it, and is excluded from persistence like the other
-  overlay flags.
+  `GO_PLACE` transition closes it. Not persisted — `PERSISTED_KEYS` in
+  `src/state/persistence.ts` is an allowlist, so not adding it is the whole action,
+  and no `VERSION` bump is needed.
 - `OPEN_SETTINGS` / `CLOSE_SETTINGS` actions.
 - `SIGN_OUT`, returning `{ ...initialState, week: liveWeek(), day: week.today }`.
 
@@ -97,6 +98,10 @@ that is merely unreachable today. Sign-out reuses it rather than rebuilding it.
 
 `SIGN_OUT` also leaves `account: null`. `syncOn` requires `account === 'live'`, so the
 sync layer stops on its own with no new flag to poll.
+
+`onboardStep` **is** persisted, which is what makes this hold across a relaunch: a
+device signed out and then force-quit reopens on Welcome rather than back inside an
+account it no longer has a session for.
 
 ### Sign-out ordering
 
@@ -118,6 +123,7 @@ Dispatching first would change `selfId`, fire the `lastSelfId` effect
 | `src/overlays/SettingsOverlay.tsx` | new |
 | `src/App.tsx` | render `SettingsOverlay` when `state.settingsOpen` |
 | `src/screens/MeScreen.tsx` | Settings row; `Reset app data` moves out of `DevControls` |
+| `TESTING.md` | Retire the "no settings page" bullet in Known limits; note that recovery is now testable without a reinstall |
 
 ### The overlay
 
