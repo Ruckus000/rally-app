@@ -299,6 +299,64 @@ describe('set_avatar, the write path a client does have', () => {
   });
 });
 
+describe('set_avatar takes exactly one argument, and that is the whole gate', () => {
+  // Mutation testing changed set_avatar's signature to
+  // `set_avatar(p_path text, p_state text default 'pending')` and had the
+  // body write `avatar_state = p_state` instead of the literal `'pending'`.
+  // Every test above still passed, because every call site in this file
+  // supplies only `p_path` — the mutant is indistinguishable from the real
+  // function unless something calls set_avatar with a second argument. Under
+  // the mutation, `rpc('set_avatar', { p_path, p_state: 'ready' })` from a
+  // signed-in client landed a `ready` row and published an unscreened avatar
+  // to every signed-in account, without ever touching mark_avatar_screened or
+  // the revoked grant on avatar_state.
+  //
+  // The migration's whole argument is that `set_avatar` cannot express
+  // 'ready' because the state is a literal in its body, not a parameter. That
+  // is a property of the function's *shape*, not of what today's callers
+  // happen to pass, so it has to be pinned at the shape rather than at a
+  // handful of call sites. Two angles, on purpose:
+  //
+  //   1. The signature itself, read from pg_proc — a future set_avatar with
+  //      an extra parameter fails this immediately, before anyone has to
+  //      notice a security property regressed.
+  //   2. The behaviour a widened signature would produce — no call through
+  //      this RPC may leave a row at 'ready', no matter what extra argument
+  //      is thrown at it. Today PostgREST refuses the call outright ("no
+  //      function matches"), and that refusal *is* the correct outcome, but
+  //      the assertion is written to hold regardless of which error comes
+  //      back — what matters is that `ready` stays unreachable through this
+  //      door, not the shape of the failure.
+
+  it('is defined with exactly one parameter', async () => {
+    const rows = await sql<{ pronargs: number }>(`
+      select p.pronargs
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'set_avatar'`);
+
+    // Also guards against an overload sneaking in under the same name.
+    expect(rows).toHaveLength(1);
+    expect(rows[0].pronargs).toBe(1);
+  });
+
+  it('cannot be made to land a ready row by passing an extra state argument', async () => {
+    const path = pathFor('maya');
+
+    await asUser('maya').rpc('set_avatar', {
+      p_path: path,
+      p_state: 'ready',
+    } as unknown as { p_path: string });
+
+    // Deliberately not asserting on `error` here. Today PostgREST refuses this
+    // call outright ("no function matches" / an overload-resolution failure),
+    // which is itself the correct outcome — but the property this test exists
+    // to pin is not the shape of that refusal. It is that no call through this
+    // RPC, with any extra argument, may leave a row at 'ready'. That must hold
+    // whether the call errors, silently no-ops, or resolves to some function.
+    expect((await avatarOf('maya')).avatar_state).not.toBe('ready');
+  });
+});
+
 describe('the screener’s verdict', () => {
   it('moves a pending row to ready, as service_role', async () => {
     const path = await makePending('maya');
