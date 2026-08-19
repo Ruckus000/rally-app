@@ -816,7 +816,7 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
   const [busy, setBusy] = React.useState(false);
 
   return (
-    <Overlay zIndex={60} background={color.paper} onRequestClose={close}>
+    <Overlay zIndex={59} background={color.paper} onRequestClose={close}>
       <View
         style={{
           ...row,
@@ -1237,8 +1237,15 @@ changed nothing.
 - [ ] **Step 4: Render the overlay in the shell**
 
 In `src/App.tsx`, beside the other overlays. Place it **after** `NotificationsOverlay`
-and **before** `OnboardOverlay`, matching its zIndex of 60 — the onboarding overlay has
-to be able to cover it, because that is where signing out lands:
+and **before** `RolloverOverlay`, matching its zIndex of 59.
+
+**Not 60.** `RolloverOverlay` already holds 60 and must stay above: a week that has
+already turned has to be answered before anything behind it is worth touching, and the
+two can genuinely both be open (open Settings, background the app, foreground on a new
+week — `ROLLOVER_DETECTED` bails on `pendingRollover || onboardStep`, but not on
+`settingsOpen`). The full ladder is Plan 45, Sheet 50, Ledger 55, Notifications 58,
+Settings 59, Rollover 60, Onboard 70. Onboard stays on top because signing out lands on
+Welcome, which must cover this:
 
 ```tsx
       {state.settingsOpen ? <SettingsOverlay topInset={insets.top} /> : null}

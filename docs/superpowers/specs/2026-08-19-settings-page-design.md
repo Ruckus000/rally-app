@@ -192,9 +192,17 @@ would be online.
 
 ### The overlay
 
-`src/overlays/SettingsOverlay.tsx` — paper background, `zIndex: 60` (above
-Notifications' 58, below Onboarding's 70 so Welcome covers it after sign-out),
-wrapped in `Overlay` for hardware-back and Escape handling.
+`src/overlays/SettingsOverlay.tsx` — paper background, `zIndex: 59`, wrapped in
+`Overlay` for hardware-back and Escape handling.
+
+The number is load-bearing. The ladder is Plan 45, Sheet 50, Ledger 55, Notifications
+58, **Rollover 60**, Onboard 70. Settings sits at 59: above Notifications, and
+deliberately *below* Rollover, because a week that has already turned has to be
+answered before anything behind it is worth touching — and the two can genuinely be
+open at once (open Settings, background the app, foreground on a new week;
+`ROLLOVER_DETECTED` bails on `pendingRollover || onboardStep` but not on
+`settingsOpen`). Below Onboard 70 for the same reason as ever: signing out lands on
+Welcome, which must cover this.
 
 | Section | Shown when | Behaviour |
 |---|---|---|

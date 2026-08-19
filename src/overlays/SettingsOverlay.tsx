@@ -15,6 +15,17 @@
  * Reset app data is deliberately **not** here. It is data loss with no undo,
  * and a row of it directly below Sign out would make two destructive controls
  * read as siblings. It stays in `MeScreen`'s `__DEV__` block.
+ *
+ * `zIndex` 59, and the two neighbours are the whole reason for the number. The
+ * ladder is Plan 45, Sheet 50, Ledger 55, Notifications 58, **this**,
+ * Rollover 60, Onboard 70. Above Notifications because the bell is reachable
+ * from the same chrome and this is the more specific place to be. Below
+ * Rollover because the week having turned outranks anything on this page —
+ * `ROLLOVER_DETECTED` bails on `pendingRollover` and on `onboardStep` but *not*
+ * on `settingsOpen`, so the two really can be open at once: leave Settings up,
+ * background the app, come back on a new week. Below Onboard for the same kind
+ * of reason, from the other end — signing out is where onboarding starts again,
+ * and it has to be able to cover this.
  */
 import React from 'react';
 import { Alert, Linking, Platform, ScrollView, TextInput, View } from 'react-native';
@@ -43,15 +54,25 @@ import { attemptSignOut, unsentLine } from './settings/signOut';
  * absent for every account, and an absence with no explanation reads as a
  * feature somebody forgot rather than a consequence of Apple being the only
  * provider wired up.
+ *
+ * Exported for its own tests rather than pinned through a render with
+ * `Platform.OS` mocked. That is a slightly wider surface than the page strictly
+ * needs, and it buys something real: the Android branch is the one piece of
+ * copy on this page that a person can never see on the device they wrote it on,
+ * so it is exactly the branch a mock that quietly failed to take effect would
+ * let through. A pure function takes the platform as an argument and cannot
+ * fall through to the host.
  */
-function accountLine(
+export function accountLine(
   account: AccountMode | null,
   session: SessionState,
   platform: typeof Platform.OS,
 ): string {
   // The heading above this line already says "Demo", so the word does not
   // appear again here — twice in two lines reads as a template, not a sentence.
-  if (account !== 'live') return 'Nothing here reaches a server. It’s all made up, and it’s all yours.';
+  if (account !== 'live') {
+    return 'Nothing here reaches a server. It’s all made up, and it’s all yours.';
+  }
   if (session.status !== 'ready') return 'Signed in. Checking this account…';
   if (!session.anonymous) return 'Signed in, and this account can be got back with Apple.';
   return platform === 'ios'
@@ -66,7 +87,7 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
   const close = () => dispatch({ type: 'CLOSE_SETTINGS' });
 
   return (
-    <Overlay zIndex={60} background={color.paper} onRequestClose={close}>
+    <Overlay zIndex={59} background={color.paper} onRequestClose={close}>
       <View
         style={{
           ...row,
