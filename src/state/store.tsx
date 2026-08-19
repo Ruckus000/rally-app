@@ -19,8 +19,8 @@ import {
   Moment,
   Note,
   Notification,
-  weekHeldStreak,
   weekLevel,
+  weekSummary,
   NotifTier,
   QUICK_LOG_POINTS,
   Suggestion,
@@ -54,7 +54,7 @@ import {
   makePeople,
   personOf,
 } from '../data/people';
-import { stakedPoints } from './selectors';
+import { aggregatesFrom, closingWeek, stakedPoints } from './selectors';
 import { useWeekReminder } from '../lib/reminders';
 import { flush, load, save } from './persistence';
 import { hasSupabaseConfig } from '../lib/supabase';
@@ -436,6 +436,16 @@ export type ServerMerge = {
    * the same reason: a bot's task that went away has to leave the feed.
    */
   globalPosts?: Moment[];
+  /**
+   * Every week this account has closed, as the server has them.
+   *
+   * Emphatically **not** authoritative, unlike almost everything above it. The
+   * server holds only the weeks that were closed while a session existed and the
+   * queue drained; this device may hold weeks that never got there. So the merge
+   * *fills gaps* and never removes, and an empty array means "the server knows of
+   * none" rather than "you have none".
+   */
+  rollups?: HistoryWeek[];
 };
 
 /**
@@ -1014,24 +1024,26 @@ export function reducer(state: State, action: Action): State {
 
       const closed = state.myTasks;
       const done = closed.filter((t) => t.done);
-      const points = done.reduce((a, t) => a + t.pts, 0);
-      const perfect = closed.length > 0 && done.length === closed.length;
+      // The arithmetic lives in `closingWeek`, because `RolloverOverlay` has to
+      // reach the identical numbers to queue this week for the server. The
+      // arrays stay here: `did` needs the tasks themselves, not a count.
+      const { points, perfect, streakHeld } = closingWeek(closed);
 
       const record: HistoryWeek = {
         n: state.week.number,
         label: state.week.label,
-        sub: closed.length ? `${done.length} of ${closed.length} done` : 'nothing staked',
         points,
         done: done.length,
         total: closed.length,
-        quiet: done.length === 0,
+        // One rule, two writers — the other is `rowToHistoryWeek`, for the same
+        // week arriving back from the server on a reinstall.
+        ...weekSummary(done.length, closed.length),
         did: done.map((t) => ({ title: t.title, points: t.pts })),
         helpedBy: [],
         helped: [],
       };
 
-      const held = weekHeldStreak(done.length);
-      const currentStreak = held ? state.profile.currentStreak + 1 : 0;
+      const currentStreak = streakHeld ? state.profile.currentStreak + 1 : 0;
 
       const carried = state.myTasks
         .filter((t) => action.carryIds.includes(t.id))
@@ -1349,9 +1361,40 @@ export function reducer(state: State, action: Action): State {
       // the server's to own and yours to have replied to.
       const globalPosts = carryThreads(state.globalPosts, action.merge.globalPosts);
 
+      /**
+       * History comes back only onto a device that has none.
+       *
+       * The narrow rule, and narrow on purpose. The obvious version fills the
+       * gaps — take any week the server has that this device does not — and it
+       * cannot be written safely, because a `HistoryWeek` is identified by `n`,
+       * an ISO week number that repeats every year. Merging by it would fuse
+       * week 33 of two different years into one the first time somebody used
+       * this app for more than twelve months, and the damage would be invisible
+       * until they scrolled back.
+       *
+       * An empty history has no such ambiguity, and it is exactly the case worth
+       * serving: a reinstall, where the account has just been recovered and the
+       * weeks would otherwise be gone. A device that already has history keeps
+       * what it has, which is never wrong — only, occasionally, incomplete.
+       *
+       * The totals move with it, from `aggregatesFrom`. `COMMIT_ROLLOVER`
+       * remains the only writer of those numbers on every other path, so no week
+       * is ever counted twice.
+       */
+      const restoring = state.history.length === 0 && (action.merge.rollups?.length ?? 0) > 0;
+      // Ascending from the server; `history` is newest-first, `yearLevels` is not.
+      const ascending = action.merge.rollups ?? [];
+      const history = restoring ? [...ascending].reverse() : state.history;
+      const yearLevels = restoring
+        ? ascending.map((w) => weekLevel(w.done, w.total))
+        : state.yearLevels;
+      const restored = restoring ? { ...profile, ...aggregatesFrom(history) } : profile;
+
       if (
         people === state.people &&
         myTasks === state.myTasks &&
+        history === state.history &&
+        restored === profile &&
         acted === state.acted &&
         personNotes === state.personNotes &&
         circle === state.circle &&
@@ -1371,8 +1414,10 @@ export function reducer(state: State, action: Action): State {
         circle,
         moments,
         globalPosts,
-        profile,
+        profile: restored,
         notifications,
+        history,
+        yearLevels,
       };
     }
 

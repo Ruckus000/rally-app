@@ -43,7 +43,21 @@ export type WireOp =
   // No `profile_id`, for the same reason nothing above carries `owner_id`:
   // `register_device` reads `auth.uid()` itself, so there is no owner for a
   // payload to name and therefore none to forge.
-  | { id: string; at: number; op: 'device.register'; token: string; platform: string };
+  | { id: string; at: number; op: 'device.register'; token: string; platform: string }
+  // No `profile_id`, for the reason every other payload here lacks an owner: it
+  // is stamped from the session at push time, and a rollup that could name its
+  // own owner could write a week into somebody else's history.
+  | {
+      id: string;
+      at: number;
+      op: 'rollup.add';
+      weekStart: string;
+      points: number;
+      done: number;
+      total: number;
+      perfect: boolean;
+      streakHeld: boolean;
+    };
 
 /** A `notes` row on the way back, narrowed into the shape the client can place. */
 export type PulledNote = {
@@ -70,6 +84,23 @@ export type Transport = {
   pullCheerCounts(taskIds: string[], userId: string): Promise<Record<string, number>>;
   pullReactions(userId: string): Promise<ReactionRef[]>;
   pullNotes(userId: string): Promise<PulledNote[]>;
+  /**
+   * Kept separate from `pullTasks`, which answers a different question: this one
+   * is "what did my closed weeks score", that one is "what is on my week now".
+   * Folding them would fail the *describe it without "and"* test, the same way
+   * `pullCircle` and `pullMyCircle` are two functions rather than one.
+   */
+  pullRollups(userId: string): Promise<PulledRollup[]>;
+};
+
+/** A `week_rollups` row on the way back, before it becomes a `HistoryWeek`. */
+export type PulledRollup = {
+  weekStart: string;
+  points: number;
+  done: number;
+  total: number;
+  perfect: boolean;
+  streakHeld: boolean;
 };
 
 /**
@@ -377,6 +408,29 @@ export function supabaseTransport(): Transport {
       return;
     }
 
+    if (entry.op === 'rollup.add') {
+      // `ignoreDuplicates` for the reason `reaction.add` uses it: a replay has
+      // already achieved its intent. A week closes once, so there is nothing on
+      // the row worth updating — and the table grants insert only, so an upsert
+      // that fell back to updating would be a permanent 42501 at the head of the
+      // queue. Measured against the real policy before it was written: the
+      // second insert answers `INSERT 0 0` and leaves the first row alone.
+      const { error } = await supabase.from('week_rollups').upsert(
+        {
+          profile_id: userId,
+          week_start: entry.weekStart,
+          points: entry.points,
+          done: entry.done,
+          total: entry.total,
+          perfect: entry.perfect,
+          streak_held: entry.streakHeld,
+        },
+        { onConflict: 'profile_id,week_start', ignoreDuplicates: true },
+      );
+      if (error) throw error;
+      return;
+    }
+
     if (entry.op === 'profile.update') {
       // An UPDATE, never an upsert. `profiles` is granted `select, update` only
       // and has no INSERT policy — the row is made by the `on_auth_user_created`
@@ -573,6 +627,32 @@ export function supabaseTransport(): Transport {
    *
    * First circle only. The schema allows several; the UI has always shown one.
    */
+  /**
+   * Every week this account has closed, oldest first.
+   *
+   * Unbounded on purpose, and safe to be: one row per person per week, so a year
+   * is 52 and the table cannot grow faster than the calendar. A limit here would
+   * silently truncate somebody's history at exactly the moment they were trying
+   * to get it back.
+   */
+  const pullRollups = async (userId: string): Promise<PulledRollup[]> => {
+    const { data, error } = await getSupabase()
+      .from('week_rollups')
+      .select('week_start,points,done,total,perfect,streak_held')
+      .eq('profile_id', userId)
+      .order('week_start', { ascending: true });
+    if (error) fail(error);
+
+    return (data ?? []).map((row) => ({
+      weekStart: String(row.week_start),
+      points: Number(row.points ?? 0),
+      done: Number(row.done ?? 0),
+      total: Number(row.total ?? 0),
+      perfect: !!row.perfect,
+      streakHeld: !!row.streak_held,
+    }));
+  };
+
   const pullMyCircle = async (userId: string): Promise<CircleRef | null> => {
     const supabase = getSupabase();
 
@@ -681,6 +761,7 @@ export function supabaseTransport(): Transport {
     pullTasks,
     pullCircle,
     pullMyCircle,
+    pullRollups,
     pullNotifications,
     pullTasksByOwners,
     pullBots,
