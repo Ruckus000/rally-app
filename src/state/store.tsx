@@ -257,6 +257,12 @@ export type State = {
   editingId: string | null;
 
   planOpen: boolean;
+  /**
+   * Account settings. An overlay like the others, and like the others it is a
+   * fact about this session rather than about the account — so it is not in
+   * `PERSISTED_KEYS` and reopening the app never lands you inside it.
+   */
+  settingsOpen: boolean;
   wrapOpen: boolean;
   wrapWeek: number | null;
   notifOpen: boolean;
@@ -317,6 +323,7 @@ const initialState: State = {
   draftAud: null,
   editingId: null,
   planOpen: false,
+  settingsOpen: false,
   wrapOpen: false,
   wrapWeek: null,
   notifOpen: false,
@@ -363,6 +370,8 @@ export type Action =
   | { type: 'CLOSE_WRAP' }
   | { type: 'OPEN_NOTIF' }
   | { type: 'CLOSE_NOTIF' }
+  | { type: 'OPEN_SETTINGS' }
+  | { type: 'CLOSE_SETTINGS' }
   | { type: 'SET_NOTIF_FILTER'; filter: 'all' | NotifTier }
   | { type: 'READ_NOTIF'; id: string }
   | { type: 'READ_ALL_NOTIFS' }
@@ -370,6 +379,7 @@ export type Action =
   | { type: 'INVITE'; key: PersonId }
   | { type: 'SET_ACCOUNT'; mode: AccountMode }
   | { type: 'RESET'; mode: AccountMode }
+  | { type: 'SIGN_OUT' }
   | { type: 'ROLLOVER_DETECTED'; to: WeekContext }
   | { type: 'COMMIT_ROLLOVER'; carryIds: string[] }
   | { type: 'SKIP_ONBOARD' }
@@ -475,6 +485,7 @@ const CLEARED = {
   wrapWeek: null,
   notifOpen: false,
   planOpen: false,
+  settingsOpen: false,
 } satisfies Partial<State>;
 
 /** Fields the composer clears when an edit session ends — saved or abandoned. */
@@ -923,6 +934,12 @@ export function reducer(state: State, action: Action): State {
     case 'CLOSE_NOTIF':
       return { ...state, notifOpen: false };
 
+    case 'OPEN_SETTINGS':
+      return { ...state, settingsOpen: true };
+
+    case 'CLOSE_SETTINGS':
+      return { ...state, settingsOpen: false };
+
     case 'SET_NOTIF_FILTER':
       return { ...state, notifFilter: action.filter };
 
@@ -1010,6 +1027,28 @@ export function reducer(state: State, action: Action): State {
         // of one list, so there is nothing left to choose between.
         scope: 'feed',
       };
+    }
+
+    /**
+     * Sign out, which is `RESET` with one difference that is the entire point.
+     *
+     * `RESET` sets `onboardStep: null` — it drops you into the app with a fresh
+     * account. This sets it to `'onboarding'`, via `initialState`, because the
+     * Welcome screen is where `recoverWithApple` lives. Without that, signing
+     * out would be a one-way door and this whole feature would be a way to lose
+     * an account rather than a way to leave one.
+     *
+     * The wipe is required, not merely tidy: the restore path refuses to fill
+     * history onto a device that already has some, so anything left behind here
+     * would mean signing back in restores nothing.
+     *
+     * `week` is re-read rather than inherited from `initialState`, which
+     * captured the calendar at module load and may be a week stale in a
+     * long-lived process.
+     */
+    case 'SIGN_OUT': {
+      const week = liveWeek();
+      return { ...initialState, week, day: week.today };
     }
 
     case 'ROLLOVER_DETECTED':

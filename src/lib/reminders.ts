@@ -51,6 +51,31 @@ export async function hasReminderPermission(): Promise<boolean> {
   return (await Notifications.getPermissionsAsync()).granted;
 }
 
+/**
+ * The same question, with the answer a screen actually needs to act on.
+ *
+ * `hasReminderPermission` collapses two very different noes into one `false`,
+ * and a screen offering to turn reminders on has to tell them apart. *Not asked
+ * yet* is fixable here — `askForReminders` raises the OS prompt and the answer
+ * changes. *Asked and refused* is not: iOS resolves every later request from the
+ * stored refusal without showing anything, so a button that asks again cannot
+ * move, and the only place left that can change the answer is the OS settings
+ * app. Without this distinction that button is dead and looks broken, which is
+ * exactly the bug it shipped as.
+ *
+ * Additive rather than a widening of `hasReminderPermission`: `scheduleWeekReminder`
+ * and `push.ts` only ever want the boolean, and giving them three cases to
+ * ignore would be a worse trade than one more function.
+ */
+export async function reminderPermission(): Promise<ReminderPermission | 'undetermined'> {
+  const current = await Notifications.getPermissionsAsync();
+  if (current.granted) return 'granted';
+  // `canAskAgain` is the OS's own word for "the prompt would still show". It is
+  // the only thing that separates a fresh install from a refusal, because both
+  // report `granted: false` forever otherwise.
+  return current.canAskAgain ? 'undetermined' : 'denied';
+}
+
 /** The next Monday at 8am, or the one after if this Monday's has already gone. */
 export function nextMonday(from: Date): Date {
   const at = new Date(from.getFullYear(), from.getMonth(), from.getDate(), HOUR, 0, 0, 0);

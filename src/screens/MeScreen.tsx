@@ -6,12 +6,13 @@ import { Alert, Platform, TextInput, View } from 'react-native';
 import { color, onDark, radius, shadows, yearLevelColor } from '../theme/tokens';
 import { CIRCLE_NAME, ME, weekPointsLabel } from '../data/fixtures';
 import { NAME_MAX } from '../data/people';
-import { queueProfileName } from '../sync/engine';
+import { commitSelfName } from '../sync/engine';
 import { linkApple } from '../sync/session';
 import { appleTrouble } from '../lib/appleCopy';
 import { Trouble } from '../components/Trouble';
 import { deadLetters } from '../sync/outbox';
 import { nextWeekAfter, useStore } from '../state/store';
+import { canSecure } from '../overlays/settings/guards';
 import { allTasksDone, cheersGiven, circleMembers, weekPoints } from '../state/selectors';
 import { Avatar } from '../components/Avatar';
 import { Bri, Caps, GlowBloom, Sans, Tap, fill, row } from '../components/primitives';
@@ -28,6 +29,15 @@ export function MeScreen() {
    */
   const myName = live ? people.name(state.selfId) : ME.name;
   /**
+   * What the *editor* starts from, which is not what the card displays.
+   * `people.name()` is total and answers "Someone" for an id it has never seen
+   * — every live account until its first pull lands — and that is a fine thing
+   * to render and a terrible thing to put in a text field: tap the name, tap
+   * away, and the placeholder is filed as your actual name and queued to the
+   * server. Empty is the honest starting point.
+   */
+  const storedName = live ? (state.people[state.selfId]?.name ?? '') : ME.name;
+  /**
    * Demo: the fixture handle, and its circle once there is one. Live: the
    * circle's real name, or nothing. No handle — a live one is `anon_6e8dd5641ace`,
    * which is machine noise rather than an identity worth showing.
@@ -41,18 +51,17 @@ export function MeScreen() {
   const [renaming, setRenaming] = React.useState(false);
   const [draftName, setDraftName] = React.useState('');
   const startRename = () => {
-    setDraftName(myName);
+    setDraftName(storedName);
     setRenaming(true);
   };
   // Blur and submit both land here, so tapping away commits rather than
-  // silently discarding what was typed. `RENAME_SELF` ignores an empty or
-  // unchanged name, which is what makes closing without editing a no-op.
+  // silently discarding what was typed. `commitSelfName` owns both halves — the
+  // dispatch and the queue — and no-ops on an empty or unchanged name, which is
+  // what makes opening the editor and closing it again a no-op.
   const commitRename = () => {
     if (!renaming) return;
     setRenaming(false);
-    dispatch({ type: 'RENAME_SELF', name: draftName });
-    // Same tick as the dispatch — see `queueProfileName`.
-    queueProfileName(draftName);
+    commitSelfName(dispatch, draftName, storedName);
   };
   /**
    * Whether this account can be got back, and the one line shown when securing
@@ -64,11 +73,7 @@ export function MeScreen() {
    * link succeeded. iOS only: on Android there is no provider to reach, so the
    * row would be an offer the app cannot keep.
    */
-  const canSecure =
-    live &&
-    Platform.OS === 'ios' &&
-    state.session.status === 'ready' &&
-    state.session.anonymous;
+  const canSecureAccount = canSecure(state.account, state.session, Platform.OS);
   const [securing, setSecuring] = React.useState(false);
   const [secureTrouble, setSecureTrouble] = React.useState<string | null>(null);
 
@@ -144,6 +149,8 @@ export function MeScreen() {
                 onSubmitEditing={commitRename}
                 onBlur={commitRename}
                 autoFocus
+                placeholder="Your name"
+                placeholderTextColor={onDark.tertiary}
                 maxLength={NAME_MAX}
                 autoCapitalize="words"
                 autoCorrect={false}
@@ -172,7 +179,7 @@ export function MeScreen() {
             <Sans size={12} color={onDark.secondary} style={{ marginTop: 2 }}>
               {subtitle}
             </Sans>
-            {canSecure ? (
+            {canSecureAccount ? (
               <Tap
                 onPress={securing ? undefined : () => void secureAccount()}
                 accessibilityLabel="Secure this account with Apple, so you can sign back in"
@@ -462,6 +469,27 @@ export function MeScreen() {
         <Bri size={15} weight={800} color={color.ink}>
           See this week’s ledger
         </Bri>
+      </Tap>
+
+      {/*
+        Not dev-gated, unlike everything below it. This is the only route a
+        live account has to its own identity, to Apple linking, and to signing
+        out — before it existed, those were spread across a card, a banner that
+        only appears on failure, and an onboarding screen you cannot get back to.
+      */}
+      <Tap
+        onPress={() => dispatch({ type: 'OPEN_SETTINGS' })}
+        accessibilityLabel="Settings"
+        style={{
+          minHeight: 50,
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginTop: 10,
+        }}
+      >
+        <Sans size={13} weight={600} color={color.muted}>
+          Settings
+        </Sans>
       </Tap>
 
       {/*
