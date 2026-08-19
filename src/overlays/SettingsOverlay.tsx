@@ -16,16 +16,19 @@
  * and a row of it directly below Sign out would make two destructive controls
  * read as siblings. It stays in `MeScreen`'s `__DEV__` block.
  *
- * `zIndex` 59, and the two neighbours are the whole reason for the number. The
- * ladder is Plan 45, Sheet 50, Ledger 55, Notifications 58, **this**,
- * Rollover 60, Onboard 70. Above Notifications because the bell is reachable
- * from the same chrome and this is the more specific place to be. Below
- * Rollover because the week having turned outranks anything on this page —
- * `ROLLOVER_DETECTED` bails on `pendingRollover` and on `onboardStep` but *not*
- * on `settingsOpen`, so the two really can be open at once: leave Settings up,
- * background the app, come back on a new week. Below Onboard for the same kind
- * of reason, from the other end — signing out is where onboarding starts again,
- * and it has to be able to cover this.
+ * `zIndex` 59. The ladder is Plan 45, Sheet 50, Ledger 55, Notifications 58,
+ * **this**, Rollover 60, Onboard 70. Above Notifications, because the bell is
+ * reachable from the same chrome and this is the more specific place to be.
+ * Below Rollover and Onboard, because both of those are answers the app is
+ * waiting on — a week that has already turned, and a flow that owns the screen
+ * — and neither should ever find something sitting on top of it.
+ *
+ * As it happens `ROLLOVER_DETECTED` closes this page on its way up: it returns
+ * `{ ...state, ...CLEARED }` and `CLEARED` includes `settingsOpen: false`. So
+ * the two cannot currently be on screen together at all, and the ordering is
+ * belt to that braces rather than the thing keeping them apart. Worth saying
+ * plainly, because an earlier draft of this comment claimed the opposite and a
+ * comment the reducer contradicts is worse than none.
  */
 import React from 'react';
 import { Alert, Linking, Platform, ScrollView, TextInput, View } from 'react-native';
@@ -40,7 +43,7 @@ import { NAME_MAX } from '../data/people';
 import { queueProfileName } from '../sync/engine';
 import { linkApple } from '../sync/session';
 import { appleTrouble } from '../lib/appleCopy';
-import { askForReminders, hasReminderPermission } from '../lib/reminders';
+import { askForReminders, reminderPermission } from '../lib/reminders';
 import type { AccountMode } from '../data/seed';
 import type { SessionState } from '../sync/session';
 import { canSecure, signOutEnabled, signOutVisible } from './settings/guards';
@@ -81,7 +84,7 @@ export function accountLine(
 }
 
 export function SettingsOverlay({ topInset }: { topInset: number }) {
-  const { state, dispatch, people } = useStore();
+  const { state, dispatch } = useStore();
   const { account, session } = state;
   const live = account === 'live';
   const close = () => dispatch({ type: 'CLOSE_SETTINGS' });
@@ -108,6 +111,11 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingTop: 10, paddingHorizontal: gutter, paddingBottom: 28 }}
+        // The name field sits above every tappable row here, so without this the
+        // first tap on any of them is eaten dismissing the keyboard and the
+        // whole page needs two taps per control while a name is being edited.
+        // Nothing is lost either way — blur commits — but it reads as lag.
+        keyboardShouldPersistTaps="handled"
       >
         <Section title="Account">
           <Card>
@@ -130,7 +138,12 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
 
         {live ? (
           <Section title="Your name">
-            <NameField current={people.name(state.selfId)} />
+            {/* The stored name, not `people.name()`. That lookup is total and
+                answers "Someone" for an id it has never seen — which is every
+                live account until the first pull lands — and this field would
+                then commit that invention as your actual name the moment it
+                lost focus. Empty is the honest value; the placeholder says so. */}
+            <NameField current={state.people[state.selfId]?.name ?? ''} />
           </Section>
         ) : null}
 
@@ -165,19 +178,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+/** The read-only twin of the tappable rows: same box, no minimum height. */
 function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <View
-      style={{
-        backgroundColor: color.card,
-        borderRadius: radius.chip,
-        paddingVertical: 13,
-        paddingHorizontal: 14,
-      }}
-    >
-      {children}
-    </View>
-  );
+  return <View style={{ ...cardBox, minHeight: undefined }}>{children}</View>;
 }
 
 /**
@@ -195,7 +198,13 @@ function NameField({ current }: { current: string }) {
   const [draft, setDraft] = React.useState(current);
 
   const commit = () => {
+    // Nothing typed, or nothing changed, is not a rename. `RENAME_SELF` already
+    // ignores both, but `queueProfileName` does not — and this field is always
+    // focusable, so blurring past it would otherwise put a write on the queue
+    // every time somebody opened the page and tapped anything.
+    if (draft.trim() === current.trim()) return;
     dispatch({ type: 'RENAME_SELF', name: draft });
+    // Same tick as the dispatch — see `queueProfileName`.
     queueProfileName(draft);
   };
 
@@ -210,6 +219,8 @@ function NameField({ current }: { current: string }) {
       autoCorrect={false}
       returnKeyType="done"
       selectionColor={color.lime}
+      placeholder="Your name"
+      placeholderTextColor={color.faintInk}
       accessibilityLabel="Your name"
       style={{
         fontFamily: font.sans[600],
@@ -231,17 +242,23 @@ function NameField({ current }: { current: string }) {
  * The Monday reminder, from the one screen you can reach again.
  *
  * Onboarding asks once and never comes back, so somebody who tapped past it had
- * no way to change their mind. iOS only shows its prompt the first time, which
- * is why a declined answer routes to the OS settings app instead of asking
- * again — re-asking would silently do nothing and look like a dead button.
+ * no way to change their mind. Three states, not two, which is the point of
+ * `reminderPermission` returning a word rather than a boolean: *undetermined*
+ * can still be asked, and *denied* cannot — iOS answers every later request
+ * from the stored refusal without showing anything, so a "Turn on" that asks
+ * again resolves denied, writes the same state back, and leaves the row exactly
+ * where it was. A dead button. Denied goes to the OS settings app, which is the
+ * only place the answer can still change.
  */
 function RemindersRow() {
-  const [granted, setGranted] = React.useState<boolean | null>(null);
+  // Null until the OS answers. Rendering "Off" in the meantime would be a guess
+  // the user could act on, so the row says nothing it does not know yet.
+  const [perm, setPerm] = React.useState<'granted' | 'denied' | 'undetermined' | null>(null);
 
   React.useEffect(() => {
     let alive = true;
-    void hasReminderPermission().then((yes) => {
-      if (alive) setGranted(yes);
+    void reminderPermission().then((answer) => {
+      if (alive) setPerm(answer);
     });
     return () => {
       alive = false;
@@ -249,27 +266,36 @@ function RemindersRow() {
   }, []);
 
   const press = () => {
-    if (granted) return void Linking.openSettings();
-    void askForReminders().then((answer) => setGranted(answer === 'granted'));
+    // Everything except the one state the prompt can still move goes to the OS,
+    // including `granted` — that is where somebody turns it back off.
+    if (perm !== 'undetermined') return void Linking.openSettings();
+    void askForReminders().then(setPerm);
   };
 
-  // Unknown until the effect answers. Rendering "Off" in the meantime would be
-  // a guess the user could act on, so the row says nothing it doesn't know.
   const status =
-    granted === null
+    perm === null
       ? 'Checking…'
-      : granted
+      : perm === 'granted'
         ? 'On. Monday morning, with what you staked.'
-        : 'Off. One nudge a week, when the week opens.';
+        : perm === 'denied'
+          ? 'Off. You said no once, so this one is settled in Settings now.'
+          : 'Off. One nudge a week, when the week opens.';
+
+  const label =
+    perm === null
+      ? 'Monday reminder. Checking'
+      : perm === 'granted'
+        ? 'Monday reminder is on. Change it in system settings'
+        : perm === 'denied'
+          ? 'Monday reminder is off. Turn it on in system settings'
+          : 'Turn on the Monday reminder';
 
   return (
     <Tap
-      onPress={granted === null ? undefined : press}
-      accessibilityLabel={
-        granted
-          ? 'Monday reminder is on. Change it in system settings'
-          : 'Turn on the Monday reminder'
-      }
+      onPress={perm === null ? undefined : press}
+      disabled={perm === null}
+      accessibilityState={{ disabled: perm === null }}
+      accessibilityLabel={label}
       style={{ ...row, gap: 12, ...cardBox }}
     >
       <View style={fill}>
@@ -280,9 +306,9 @@ function RemindersRow() {
           {status}
         </Sans>
       </View>
-      {granted === null ? null : (
+      {perm === null ? null : (
         <Sans size={12.5} weight={700} color={color.moss}>
-          {granted ? 'Settings' : 'Turn on'}
+          {perm === 'undetermined' ? 'Turn on' : 'Settings'}
         </Sans>
       )}
     </Tap>
@@ -377,8 +403,13 @@ function SignOutRow({ enabled }: { enabled: boolean }) {
       <Tap
         onPress={enabled && !busy ? confirm : undefined}
         disabled={!enabled}
-        accessibilityState={{ disabled: !enabled }}
-        accessibilityLabel="Sign out"
+        // The caption below explains the dimming, and a screen reader never
+        // reaches it: `accessibilityLabel` on a `Tap` collapses everything
+        // inside into one element. So the reason travels in the label, or
+        // VoiceOver reads "Sign out, dimmed" and stops there. `busy` is in the
+        // state for the same reason `onPress` is gated on it.
+        accessibilityState={{ disabled: !enabled, busy }}
+        accessibilityLabel={enabled ? 'Sign out' : 'Sign out. Signing out needs a connection'}
         style={{ ...row, gap: 12, ...cardBox, opacity: enabled ? 1 : 0.5 }}
       >
         <View style={fill}>

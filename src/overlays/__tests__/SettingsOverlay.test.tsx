@@ -22,11 +22,16 @@
  * overlay; this pins the `if`.
  */
 import React from 'react';
-import { Alert } from 'react-native';
+import { Alert, Linking } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { StoreProvider, useStore } from '../../state/store';
 import { accountLine, SettingsOverlay } from '../SettingsOverlay';
 import * as signOutModule from '../settings/signOut';
+import { fakeNotifications, __resetForTests } from '../../__mocks__/expo-notifications';
+import * as sessionModule from '../../sync/session';
+import { pending, __resetOutboxForTests } from '../../sync/outbox';
+import { appleTrouble } from '../../lib/appleCopy';
 import type { SessionState } from '../../sync/session';
 
 const ME = '11111111-1111-4111-8111-111111111111';
@@ -50,10 +55,26 @@ function Session({ session }: { session: SessionState }) {
  * showing "Checking…". Letting it settle first is both quieter and closer to
  * what anybody actually looking at the page would see.
  */
+/**
+ * The store as it stands, for the assertions that are about state rather than
+ * pixels. Captured in an effect: writing to an outer variable during render is
+ * a side effect and lint says so.
+ */
+let seenState: ReturnType<typeof useStore>['state'];
+
+function Watch() {
+  const { state } = useStore();
+  React.useEffect(() => {
+    seenState = state;
+  });
+  return null;
+}
+
 const mount = async (restored: Record<string, unknown>, session?: SessionState) => {
   const tree = render(
     <StoreProvider persist={false} sync={false} restored={{ settingsOpen: true, ...restored }}>
       {session ? <Session session={session} /> : null}
+      <Watch />
       <SettingsOverlay topInset={0} />
     </StoreProvider>,
   );
@@ -66,7 +87,7 @@ const live = (session: SessionState) => mount({ account: 'live', selfId: ME }, s
 describe('what a demo account sees', () => {
   it('has no sign-out, because there is no account to leave', async () => {
     await mount({ account: 'seeded' });
-    expect(screen.queryByLabelText('Sign out')).toBeNull();
+    expect(screen.queryByLabelText(/^Sign out/)).toBeNull();
   });
 
   it('still gets a page, and it says what kind of account this is', async () => {
@@ -78,7 +99,7 @@ describe('what a demo account sees', () => {
 describe('what a secured live account sees', () => {
   it('is offered sign-out', async () => {
     await live({ status: 'ready', userId: ME, anonymous: false });
-    expect(screen.getByLabelText('Sign out')).toBeTruthy();
+    expect(screen.getByLabelText(/^Sign out/)).toBeTruthy();
   });
 
   it('is not offered Apple linking, having already done it', async () => {
@@ -90,14 +111,14 @@ describe('what a secured live account sees', () => {
 describe('what an anonymous live account sees', () => {
   it('is not offered sign-out, which it could not come back from', async () => {
     await live({ status: 'ready', userId: ME, anonymous: true });
-    expect(screen.queryByLabelText('Sign out')).toBeNull();
+    expect(screen.queryByLabelText(/^Sign out/)).toBeNull();
   });
 });
 
 describe('when the session has not resolved', () => {
   it('shows sign-out disabled rather than removing it', async () => {
     await live({ status: 'offline' });
-    const row = screen.getByLabelText('Sign out');
+    const row = screen.getByLabelText(/^Sign out/);
     expect(row.props.accessibilityState?.disabled).toBe(true);
   });
 
@@ -164,6 +185,195 @@ describe('what the page says this account is', () => {
 });
 
 /**
+ * Renaming yourself from the second door.
+ *
+ * The pairing is the test: `RENAME_SELF` moves the directory and
+ * `queueProfileName` puts the same name in the outbox, in one tick. Only the
+ * first of those is visible on the device, which is exactly why the second is
+ * worth pinning — drop it and a rename looks perfect until the next pull
+ * arrives with the old name and silently wins. `engine.test.tsx` pins the same
+ * pair, but against a hand-written copy of `MeScreen`'s commit rather than
+ * against this component, so it would not notice this one losing a line.
+ */
+describe('changing your name here', () => {
+  beforeEach(() => {
+    __resetOutboxForTests();
+  });
+
+  const nameField = () => screen.getByLabelText('Your name');
+
+  it('moves the directory and queues the same name for the server', async () => {
+    await live({ status: 'ready', userId: ME, anonymous: false });
+
+    await act(async () => {
+      fireEvent.changeText(nameField(), 'Maya Chen');
+    });
+    // A separate frame, because typing and tapping away are separate frames for
+    // a person too — and batched into one, blur would still be holding the
+    // commit from before the text changed.
+    await act(async () => {
+      fireEvent(nameField(), 'blur');
+    });
+
+    // On the device.
+    expect(seenState.people[ME]?.name).toBe('Maya Chen');
+    // And on its way off it. Without this line the rename reverts on the next
+    // pull and nobody is told.
+    const queued = pending().filter((e) => e.op === 'profile.update');
+    expect(queued).toHaveLength(1);
+    expect(queued[0].payload).toEqual({ name: 'Maya Chen' });
+  });
+
+  it('is a no-op when the field is left alone, so opening the page costs nothing', async () => {
+    await live({ status: 'ready', userId: ME, anonymous: false });
+
+    await act(async () => {
+      fireEvent(nameField(), 'blur');
+    });
+
+    expect(pending().filter((e) => e.op === 'profile.update')).toHaveLength(0);
+  });
+
+  it('starts empty rather than inventing one, before the profile has arrived', async () => {
+    await live({ status: 'ready', userId: ME, anonymous: false });
+
+    // `people.name()` is total and answers "Someone" for an id it has never
+    // seen — which is every live account until the first pull. Putting that in
+    // an editable field shows somebody a name they never chose, and anything
+    // they then type is appended to it.
+    expect(nameField().props.value).toBe('');
+    expect(nameField().props.placeholder).toBe('Your name');
+  });
+
+  it('is not offered to the demo, which has no server to tell', async () => {
+    await mount({ account: 'seeded' });
+    expect(screen.queryByLabelText('Your name')).toBeNull();
+  });
+});
+
+/**
+ * Securing the account, and the one failure that is not a failure.
+ *
+ * `linkApple` is stubbed rather than driven — `screens/__tests__/secureAccount.test.tsx`
+ * owns whether the link actually lands, including the part where the row
+ * removes itself. What is left for this page is the branch it owns: a dismissed
+ * Apple sheet is the user changing their mind, and telling them it went wrong
+ * would be the app arguing with them.
+ */
+describe('securing this account', () => {
+  const anonIos = { status: 'ready', userId: ME, anonymous: true } as const;
+  const secureRow = () => screen.getByLabelText(/Secure this account/);
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('says nothing at all when the Apple sheet is dismissed', async () => {
+    jest.spyOn(sessionModule, 'linkApple').mockResolvedValue({ ok: false, reason: 'cancelled' });
+    await live(anonIos);
+
+    await act(async () => {
+      fireEvent.press(secureRow());
+    });
+
+    expect(screen.queryByText(appleTrouble('failed'))).toBeNull();
+  });
+
+  it('says one line when it actually went wrong', async () => {
+    jest.spyOn(sessionModule, 'linkApple').mockResolvedValue({ ok: false, reason: 'failed' });
+    await live(anonIos);
+
+    await act(async () => {
+      fireEvent.press(secureRow());
+    });
+
+    expect(screen.getByText(appleTrouble('failed'))).toBeTruthy();
+  });
+});
+
+/**
+ * The reminders row, and the one thing it must not be: a button that does
+ * nothing.
+ *
+ * Three states, and the middle one is the whole reason this block exists. iOS
+ * raises its permission prompt exactly once; after a refusal
+ * `requestPermissionsAsync` resolves from the stored answer without showing
+ * anything. So for somebody who declined during onboarding, "Turn on" that
+ * asks again is a control that cannot possibly work — it resolves denied, sets
+ * the same state back, and the row does not move. The only place that answer
+ * can still be changed is the OS settings app, so that is where a denied tap
+ * has to go.
+ */
+describe('the Monday reminder', () => {
+  let openSettings: jest.SpyInstance;
+
+  beforeEach(() => {
+    __resetForTests();
+    openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  /** What the OS looks like to somebody who tapped "Don't allow" once already. */
+  const alreadyDeclined = async () => {
+    await Notifications.requestPermissionsAsync();
+  };
+
+  it('asks, when nobody has been asked yet', async () => {
+    fakeNotifications.grantOnAsk();
+    await mount({ account: 'seeded' });
+
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText(/Turn on the Monday reminder/));
+    });
+
+    expect(fakeNotifications.prompts()).toBe(1);
+    expect(screen.getByText(/^On\./)).toBeTruthy();
+  });
+
+  it('sends somebody who already declined to the place that can still change it', async () => {
+    await alreadyDeclined();
+    await mount({ account: 'seeded' });
+
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText(/Monday reminder/));
+    });
+
+    // Asking again is the bug: iOS answers from the stored refusal without
+    // showing anything, so the row would sit there and the button would be
+    // dead. The OS settings app is the only door left.
+    expect(openSettings).toHaveBeenCalled();
+    expect(fakeNotifications.prompts()).toBe(1);
+  });
+
+  it('sends somebody who already granted to settings too, to turn it back off', async () => {
+    fakeNotifications.alreadyGranted();
+    await mount({ account: 'seeded' });
+
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText(/Monday reminder is on/));
+    });
+
+    expect(openSettings).toHaveBeenCalled();
+  });
+
+  it('does not offer a tap while it is still finding out', async () => {
+    const tree = render(
+      <StoreProvider persist={false} sync={false} restored={{ settingsOpen: true, account: 'seeded' }}>
+        <SettingsOverlay topInset={0} />
+      </StoreProvider>,
+    );
+    // Deliberately not settled: this is the frame between mount and the answer.
+    const rowNow = screen.getByLabelText(/Checking/);
+    expect(rowNow.props.accessibilityState?.disabled).toBe(true);
+    await act(async () => {});
+    tree.unmount();
+  });
+});
+
+/**
  * The contract: `SIGN_OUT` is dispatched **only** on `{ ok: true }`.
  *
  * `attemptSignOut` is the thing that knows whether leaving is safe, and it is
@@ -212,7 +422,7 @@ describe('signing out only when it is safe', () => {
 
   /** Tap Sign out, then answer the confirm the way the user would. */
   const confirmSignOut = async () => {
-    fireEvent.press(screen.getByLabelText('Sign out'));
+    fireEvent.press(screen.getByLabelText(/^Sign out/));
     const buttons = alert.mock.calls[0]?.[2] as
       | { text: string; style?: string; onPress?: () => void }[]
       | undefined;
