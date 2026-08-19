@@ -323,6 +323,7 @@ export function enqueue(op: OutboxOp, key: string, payload: Record<string, unkno
     open.payload = payload;
     open.at = at;
     schedule();
+    announceEnqueued();
     return;
   }
 
@@ -337,6 +338,7 @@ export function enqueue(op: OutboxOp, key: string, payload: Record<string, unkno
     nextAt: at,
   });
   schedule();
+  announceEnqueued();
 }
 
 /**
@@ -409,6 +411,26 @@ export function onOutboxChange(fn: () => void): () => void {
 
 function announce(): void {
   for (const fn of listeners) fn();
+}
+
+/**
+ * Who wants to know when work lands in the queue. The scheduler subscribes so
+ * a tap can be offered to the network within a beat rather than waiting out
+ * the safety-net tick — up to five seconds of self-inflicted cross-device lag
+ * for an app whose whole point is a cheer landing on someone else's phone.
+ * The outbox still owns no timer; *when* to drain stays scheduler.ts's job.
+ */
+const enqueueListeners = new Set<() => void>();
+
+export function onEnqueued(fn: () => void): () => void {
+  enqueueListeners.add(fn);
+  return () => {
+    enqueueListeners.delete(fn);
+  };
+}
+
+function announceEnqueued(): void {
+  for (const fn of enqueueListeners) fn();
 }
 
 // ─── drain ────────────────────────────────────────────────────────────────

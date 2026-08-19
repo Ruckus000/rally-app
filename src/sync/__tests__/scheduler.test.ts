@@ -10,8 +10,21 @@
 import { startScheduler, stopScheduler } from '../scheduler';
 import { drain, QueueTransport } from '../outbox';
 
+// The enqueue hook is faked alongside drain so a test can play the outbox's
+// part: `announce()` below is what a real `enqueue()` would broadcast.
+const mockEnqueueListeners = new Set<() => void>();
+const announce = () => {
+  for (const fn of mockEnqueueListeners) fn();
+};
+
 jest.mock('../outbox', () => ({
   drain: jest.fn().mockResolvedValue({ sent: 0, failed: 0, dead: 0 }),
+  onEnqueued: (fn: () => void) => {
+    mockEnqueueListeners.add(fn);
+    return () => {
+      mockEnqueueListeners.delete(fn);
+    };
+  },
 }));
 
 const drained = drain as jest.MockedFunction<typeof drain>;
@@ -61,6 +74,31 @@ it('stops, and can be started again', async () => {
 
   startScheduler(transport, 5000);
   expect(drained).toHaveBeenCalledTimes(3);
+});
+
+it('drains shortly after an enqueue instead of waiting out the interval', async () => {
+  startScheduler(transport, 5000);
+  expect(drained).toHaveBeenCalledTimes(1);
+
+  // A burst of taps coalesces into one nudge, well before the 5s tick.
+  announce();
+  announce();
+  announce();
+  await jest.advanceTimersByTimeAsync(300);
+  expect(drained).toHaveBeenCalledTimes(2);
+
+  // …and the safety-net tick still fires on its own clock.
+  await jest.advanceTimersByTimeAsync(4700);
+  expect(drained).toHaveBeenCalledTimes(3);
+});
+
+it('stops listening for enqueues once stopped', async () => {
+  startScheduler(transport, 5000);
+  stopScheduler();
+
+  announce();
+  await jest.advanceTimersByTimeAsync(1000);
+  expect(drained).toHaveBeenCalledTimes(1);
 });
 
 it('survives a drain that rejects', async () => {

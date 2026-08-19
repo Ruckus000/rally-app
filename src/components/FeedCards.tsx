@@ -31,14 +31,21 @@ export function FeedLabel({ children }: { children: string }) {
 
 /* ── mine ───────────────────────────────────────────────────────────────── */
 
-export function MineRow({
+/**
+ * Memoized, like every card below: each one is a LinearGradient hairline (the
+ * dark ones an SVG bloom too), so re-painting all of them because an unrelated
+ * slice of state moved is exactly the per-keystroke cost this app had. The
+ * handlers take the task id so the caller can pass one stable function to
+ * every row instead of a fresh closure per row per render.
+ */
+export const MineRow = React.memo(function MineRow({
   task,
   onToggle,
   onOpen,
 }: {
   task: Task;
-  onToggle: () => void;
-  onOpen: () => void;
+  onToggle: (id: string) => void;
+  onOpen: (id: string) => void;
 }) {
   const showAud = task.aud !== 'friends';
   return (
@@ -54,7 +61,7 @@ export function MineRow({
         }}
       >
         <Tap
-          onPress={onToggle}
+          onPress={() => onToggle(task.id)}
           accessibilityRole="checkbox"
           accessibilityState={{ checked: task.done }}
           accessibilityLabel={task.title}
@@ -74,7 +81,7 @@ export function MineRow({
           {task.done ? <Icon name="check" size={16} color={color.ink} strokeWidth={3} /> : null}
         </Tap>
 
-        <Tap onPress={onOpen} accessibilityLabel={`Open ${task.title}`} style={fill} minSize={0}>
+        <Tap onPress={() => onOpen(task.id)} accessibilityLabel={`Open ${task.title}`} style={fill} minSize={0}>
           <View style={[row, { gap: 8 }]}>
             <Sans size={14.5} weight={600} color={task.done ? color.muted : color.ink}>
               {task.title}
@@ -112,11 +119,11 @@ export function MineRow({
       </View>
     </GradientHairline>
   );
-}
+});
 
 /* ── big (someone else's perfect week) ──────────────────────────────────── */
 
-export function BigCard({
+export const BigCard = React.memo(function BigCard({
   moment,
   badge,
   cheered,
@@ -195,7 +202,7 @@ export function BigCard({
       </View>
     </GradientHairline>
   );
-}
+});
 
 function Stat({ value, label, accent }: { value: string; label: string; accent?: boolean }) {
   return (
@@ -239,7 +246,7 @@ function SourceBadge({ label, dark }: { label: string; dark?: boolean }) {
 
 /* ── social (friend moment or global post) ──────────────────────────────── */
 
-export function SocialCard({
+export const SocialCard = React.memo(function SocialCard({
   who,
   initials,
   tint,
@@ -351,11 +358,11 @@ export function SocialCard({
       </Tap>
     </GradientHairline>
   );
-}
+});
 
 /* ── quiet ──────────────────────────────────────────────────────────────── */
 
-export function QuietRow({
+export const QuietRow = React.memo(function QuietRow({
   text,
   acted,
   onAct,
@@ -379,11 +386,11 @@ export function QuietRow({
       </Tap>
     </View>
   );
-}
+});
 
 /* ── mineWin (your own perfect week) ────────────────────────────────────── */
 
-export function MineWinCard({
+export const MineWinCard = React.memo(function MineWinCard({
   taskCount,
   points,
   streak,
@@ -454,7 +461,7 @@ export function MineWinCard({
       </View>
     </GradientHairline>
   );
-}
+});
 
 /* ── empty ──────────────────────────────────────────────────────────────── */
 

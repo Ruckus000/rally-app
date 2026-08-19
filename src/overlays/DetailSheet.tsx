@@ -39,7 +39,13 @@ import type { PersonId } from '../data/people';
 
 export function DetailSheet({ bottomInset }: { bottomInset: number }) {
   const { state, dispatch } = useStore();
-  const sheet = state.sheet;
+  // `CLOSE_SHEET` nulls the slice while <Presence> is still fading this out;
+  // holding the last sheet keeps the content on screen through the exit
+  // instead of the sheet blinking empty a frame before the fade. Guarded
+  // setState during render — the sanctioned previous-value pattern.
+  const [lastSheet, setLastSheet] = useState(state.sheet);
+  if (state.sheet && state.sheet !== lastSheet) setLastSheet(state.sheet);
+  const sheet = state.sheet ?? lastSheet;
   const reduced = useReducedMotion();
   const [slide] = useState(() => new Animated.Value(1));
 
@@ -722,6 +728,22 @@ function NoteThread({ notes, emptyText }: { notes: Note[]; emptyText: string }) 
 function NoteComposer({ bottomInset }: { bottomInset: number }) {
   const { state, dispatch, people } = useStore();
   const sheet = state.sheet;
+  // Buffered locally while typing: a keystroke used to dispatch `SET_NOTE`,
+  // re-rendering the whole app per character. The reducer still owns the send
+  // — the buffer is written back in the same batch as `SEND_NOTE`. The buffer
+  // resets when the sheet underneath changes (render-time adjustment).
+  const [text, setText] = useState('');
+  const sheetKey = sheet ? `${sheet.type}:${sheet.id}` : '';
+  const [seenKey, setSeenKey] = useState(sheetKey);
+  if (sheetKey !== seenKey) {
+    setSeenKey(sheetKey);
+    setText('');
+  }
+  const send = () => {
+    dispatch({ type: 'SET_NOTE', value: text });
+    dispatch({ type: 'SEND_NOTE' });
+    setText('');
+  };
   const placeholder =
     sheet?.type === 'person' && sheet.id ? `Write to ${people.first(sheet.id)}…` : 'Say something…';
 
@@ -740,9 +762,9 @@ function NoteComposer({ bottomInset }: { bottomInset: number }) {
         }}
       >
         <TextInput
-          value={state.note}
-          onChangeText={(value) => dispatch({ type: 'SET_NOTE', value })}
-          onSubmitEditing={() => dispatch({ type: 'SEND_NOTE' })}
+          value={text}
+          onChangeText={setText}
+          onSubmitEditing={send}
           placeholder={placeholder}
           placeholderTextColor={color.muted}
           accessibilityLabel={placeholder}
@@ -759,7 +781,7 @@ function NoteComposer({ bottomInset }: { bottomInset: number }) {
           }}
         />
         <Tap
-          onPress={() => dispatch({ type: 'SEND_NOTE' })}
+          onPress={send}
           accessibilityLabel="Send note"
           style={{
             width: 46,

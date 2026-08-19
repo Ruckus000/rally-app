@@ -2,7 +2,7 @@
  * Plan — a full-screen action, not a destination. Stake points on the week.
  */
 import React from 'react';
-import { ScrollView, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { color, gradientAngle, heroGlow, onDark, planGutter, shadows } from '../theme/tokens';
 import {
@@ -54,12 +54,23 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
   const draftPoints = state.draftPts;
   const blocked = state.draftVerdict === 'blocked';
   const canStake = hasDraft && !blocked;
-  const submitDraft = () =>
+  // The freshest text the input holds, ahead of the debounced `SET_DRAFT`.
+  // Flushed into the reducer in the same batch as the stake, so a fast
+  // type-then-tap never stakes a title the debounce hadn't delivered yet.
+  const liveDraft = React.useRef(state.draft);
+  const onLiveDraft = React.useCallback((value: string) => {
+    liveDraft.current = value;
+  }, []);
+  const submitDraft = () => {
+    if (liveDraft.current !== state.draft) {
+      dispatch({ type: 'SET_DRAFT', value: liveDraft.current });
+    }
     dispatch(
       editing
         ? { type: 'SAVE_EDIT', aud: effectiveAudience }
         : { type: 'ADD_TASK', aud: effectiveAudience },
     );
+  };
 
   const close = () => dispatch({ type: 'CLOSE_PLAN' });
 
@@ -101,6 +112,13 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
         </View>
       </View>
 
+      {/* Without this the iOS keyboard buries the day picker, the chips and
+          the Stake button — the user had to dismiss it to reach the price
+          they were just quoted. */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingTop: 18, paddingHorizontal: planGutter, paddingBottom: 10 }}
@@ -203,9 +221,9 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                 </Tap>
               ) : null}
             </View>
-            <TextInput
-              value={state.draft}
-              onChangeText={(value) => dispatch({ type: 'SET_DRAFT', value })}
+            <DraftInput
+              draft={state.draft}
+              onLive={onLiveDraft}
               onSubmitEditing={submitDraft}
               placeholder={CATEGORY_HINT[state.draftCat] ?? 'name it in your own words'}
               placeholderTextColor={onDark.tertiary}
@@ -626,8 +644,76 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
           </Sans>
         </Tap>
       </LinearGradient>
+      </KeyboardAvoidingView>
     </Overlay>
   );
+}
+
+/**
+ * The stake title, buffered locally while the user types.
+ *
+ * A keystroke used to dispatch `SET_DRAFT`, which re-rendered the whole app —
+ * the overlay, the screen behind it, header and tab bar — per character. Now
+ * the input re-renders alone and the store hears about the text on a short
+ * trailing debounce (which also spaces out the rating calls `useGoalRating`
+ * makes). `liveDraft` always carries the freshest text so the parent can flush
+ * it into the reducer ahead of a stake; an external write to `state.draft`
+ * (START_EDIT loading a task, ADD_TASK clearing the composer) resets the
+ * buffer to match.
+ */
+const DRAFT_DEBOUNCE_MS = 200;
+
+function DraftInput({
+  draft,
+  onLive,
+  ...inputProps
+}: {
+  draft: string;
+  /** Reports the freshest text on every change, ahead of the debounce. */
+  onLive: (value: string) => void;
+} & React.ComponentProps<typeof TextInput>) {
+  const { dispatch } = useStore();
+  const [text, setText] = React.useState(draft);
+
+  // An external write to `state.draft` (START_EDIT loading a stake, ADD_TASK
+  // clearing the composer) is adopted; an echo of our own debounced dispatch
+  // (draft === text) is not a change at all. Guarded setState during render.
+  const [prevDraft, setPrevDraft] = React.useState(draft);
+  if (draft !== prevDraft) {
+    setPrevDraft(draft);
+    if (draft !== text) setText(draft);
+  }
+
+  React.useEffect(() => {
+    onLive(text);
+    if (text === draft) return;
+    // Crossing between empty and non-empty flips the Stake button's whole
+    // state ("Write it down first" ↔ a price), so that edge goes through
+    // immediately; only same-state keystrokes ride the debounce.
+    if ((text.trim() === '') !== (draft.trim() === '')) {
+      dispatch({ type: 'SET_DRAFT', value: text });
+      return;
+    }
+    const timer = setTimeout(() => dispatch({ type: 'SET_DRAFT', value: text }), DRAFT_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [text, draft, dispatch, onLive]);
+
+  // Unmounting mid-debounce (closing the overlay) must not eat the tail of
+  // what was typed: flush it so the draft survives a reopen.
+  const latest = React.useRef({ text, draft });
+  React.useEffect(() => {
+    latest.current = { text, draft };
+  });
+  React.useEffect(
+    () => () => {
+      if (latest.current.text !== latest.current.draft) {
+        dispatch({ type: 'SET_DRAFT', value: latest.current.text });
+      }
+    },
+    [dispatch],
+  );
+
+  return <TextInput value={text} onChangeText={setText} {...inputProps} />;
 }
 
 function SectionRule({ label, children }: { label: string; children?: React.ReactNode }) {
