@@ -191,7 +191,7 @@ export function MeScreen() {
               <Tap
                 onPress={live ? startRename : undefined}
                 accessibilityLabel={live ? `${myName}. Change your name.` : undefined}
-                style={{ alignSelf: 'flex-start' }}
+                style={{ alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' }}
               >
                 <Bri size={22} weight={800} tracking={-0.5} color={color.paper}>
                   {myName}
@@ -232,7 +232,7 @@ export function MeScreen() {
             accessibilityLabel={
               rank ? `Ranked ${rank} in your circle. Open it.` : `${profile.weeksIn} weeks in. Open your circle.`
             }
-            style={{ alignItems: 'flex-end', padding: 2 }}
+            style={{ alignItems: 'flex-end', padding: 2, minHeight: 44, justifyContent: 'center' }}
           >
             <Bri size={19} weight={800} color={color.lime}>
               {rank ? `#${rank}` : profile.weeksIn}

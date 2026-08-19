@@ -5,6 +5,7 @@
 import React from 'react';
 import {
   AccessibilityRole,
+  LayoutChangeEvent,
   Pressable,
   PressableProps,
   StyleProp,
@@ -132,10 +133,44 @@ export function Tap({
   accessibilityRole?: AccessibilityRole;
   children?: React.ReactNode;
 }) {
+  const declared = declaredSize(style);
+  /**
+   * What the control turned out to be, for the ones that never said.
+   *
+   * A `Tap` sized by its own text declares no height, so the slop below had
+   * nothing to read and the 44pt "guarantee" quietly wasn't one — several
+   * shipped controls sat near 30pt that way. Measuring closes that hole for
+   * every such control at once, rather than depending on each call site
+   * remembering to declare a `minHeight`.
+   *
+   * Only the controls that need it pay anything: the layout handler is
+   * attached solely where a dimension is missing, and it commits state only
+   * when what it measured is genuinely under the target. Everything with a
+   * declared size — most of the app — renders exactly as before.
+   */
+  const [measured, setMeasured] = React.useState<{ w: number; h: number } | null>(null);
+  const needsMeasure =
+    minSize > 0 && (declared.h === undefined || declared.w === undefined);
+
+  const onLayout = React.useCallback(
+    (e: LayoutChangeEvent) => {
+      const { width, height } = e.nativeEvent.layout;
+      if (width >= minSize && height >= minSize) return;
+      setMeasured((prev) =>
+        prev && prev.w === width && prev.h === height ? prev : { w: width, h: height },
+      );
+    },
+    [minSize],
+  );
+
+  const h = declared.h ?? measured?.h;
+  const w = declared.w ?? measured?.w;
+
   return (
     <Pressable
       accessibilityRole={accessibilityRole}
-      hitSlop={hitSlopFor(style, minSize)}
+      hitSlop={slopFor(h, w, minSize)}
+      onLayout={needsMeasure ? onLayout : undefined}
       style={({ pressed }) => [style, pressed && { opacity: 0.72 }]}
       {...rest}
     >
@@ -144,13 +179,21 @@ export function Tap({
   );
 }
 
-/** Grows the touch area up to `minSize` without changing layout. */
-function hitSlopFor(style: StyleProp<ViewStyle> | undefined, minSize: number) {
+/** What the style says the box is, where it says anything at all. */
+function declaredSize(style: StyleProp<ViewStyle> | undefined): {
+  h: number | undefined;
+  w: number | undefined;
+} {
   const flat = StyleSheet.flatten(style as StyleProp<ViewStyle>) ?? {};
   const h = typeof flat.height === 'number' ? flat.height : (flat.minHeight as number | undefined);
   const w = typeof flat.width === 'number' ? flat.width : undefined;
-  const vertical = h && h < minSize ? Math.ceil((minSize - h) / 2) : 0;
-  const horizontal = w && w < minSize ? Math.ceil((minSize - w) / 2) : 0;
+  return { h: typeof h === 'number' ? h : undefined, w: typeof w === 'number' ? w : undefined };
+}
+
+/** Grows the touch area up to `minSize` without changing layout. */
+function slopFor(h: number | undefined, w: number | undefined, minSize: number) {
+  const vertical = h !== undefined && h < minSize ? Math.ceil((minSize - h) / 2) : 0;
+  const horizontal = w !== undefined && w < minSize ? Math.ceil((minSize - w) / 2) : 0;
   return { top: vertical, bottom: vertical, left: horizontal, right: horizontal };
 }
 

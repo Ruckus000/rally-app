@@ -21,6 +21,8 @@ export function BannerAction({ label, onPress }: { label: string; onPress: () =>
     <Tap
       accessibilityLabel={label}
       onPress={onPress}
+      // `minHeight` rather than padding alone: `Tap` can only grow a target it
+      // can measure, and a chip sized by its own text is one it cannot.
       style={{
         borderRadius: radius.chip,
         borderWidth: 1,
@@ -28,6 +30,8 @@ export function BannerAction({ label, onPress }: { label: string; onPress: () =>
         backgroundColor: color.card,
         paddingHorizontal: 12,
         paddingVertical: 7,
+        minHeight: 44,
+        justifyContent: 'center',
       }}
     >
       <Sans size={12} weight={600} color={color.ink}>

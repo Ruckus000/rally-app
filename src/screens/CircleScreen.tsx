@@ -15,7 +15,14 @@ import { RankedMember, ranking } from '../state/selectors';
 import { EmptyState } from '../components/FeedCards';
 
 const TREND_GLYPH = { up: '▲', down: '▼', same: '–' } as const;
-const TREND_COLOR = { up: color.moss, down: color.faintInk, same: color.dash } as const;
+/**
+ * `down` and `same` were drawn at faintInk and dash — around 2:1 on white, so
+ * the two states that are not "up" were the ones you could not see. The glyph
+ * still carries the meaning; the colour only has to be legible.
+ */
+const TREND_COLOR = { up: color.moss, down: color.muted, same: color.muted } as const;
+/** The same fact in words, for a screen reader that cannot read a triangle. */
+const TREND_SAID = { up: 'trending up', down: 'trending down', same: 'holding steady' } as const;
 
 /**
  * A member whose week has not been pulled has no cheer count, and a 0 in that
@@ -89,7 +96,7 @@ export function CircleScreen() {
           <Tap
             key={r.k}
             onPress={() => openMember(r.k)}
-            accessibilityLabel={`${r.name}, rank ${r.rank}, ${r.sub}`}
+            accessibilityLabel={`${r.name}, rank ${r.rank}, ${r.sub}, ${TREND_SAID[people.trend(r.k)]}`}
             style={{
               ...row,
               gap: 10,

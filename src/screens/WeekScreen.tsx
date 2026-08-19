@@ -45,7 +45,14 @@ export function WeekScreen() {
       {scope === 'feed' && state.moments.length ? (
         <Tap
           onPress={() => dispatch({ type: 'OPEN_WRAP', week: null })}
-          style={{ paddingTop: 16, paddingBottom: 6, paddingHorizontal: 12, alignItems: 'center' }}
+          style={{
+            paddingTop: 16,
+            paddingBottom: 6,
+            paddingHorizontal: 12,
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: 44,
+          }}
         >
           <Sans size={12.5} weight={700} color={color.moss}>
             That’s the week. See how it went, together →
@@ -141,6 +148,13 @@ function QuickLogInput() {
         onSubmitEditing={submit}
         onKeyPress={(e) => {
           if (e.nativeEvent.key === 'Escape') dispatch({ type: 'SET_COMPOSER', open: false });
+        }}
+        // Escape is the only way out on a keyboard, and a phone has no Escape:
+        // tapping away from an empty field closes it, which is what every
+        // other dismissable field on a phone does. Text typed is never
+        // discarded this way — a non-empty field stays open, waiting.
+        onBlur={() => {
+          if (!text.trim()) dispatch({ type: 'SET_COMPOSER', open: false });
         }}
         autoFocus
         returnKeyType="done"
