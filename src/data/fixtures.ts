@@ -672,6 +672,15 @@ export const NOTIFICATIONS: Notification[] = [
   },
 ];
 
+/**
+ * Ratified deviation — see design-reference/DEVIATIONS.md.
+ *
+ * The handoff names these "Needs you / Worth a look / Batched". These split
+ * by *who a row is about* rather than by urgency and then by format: batching
+ * is something that happens to cheers inside a tier — `batchCheers` groups
+ * them wherever they land — so a tier named after it would be a rendering
+ * detail sitting alongside two real categories.
+ */
 export const NOTIF_TIERS: { key: NotifTier; title: string; accent: string; blurb: string }[] = [
   {
     key: 'needs',

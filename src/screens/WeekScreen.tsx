@@ -113,6 +113,11 @@ function PersonalHeader() {
           {pts} pts
         </Bri>
         <View style={{ width: 3, height: 3, borderRadius: 2, backgroundColor: 'rgba(241,242,236,.3)' }} />
+        {/* Ratified deviation — see design-reference/DEVIATIONS.md. The
+            handoff reads "{n} this week"; this reports progress instead,
+            because how many you staked is already the length of the list
+            directly below, and how many you closed is not said anywhere else
+            on this screen. */}
         <Sans size={12.5} color="rgba(241,242,236,.6)">
           {doneCount} of {state.myTasks.length} done
         </Sans>

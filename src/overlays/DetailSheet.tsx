@@ -592,6 +592,10 @@ function InviteSheet() {
    * The OS share sheet, not a clipboard. `Share` is core React Native, so this
    * needs no native module and no rebuild — and sending a friend a code is the
    * actual task, which a pasteboard only ever half-does.
+   *
+   * Ratified deviation — see design-reference/DEVIATIONS.md. The handoff asks
+   * for a copyable link; the share sheet reaches the clipboard *and* every
+   * app the code might be sent through, in one tap.
    */
   const share = () => {
     void Share.share({

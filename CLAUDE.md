@@ -68,6 +68,7 @@ npm run icons             # regenerates assets AND src/theme/mark.ts
 | Topic | File |
 |---|---|
 | Design spec, tokens, copy | `design-reference/HANDOFF.md` |
+| Where the build knowingly differs from it | `design-reference/DEVIATIONS.md` |
 | Schema, RLS rationale, rollout | `docs/backend.md` |
 | Manual test walkthrough, config flags | `TESTING.md` |
 | Setup, the mark, scoring | `README.md` |

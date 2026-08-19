@@ -380,11 +380,15 @@ export function MeScreen() {
                 'Nobody is counting except this bar.'}
         </Sans>
         <Sans size={11} color={color.muted} style={{ marginTop: 4, opacity: 0.8 }}>
-          {/* Not "lands on their phone": there is no push, and a cheer that
-              claimed to buzz someone is a promise the build cannot keep. It
-              does arrive with your name on it — the trigger puts it in the
-              payload — so that half stays. */}
-          Every cheer shows up in their week, with your name on it.
+          {/* The handoff's line, restored. It was softened to "shows up in
+              their week" when there was no push and a cheer that claimed to
+              buzz someone was a promise the build could not keep. There is
+              one now — `push_notification()` fires on the notification row,
+              the `push` function delivers it, and the device registers its
+              token through the outbox — so the promise is the app's again.
+              It holds for anyone who allowed notifications; for anyone who
+              didn't, the cheer still lands where the second half says. */}
+          Every cheer lands on their phone, with your name on it.
         </Sans>
       </View>
 
