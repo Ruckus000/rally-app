@@ -300,6 +300,44 @@ export function queueProfileName(name: string): void {
   if (trimmed) enqueue('profile.update', PROFILE_KEY, { name: trimmed });
 }
 
+/**
+ * Both halves of a rename, in one place, because there are two doors onto it.
+ *
+ * The Me card and the Settings page each let you change your own name, and each
+ * has to do the same two things in the same tick: move the directory, and put
+ * the name on the queue. Only the first is visible on the device, so a door
+ * that forgets the second looks perfect until the next pull arrives with the
+ * old name and silently wins. Two hand-written copies of that pair is one copy
+ * too many — the same argument that put `canSecure` in `settings/guards.ts`.
+ *
+ * Here rather than in a module of its own because the pair *is* this file's
+ * subject: `queueProfileName` directly above is the half that needed explaining,
+ * and the dispatch it must be married to should not be a file away from it. No
+ * new imports either — `Dispatch` and `Action` are already in scope.
+ *
+ * `current` is what is stored, not what is displayed. Those differ: `people.name()`
+ * is total and answers "Someone" for an id it has never seen, which is every
+ * live account until its first pull, and a rename seeded from that would file
+ * the placeholder as the user's actual name.
+ *
+ * Returns whether anything happened, which the caller is free to ignore.
+ */
+export function commitSelfName(
+  dispatch: Dispatch<Action>,
+  draft: string,
+  current: string,
+): boolean {
+  const named = draft.trim();
+  // Nothing typed, or nothing changed, is not a rename. `RENAME_SELF` already
+  // ignores both; `queueProfileName` only ignores the first, and a field that
+  // commits on blur gets left alone constantly.
+  if (!named || named === current.trim()) return false;
+  dispatch({ type: 'RENAME_SELF', name: draft });
+  // Same tick as the dispatch — see above.
+  queueProfileName(draft);
+  return true;
+}
+
 /** One device, one row, one coalescing key. */
 const DEVICE_KEY = 'device';
 

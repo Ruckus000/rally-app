@@ -26,9 +26,8 @@ import { createCircle, joinCircleByCode, UnknownInviteCode } from '../sync/trans
 import { signInWithApple } from '../sync/session';
 import { appleTrouble } from '../lib/appleCopy';
 import { kickSync } from '../sync/useSyncEngine';
-import { queueDeviceToken, queueProfileName } from '../sync/engine';
-import { askForReminders, scheduleWeekReminder } from '../lib/reminders';
-import { getPushToken } from '../lib/push';
+import { queueProfileName } from '../sync/engine';
+import { enableReminders } from '../lib/enableReminders';
 import { OnboardHeader } from './onboard/kit';
 import { IntentId, SUGG, Suggestion, pool } from './onboard/data';
 import { WelcomeScreen } from './onboard/WelcomeScreen';
@@ -183,16 +182,9 @@ export function OnboardOverlay({
    * they just chose.
    */
   const allowReminders = () => {
-    void askForReminders().then(async (answer) => {
-      if (answer !== 'granted') return;
-      await scheduleWeekReminder(state.week.number, stakeSum);
-      // Queued, not awaited against the UI: this runs on whatever connection
-      // the user happens to have while standing in the flow, and the outbox is
-      // what makes that survivable. Null on a simulator, or before the
-      // credentials exist — both mean "no address today", not an error.
-      const device = await getPushToken();
-      if (device) queueDeviceToken(device.token, device.platform);
-    });
+    // The pair moved to `lib/enableReminders` when Settings grew a second door
+    // onto the same question. Same two consequences, same order, one copy.
+    void enableReminders(state.week.number, stakeSum);
     next();
   };
 

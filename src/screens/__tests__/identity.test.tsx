@@ -119,6 +119,35 @@ describe('renaming yourself', () => {
 
     expect(screen.queryByLabelText(/Change your name/)).toBeNull();
   });
+
+  it('starts empty, not "Someone", before the first pull has landed', () => {
+    // No `people` entry for `selfId` at all — `seedPeople('live')` is empty,
+    // which is every live account until its first pull. `people.name()` is
+    // total and answers "Someone" for an id it has not seen, which is a fine
+    // thing for the card to display and a terrible thing to seed the editor
+    // from: tap the name, tap away, and "Someone" gets filed as the real name
+    // and queued to the server. This is the case that bug shipped in.
+    render(
+      <StoreProvider
+        persist={false}
+        sync={false}
+        restored={{ account: 'live', selfId: ME_ID, circle: CIRCLE }}
+      >
+        <MeScreen />
+      </StoreProvider>,
+    );
+
+    fireEvent.press(screen.getByLabelText('Someone. Change your name.'));
+
+    expect(screen.getByLabelText('Your name').props.value).toBe('');
+
+    // Blurring without typing anything must not file the placeholder as a real
+    // name. `commitSelfName` no-ops on an empty draft, so the card still shows
+    // "Someone" and nothing was queued.
+    fireEvent(screen.getByLabelText('Your name'), 'blur');
+
+    expect(screen.getByText('Someone')).toBeTruthy();
+  });
 });
 
 describe('the invite code', () => {

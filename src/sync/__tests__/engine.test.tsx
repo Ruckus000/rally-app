@@ -19,7 +19,7 @@ import { liveWeek, weekAfter } from '../../data/week';
 import { Action, StoreProvider, useStore } from '../../state/store';
 import { mondayOf } from '../mappers';
 import { __resetOutboxForTests, deadLetters, pending } from '../outbox';
-import { queueProfileName } from '../engine';
+import { commitSelfName, queueProfileName } from '../engine';
 import {
   __resetRealtimeForTests,
   __setRealtimeClientForTests,
@@ -484,19 +484,54 @@ it('pushes a rename made long after onboarding', async () => {
   await settle(10_000);
 
   // Renaming is two calls in one tick — the reducer for the screen, the queue
-  // for the server — and this is the pair `MeScreen.commitRename` makes. They
-  // are deliberately not one action: a reducer that enqueued would be a reducer
-  // with a side effect, and an `observe` that watched the directory is what the
-  // race above was.
+  // for the server — and `commitSelfName` is what both the Me card and
+  // Settings call to make that pair. Calling the real function here, rather
+  // than a hand-written copy of it, is what makes this test pin the thing that
+  // ships rather than a stand-in for it.
   act(() => {
-    dispatch({ type: 'RENAME_SELF', name: 'Maya C.' });
-    queueProfileName('Maya C.');
+    commitSelfName(dispatch, 'Maya C.', 'Maya Chen');
   });
   await settle(10_000);
 
   expect(nameOnServer(me)).toBe('Maya C.');
   expect(screen.getByTestId('myname')).toHaveTextContent('Maya C.');
   expect(pending()).toHaveLength(0);
+});
+
+describe('commitSelfName', () => {
+  it('does nothing for a name that only differs from the stored one by surrounding whitespace', async () => {
+    mount();
+    await settle();
+    act(() => finishOnboarding('Maya Chen'));
+    await settle(10_000);
+
+    const before = pending().length;
+    let did: boolean | undefined;
+    act(() => {
+      did = commitSelfName(dispatch, '  Maya Chen  ', 'Maya Chen');
+    });
+
+    expect(did).toBe(false);
+    expect(screen.getByTestId('myname')).toHaveTextContent('Maya Chen');
+    expect(pending()).toHaveLength(before);
+  });
+
+  it('does nothing for an empty draft', async () => {
+    mount();
+    await settle();
+    act(() => finishOnboarding('Maya Chen'));
+    await settle(10_000);
+
+    const before = pending().length;
+    let did: boolean | undefined;
+    act(() => {
+      did = commitSelfName(dispatch, '   ', 'Maya Chen');
+    });
+
+    expect(did).toBe(false);
+    expect(screen.getByTestId('myname')).toHaveTextContent('Maya Chen');
+    expect(pending()).toHaveLength(before);
+  });
 });
 
 it('takes a rename from another device without sending it back', async () => {

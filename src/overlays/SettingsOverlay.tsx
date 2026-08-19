@@ -40,10 +40,12 @@ import { closeButton } from './LedgerOverlay';
 import { Trouble } from '../components/Trouble';
 import { useStore } from '../state/store';
 import { NAME_MAX } from '../data/people';
-import { queueProfileName } from '../sync/engine';
+import { commitSelfName } from '../sync/engine';
 import { linkApple } from '../sync/session';
 import { appleTrouble } from '../lib/appleCopy';
-import { askForReminders, reminderPermission } from '../lib/reminders';
+import { reminderPermission } from '../lib/reminders';
+import { enableReminders } from '../lib/enableReminders';
+import { stakedPoints } from '../state/selectors';
 import type { AccountMode } from '../data/seed';
 import type { SessionState } from '../sync/session';
 import { canSecure, signOutEnabled, signOutVisible } from './settings/guards';
@@ -195,18 +197,18 @@ function Card({ children }: { children: React.ReactNode }) {
  */
 function NameField({ current }: { current: string }) {
   const { dispatch } = useStore();
+  // Seeded once, on purpose: re-syncing to `current` mid-edit would yank the
+  // field out from under somebody typing. The narrow cost, recorded rather than
+  // guessed at: if a `SERVER_MERGE` lands a name from another device while this
+  // page is open, a focus-and-blur here queues the older one straight back. It
+  // needs both devices and an open overlay, and the fix — resync only while
+  // unfocused — is more machinery than the window is worth today.
   const [draft, setDraft] = React.useState(current);
 
-  const commit = () => {
-    // Nothing typed, or nothing changed, is not a rename. `RENAME_SELF` already
-    // ignores both, but `queueProfileName` does not — and this field is always
-    // focusable, so blurring past it would otherwise put a write on the queue
-    // every time somebody opened the page and tapped anything.
-    if (draft.trim() === current.trim()) return;
-    dispatch({ type: 'RENAME_SELF', name: draft });
-    // Same tick as the dispatch — see `queueProfileName`.
-    queueProfileName(draft);
-  };
+  // Both halves, from `sync/engine`, so this door and the Me card cannot drift
+  // apart. It no-ops on an empty or unchanged name, which is what makes a field
+  // that commits on blur cost nothing to walk past.
+  const commit = () => commitSelfName(dispatch, draft, current);
 
   return (
     <TextInput
@@ -251,6 +253,7 @@ function NameField({ current }: { current: string }) {
  * only place the answer can still change.
  */
 function RemindersRow() {
+  const { state } = useStore();
   // Null until the OS answers. Rendering "Off" in the meantime would be a guess
   // the user could act on, so the row says nothing it does not know yet.
   const [perm, setPerm] = React.useState<'granted' | 'denied' | 'undetermined' | null>(null);
@@ -269,7 +272,11 @@ function RemindersRow() {
     // Everything except the one state the prompt can still move goes to the OS,
     // including `granted` — that is where somebody turns it back off.
     if (perm !== 'undetermined') return void Linking.openSettings();
-    void askForReminders().then(setPerm);
+    // Not just `askForReminders`: granting has two consequences and the row
+    // claims both of them. Turning the permission on and scheduling nothing
+    // would leave "On. Monday morning, with what you staked." sitting above no
+    // reminder at all until the week number or the staked total next changed.
+    void enableReminders(state.week.number, stakedPoints(state)).then(setPerm);
   };
 
   const status =
