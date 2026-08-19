@@ -1095,12 +1095,25 @@ const RPC: Record<string, (args: Row) => unknown> = {
         .map((m) => m.profile_id),
     );
 
+    // The columns the migration's `people`/`bots` CTEs select, and your own
+    // row alongside your circle-mates' — `avatar_state` reaches `ready` only
+    // through `mark_avatar_screened`, which no client may call, so this pull
+    // is the only place the verdict on your own photo arrives. A double that
+    // omitted either would let the fast path and the fallback disagree here
+    // and agree in every test.
+    const person = (p: Row) => ({
+      id: p.id,
+      handle: p.handle,
+      name: p.name,
+      avatar_path: p.avatar_path ?? null,
+      avatar_state: p.avatar_state ?? 'none',
+    });
     const people = rowsOf('profiles')
-      .filter((p) => memberIds.has(p.id))
-      .map((p) => ({ id: p.id, handle: p.handle, name: p.name }));
+      .filter((p) => memberIds.has(p.id) || p.id === caller)
+      .map(person);
     const bots = rowsOf('profiles')
       .filter((p) => p.is_bot === true)
-      .map((p) => ({ id: p.id, handle: p.handle, name: p.name }));
+      .map(person);
     const botIds = new Set(bots.map((b) => b.id));
 
     const firstCircle = rowsOf('circles').find((c) => myCircleIds.includes(c.id));
