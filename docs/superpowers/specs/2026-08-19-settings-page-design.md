@@ -116,7 +116,8 @@ account it no longer has a session for.
 
 The one part with a real failure mode. In order:
 
-1. `await flushOutbox()` — so work already staked reaches the server.
+1. `await flushOutbox()` — persists the queue to disk, then `kickSync()` starts a
+   drain.
 2. **Re-read `pending()`. If it is non-empty, stop and say so** — sign-out does not
    proceed. See below.
 3. `await signOutEverywhere()` — deregisters this device's push token while it still
@@ -126,17 +127,34 @@ The one part with a real failure mode. In order:
 Dispatching first would change `selfId`, fire the `lastSelfId` effect
 (`src/state/store.tsx:1647`), and clear the outbox before it drained.
 
-Step 2 is the guard this feature exists to avoid needing elsewhere. `flushOutbox` is
-best-effort and `signOutEverywhere` deliberately completes locally when it cannot reach
-the network — so without the check, signing out in a tunnel with three staked tasks
-still queued drops them from the device by the wipe having never reached the server,
-and signing back in restores everything except them. Silent permanent loss, on a page
-whose whole premise is that no such path should exist.
+**Correction, found during implementation.** An earlier draft of this spec said step 1
+gave queued work "its last chance to land". That was wrong. `flushOutbox`
+(`src/sync/outbox.ts:176`) writes the queue to **AsyncStorage** — its own comment says
+"Called when the app backgrounds, alongside persistence.flush()". Sending is `drain()`,
+whose only app-level handle is `kickSync()` (`src/sync/useSyncEngine.ts:23`), and that
+returns `void` and cannot be awaited.
+
+The consequence is a **known limitation, not a data-loss path**: the check fails closed,
+so nothing is ever lost, but the sequence cannot wait for a send to finish. A user with
+a queue that would drain fine is refused on the first tap and succeeds on a retry a few
+seconds later. `kickSync()` is called before the check specifically so that retry
+succeeds quickly rather than waiting on the 5-second scheduler. Closing the gap properly
+means giving the engine an awaitable drain, which touches `src/sync/` and is out of
+scope here.
+
+Step 2 is the guard this feature exists to avoid needing elsewhere. `signOutEverywhere`
+deliberately completes locally when it cannot reach the network — so without the check,
+signing out with three staked tasks still queued drops them from the device by the wipe
+having never reached the server, and signing back in restores everything except them.
+Silent permanent loss, on a page whose whole premise is that no such path should exist.
 
 Instead the confirm refuses, naming the count:
 
-> *Three things haven't reached the server yet. Reconnect and try again — they'd be
-> lost otherwise.*
+> *Three things haven't reached the server yet. Give it a moment and try again — they'd
+> be lost otherwise.*
+
+"Give it a moment" rather than "reconnect": the cause is usually simply that the drain
+has not run yet, and the copy must not assert a dead network it cannot actually observe.
 
 Counted distinct by `key`, not by entry, for the reason `unsavedCount` documents: a
 task written and then deleted is two ops about one thing. `pending()` in
@@ -200,9 +218,9 @@ Both call the same `linkApple` and share the same copy, so they cannot drift.
 - `signOutEverywhere` already swallows a network failure and completes locally, so a
   sign-out on a plane still clears the device. The push-token row it leaves behind is
   repaired by the next person to register on this device.
-- `flushOutbox` failing **is** surfaced, as the refusal above. That is the whole of the
-  offline story: the user is told what is unsent and asked to reconnect, rather than
-  having it discarded on their behalf.
+- An undrained queue **is** surfaced, as the refusal above. That is the whole of the
+  offline story: the user is told what is unsent and asked to wait, rather than having
+  it discarded on their behalf.
 
 ## Testing
 

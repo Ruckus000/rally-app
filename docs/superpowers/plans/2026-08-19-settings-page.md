@@ -1407,6 +1407,7 @@ confirm a test **fails**, then revert.
 | 6 | `settings/signOut.ts` | **delete the `if (unsent > 0) return` abort** | "refuses, and does not sign out, when work is still unsent" |
 | 7 | `settings/signOut.ts` | count entries instead of distinct keys (`pending().length`) | "counts things, not attempts" |
 | 8 | `settings/signOut.ts` | move `await flushOutbox()` after `signOutEverywhere()` | "flushes before it signs out" |
+| 8b | `settings/signOut.ts` | delete the `kickSync()` call | "starts a send rather than only persisting" |
 | 9 | `store.tsx` | `SIGN_OUT` returns `{ ...initialState, onboardStep: null, ... }` | "lands on onboarding" |
 
 Mutation 6 is the one that matters most — it is the silent-data-loss path, and if no
