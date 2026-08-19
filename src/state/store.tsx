@@ -257,6 +257,12 @@ export type State = {
   editingId: string | null;
 
   planOpen: boolean;
+  /**
+   * Account settings. An overlay like the others, and like the others it is a
+   * fact about this session rather than about the account — so it is not in
+   * `PERSISTED_KEYS` and reopening the app never lands you inside it.
+   */
+  settingsOpen: boolean;
   wrapOpen: boolean;
   wrapWeek: number | null;
   notifOpen: boolean;
@@ -317,6 +323,7 @@ const initialState: State = {
   draftAud: null,
   editingId: null,
   planOpen: false,
+  settingsOpen: false,
   wrapOpen: false,
   wrapWeek: null,
   notifOpen: false,
@@ -363,6 +370,8 @@ export type Action =
   | { type: 'CLOSE_WRAP' }
   | { type: 'OPEN_NOTIF' }
   | { type: 'CLOSE_NOTIF' }
+  | { type: 'OPEN_SETTINGS' }
+  | { type: 'CLOSE_SETTINGS' }
   | { type: 'SET_NOTIF_FILTER'; filter: 'all' | NotifTier }
   | { type: 'READ_NOTIF'; id: string }
   | { type: 'READ_ALL_NOTIFS' }
@@ -475,6 +484,7 @@ const CLEARED = {
   wrapWeek: null,
   notifOpen: false,
   planOpen: false,
+  settingsOpen: false,
 } satisfies Partial<State>;
 
 /** Fields the composer clears when an edit session ends — saved or abandoned. */
@@ -922,6 +932,12 @@ export function reducer(state: State, action: Action): State {
 
     case 'CLOSE_NOTIF':
       return { ...state, notifOpen: false };
+
+    case 'OPEN_SETTINGS':
+      return { ...state, settingsOpen: true };
+
+    case 'CLOSE_SETTINGS':
+      return { ...state, settingsOpen: false };
 
     case 'SET_NOTIF_FILTER':
       return { ...state, notifFilter: action.filter };

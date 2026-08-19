@@ -63,6 +63,7 @@ export const baseState: State = {
   draftAud: null,
   editingId: null,
   planOpen: false,
+  settingsOpen: false,
   wrapOpen: false,
   wrapWeek: null,
   notifOpen: false,
