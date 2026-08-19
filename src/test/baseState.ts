@@ -75,6 +75,8 @@ export const baseState: State = {
   toast: null,
   toastSeq: 0,
   blocked: [],
+  reportTarget: null,
+  reported: [],
 };
 
 /** An account that declined the circle: no tasks, no moments, no history. */

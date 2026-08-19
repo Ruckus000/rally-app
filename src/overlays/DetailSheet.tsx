@@ -26,7 +26,7 @@ import {
   Task,
 } from '../data/fixtures';
 import { CIRCLE_NAME_MAX, useStore } from '../state/store';
-import { myStats } from '../state/selectors';
+import { myStats, visibleNotes } from '../state/selectors';
 import { SHEET_DURATION, sheetEasing, useReducedMotion } from '../theme/motion';
 import { Avatar } from '../components/Avatar';
 import { Icon } from '../components/Icon';
@@ -144,7 +144,13 @@ function TaskSheet({ id }: { id: string }) {
   const tintColor = who ? people.tint(who) : color.chip;
   const first = who ? people.first(who) : '';
   // A demo post has no thread of its own — what we can show is what you said.
-  const cmts: Note[] = (mine?.cmts ?? moment?.cmts ?? state.globalNotes[id] ?? []) as Note[];
+  // Filtered, because this thread never passes through `mergedFeed` — the sheet
+  // reads the moment straight out of state. Without this a note you just
+  // reported is still sitting there on the screen you reported it from.
+  const cmts: Note[] = visibleNotes(
+    (mine?.cmts ?? moment?.cmts ?? state.globalNotes[id] ?? []) as Note[],
+    state,
+  );
   const pts = mine?.pts ?? moment?.pts;
   const title = 'title' in raw ? (raw.title ?? '') : '';
 
@@ -320,7 +326,7 @@ function PersonSheet({ who }: { who: PersonId }) {
   const { state, dispatch, people } = useStore();
   const stats = people.isSelf(who) ? myStats(state) : people.stats(who);
   const tasks = PERSON_TASKS[who] ?? [];
-  const notes = [...(PERSON_NOTES[who] ?? []), ...(state.personNotes[who] ?? [])];
+  const notes = visibleNotes([...(PERSON_NOTES[who] ?? []), ...(state.personNotes[who] ?? [])], state);
 
   return (
     <ScrollView

@@ -85,7 +85,7 @@ import {
   mergeNotes,
   reconcileActed,
 } from '../sync/engine';
-import type { PulledNote } from '../sync/transport';
+import type { PulledNote, ReportSubject } from '../sync/transport';
 import type { ReactionRef } from '../sync/reactions';
 import { pauseRealtime, resumeRealtime, teardownRealtime } from '../sync/realtime';
 import { kickSync, useSyncEngine } from '../sync/useSyncEngine';
@@ -98,6 +98,21 @@ export type Tab = 'week' | 'circle' | 'me';
  */
 export type Scope = 'personal' | 'feed';
 export type SheetRef = { type: 'task' | 'person' | 'invite'; id: string | null } | null;
+/**
+ * What the report sheet is open against.
+ *
+ * Deliberately **not** folded into `SheetRef`. The two look alike — both are a
+ * kind plus an id — and they are not the same question. `SheetRef` names a
+ * screen to render; this names a *subject* to file a report about, and its
+ * `kind` values are the migration's `reports_kind_known` constraint, not a list
+ * of sheets. Merging them would mean `OPEN_SHEET` could open a report and
+ * `CLOSE_SHEET` could close one, and the report sheet has to be able to sit
+ * above an open detail sheet without replacing it.
+ *
+ * `who` is the person the content belongs to, carried because the block step
+ * needs it and a note does not otherwise say who wrote it by id.
+ */
+export type ReportTarget = { kind: ReportSubject; id: string; who: PersonId };
 /**
  * Deliberately coarse. Onboarding is seven screens now, and all seven of them
  * are transient: which chips are lit, what you've typed, which suggestions you
@@ -290,6 +305,25 @@ export type State = {
    * `PERSISTED_KEYS` in persistence.ts.
    */
   blocked: PersonId[];
+
+  /**
+   * The report sheet's subject, or null when it is closed. Session state like
+   * every other overlay flag, so it is not persisted — reopening the app never
+   * lands you inside a half-filed report.
+   */
+  reportTarget: ReportTarget | null;
+
+  /**
+   * Subject ids this account has reported, and therefore hides.
+   *
+   * Unlike `blocked`, this is **not** the offline half of something the server
+   * also enforces. Filing a report changes nothing the server will show you:
+   * `reports` is a write-only record and there is no moderation queue draining
+   * it. So this list is the *entire* mechanism behind "it's hidden from you" —
+   * which is why it is persisted (see `PERSISTED_KEYS`). If it evaporated on
+   * relaunch the content would come back, and the sheet would have lied.
+   */
+  reported: string[];
 };
 
 /** An account starts empty; onboarding decides what it gets seeded with. */
@@ -349,6 +383,8 @@ const initialState: State = {
   toast: null,
   toastSeq: 0,
   blocked: [],
+  reportTarget: null,
+  reported: [],
 };
 
 export type Action =
@@ -405,7 +441,10 @@ export type Action =
   | { type: 'SERVER_MERGE'; merge: ServerMerge }
   | { type: 'BLOCK'; id: PersonId }
   | { type: 'UNBLOCK'; id: PersonId }
-  | { type: 'BLOCKS_PULLED'; ids: PersonId[] };
+  | { type: 'BLOCKS_PULLED'; ids: PersonId[] }
+  | { type: 'OPEN_REPORT'; target: ReportTarget }
+  | { type: 'CLOSE_REPORT' }
+  | { type: 'REPORT_FILED'; id: string };
 
 /**
  * What a pull hands the reducer, already narrowed to the rows it knows how to
@@ -498,6 +537,7 @@ const withToast = (s: State, message?: string): State =>
 /** Everything an overlay-to-overlay route has to clear. */
 const CLEARED = {
   sheet: null,
+  reportTarget: null,
   note: '',
   wrapOpen: false,
   wrapWeek: null,
@@ -1318,6 +1358,37 @@ export function reducer(state: State, action: Action): State {
       // on another device is an absence here, and a union would leave it lit
       // on this phone forever — the same reasoning as `reconcileActed`.
       return { ...state, blocked: action.ids };
+
+    case 'OPEN_REPORT':
+      // Leaves `sheet` alone on purpose: the report sheet is opened from on top
+      // of whatever you were looking at, and closing it should put you back
+      // there rather than on an empty screen.
+      return { ...state, reportTarget: action.target };
+
+    case 'CLOSE_REPORT':
+      // Cancelling is exactly this and nothing else. No report, no block, no
+      // toast — a person who opened this sheet by accident owes the app
+      // nothing, and a "Nothing was sent" reassurance would be one more thing
+      // to read on the way out.
+      return { ...state, reportTarget: null };
+
+    case 'REPORT_FILED': {
+      // Idempotent for the same reason `BLOCK` is: the same subject reported
+      // twice is one hidden thing, not two list entries.
+      const reported = state.reported.includes(action.id)
+        ? state.reported
+        : [...state.reported, action.id];
+      // If the detail sheet is standing on the very thing that just went
+      // hidden, close it. Leaving it up would show the reported card for as
+      // long as the user kept looking at it, which is the one moment the
+      // promise "it's hidden from you now" is easiest to catch out.
+      const sheet = state.sheet?.id === action.id ? null : state.sheet;
+      // `reportTarget` deliberately stays. Filing is the middle of this flow,
+      // not the end: the sheet has to still be there to say what just happened
+      // and to offer the block as a second, separate decision. `CLOSE_REPORT`
+      // is the only thing that clears it.
+      return { ...state, reported, sheet };
+    }
 
     case 'SERVER_MERGE': {
       // A merge, never an assignment: rows arriving from someone else's phone

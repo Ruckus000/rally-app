@@ -71,6 +71,16 @@ const PERSISTED_KEYS = [
    * user's staked week, history and totals over.
    */
   'blocked',
+  /**
+   * And the reported list, for a stronger reason than `blocked` has. A block is
+   * re-derivable — the next pull hands the whole list back. A report is not:
+   * nothing on the server remembers that *you* asked to stop seeing this, since
+   * `reports` is unreadable by anybody including its author. So this key is the
+   * only copy of "hidden from you", and losing it un-hides the exact thing
+   * somebody went out of their way to get rid of. Additive and no `VERSION`
+   * bump, for the reasons above.
+   */
+  'reported',
 ] as const;
 
 export type Persisted = Pick<State, (typeof PERSISTED_KEYS)[number]>;

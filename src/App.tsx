@@ -22,6 +22,7 @@ import { SettingsOverlay } from './overlays/SettingsOverlay';
 import { OnboardOverlay } from './overlays/OnboardOverlay';
 import { RolloverOverlay } from './overlays/RolloverOverlay';
 import { DetailSheet } from './overlays/DetailSheet';
+import { ReportSheet } from './overlays/ReportSheet';
 import { Toast } from './components/Toast';
 import { SyncBanner } from './components/SyncBanner';
 import { UnsavedBanner } from './components/UnsavedBanner';
@@ -90,6 +91,10 @@ function Shell() {
 
       {state.planOpen ? <PlanOverlay topInset={insets.top} bottomInset={insets.bottom} /> : null}
       {state.sheet ? <DetailSheet bottomInset={insets.bottom} /> : null}
+      {/* Above the detail sheet rather than instead of it — a report is started
+          from something you were already looking at, and cancelling puts you
+          back on it. See the zIndex note in ReportSheet.tsx. */}
+      {state.reportTarget ? <ReportSheet /> : null}
       {state.wrapOpen ? <LedgerOverlay topInset={insets.top} bottomInset={insets.bottom} /> : null}
       {state.notifOpen ? <NotificationsOverlay topInset={insets.top} /> : null}
       {state.settingsOpen ? <SettingsOverlay topInset={insets.top} /> : null}
