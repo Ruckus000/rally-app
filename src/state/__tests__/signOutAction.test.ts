@@ -45,8 +45,13 @@ describe('signing out', () => {
     expect(reducer(signedIn, { type: 'SIGN_OUT' }).settingsOpen).toBe(false);
   });
 
-  it('takes its week from the calendar, not from the stale module literal', () => {
+  it('does not carry the departing account’s week forward', () => {
+    // `baseState.week` is FIXTURE_WEEK, pinned so the suite doesn't drift with
+    // the calendar. A sign-out that spread `state` rather than `initialState`,
+    // or that forgot the week entirely, would hand it straight back — and the
+    // restored account would open on a stranger's week.
     const next = reducer(signedIn, { type: 'SIGN_OUT' });
+    expect(next.week).not.toEqual(signedIn.week);
     expect(next.day).toBe(next.week.today);
   });
 });
