@@ -122,7 +122,38 @@ $$;
 revoke execute on function private.block_between(uuid) from public, anon;
 grant execute on function private.block_between(uuid) to authenticated;
 
--- ─── the five SELECT policies that expose other people ────────────────────
+-- The other half of "a block you cannot find is a block you cannot lift".
+--
+-- `blocks_select` lets you read your own list, but a list of uuids is not a
+-- list of people: `profiles_select` guards on `block_between`, which is
+-- symmetric, so the moment you block someone their name stops resolving — for
+-- you as well — and the Settings screen that offers to unblock them can only
+-- draw an identifier nobody recognises. This is the narrowest thing that fixes
+-- it: one question, "is this person on *my* list", asked separately from the
+-- symmetric one.
+--
+-- Deliberately asymmetric, and that asymmetry is the point. The blocker can
+-- resolve the name of someone they blocked, because they chose them and
+-- already knew who they were. The blocked party gets nothing back: there is no
+-- branch anywhere that reads the blocker's row, so this cannot be used to
+-- discover that you have been blocked.
+create or replace function private.i_blocked(other_profile uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.blocks
+    where blocker_id = (select auth.uid()) and blocked_id = other_profile
+  );
+$$;
+
+revoke execute on function private.i_blocked(uuid) from public, anon;
+grant execute on function private.i_blocked(uuid) to authenticated;
+
+-- ─── the six SELECT policies that expose other people ─────────────────────
 --
 -- Every one keeps its ownership branch first and unguarded. A block must never
 -- hide your own work from you, and putting `owner_id = auth.uid()` outside the
@@ -154,6 +185,15 @@ create policy tasks_select on tasks for select to authenticated
 -- non-mechanical bit here. A note addressed to you by someone you blocked is
 -- precisely the delivery this control exists to stop; leaving that branch
 -- outside would have let a blocked person keep writing to you.
+--
+-- Symmetry means this runs in the other direction as well, and that deserves
+-- saying out loud rather than being discovered: because the guard is on the
+-- author and the block matches either way round, a note *you* write to someone
+-- you have blocked is silently withheld from them too. That is the intended
+-- behaviour — a block is not a filter on your inbox, it is an end to the
+-- exchange — but it is the one case where the person kept in the dark is the
+-- one who asked for the block. Nothing in the app claims the note was
+-- delivered; the row simply stops being readable by its recipient.
 drop policy notes_select on notes;
 create policy notes_select on notes for select to authenticated
   using (
@@ -180,16 +220,39 @@ create policy reactions_select on reactions for select to authenticated
     )
   );
 
+-- `task_pairs` is the sixth, and it is not a mechanical addition either: it is
+-- the one place where blocking somebody left *residual state* behind. After the
+-- change above, a blocked person's `private` task disappears; without this,
+-- their row on that task — including whether they ticked it — did not, so their
+-- progress went on being readable through a table nobody thinks of as content.
+--
+-- Amended rather than exempted, unlike `week_rollups` below. The exemption
+-- there rests on a rollup being a circle aggregate that must read the same for
+-- every member; a pair row is one named person's progress on one task, so there
+-- is no consistency argument for keeping it, and hiding it costs nothing.
+drop policy task_pairs_select on task_pairs;
+create policy task_pairs_select on task_pairs for select to authenticated
+  using (
+    profile_id = (select auth.uid())
+    or (not private.block_between(profile_id) and private.can_see_task(task_id))
+  );
+
 -- The `is_bot` branch stays outside the guard deliberately. Bots cannot be
--- blocked — nothing offers it, and there is nobody on the other end to be
--- protected from — and that branch is what lets a brand-new account with no
--- circle render the Oz bots by name instead of a screen full of "Someone".
--- Guarding it would cost a first-run experience and buy nothing.
+-- blocked — `block_person` below refuses them outright, so this is an
+-- invariant rather than a statement about which buttons exist — and that
+-- branch is what lets a brand-new account with no circle render the Oz bots by
+-- name instead of a screen full of "Someone". Guarding it would cost a
+-- first-run experience and buy nothing.
+--
+-- `i_blocked` is a third unguarded branch, for the block list. It widens
+-- profile visibility only to people you personally blocked, which is to say
+-- only to people you had already identified well enough to block.
 drop policy profiles_select on profiles;
 create policy profiles_select on profiles for select to authenticated
   using (
     id = (select auth.uid())
     or is_bot
+    or private.i_blocked(id)
     or (not private.block_between(id) and private.shares_circle_with(id))
   );
 
@@ -200,17 +263,25 @@ create policy profiles_select on profiles for select to authenticated
 -- the person who caused the row is in `payload ->> 'actor_id'`, written by
 -- `private.notify_on_reaction` (20260813004523) as a `jsonb_build_object`.
 --
--- That is still cleanly expressible, so it is filtered rather than skipped. Two
--- things make the cast safe:
+-- That is still cleanly expressible, so it is filtered rather than skipped —
+-- but a `jsonb` key is not a typed column, and the cast has to be treated like
+-- what it is: a parse of text that something else chose.
 --
---   * `notifications` has no INSERT policy and no INSERT grant to any client.
---     Every row in it was written by that one SECURITY DEFINER trigger, which
---     casts a `uuid` column into the object. There is no path by which a
---     client puts arbitrary text in that key, so `::uuid` cannot be handed
---     something unparseable.
---   * `payload ->> 'actor_id' is null` is tested first, so kinds that carry no
---     actor — anything added later that is not a cheer — pass through visible
---     instead of disappearing on a null cast.
+-- Hence the shape test rather than a null test. `authenticated` cannot write
+-- this table (no INSERT policy, no INSERT grant), but `service_role` can and
+-- the edge functions hold that key, so the day a job writes `'system'` or an
+-- empty string into `actor_id` the cast raises *invalid input syntax for type
+-- uuid* — and because this is a policy, the error is not one bad row hidden,
+-- it is that recipient's entire notification feed failing to load. A privacy
+-- filter that can take down a screen is worse than the leak it prevents.
+--
+-- `case` rather than `or`, and that is load-bearing too: Postgres does not
+-- promise to evaluate the arms of an `or` left to right, so a regex guard sat
+-- beside the cast can be reordered behind it and stop guarding anything.
+-- `case` is the one construct that guarantees the untaken arm is not
+-- evaluated. Anything that is not a uuid — absent, malformed, a sentinel —
+-- falls to `true` and stays visible, because a row we cannot attribute is a
+-- row we have no grounds to hide.
 --
 -- `recipient_id = auth.uid()` is still an AND rather than an OR here, unlike
 -- the policies above: these rows are addressed *to* you, so the ownership test
@@ -221,10 +292,12 @@ drop policy notifications_select on notifications;
 create policy notifications_select on notifications for select to authenticated
   using (
     recipient_id = (select auth.uid())
-    and (
-      payload ->> 'actor_id' is null
-      or not private.block_between((payload ->> 'actor_id')::uuid)
-    )
+    and case
+          when coalesce(payload ->> 'actor_id', '') ~
+               '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+            then not private.block_between((payload ->> 'actor_id')::uuid)
+          else true
+        end
   );
 
 -- ─── week_rollups is left alone, and that is a decision ───────────────────
@@ -290,6 +363,17 @@ begin
     raise exception 'not signed in' using errcode = 'insufficient_privilege';
   end if;
 
+  -- Bots are not blockable, and this is what makes `profiles_select`'s
+  -- unguarded `is_bot` branch true rather than merely conventional. A block on
+  -- a bot would be an incoherent half-state: its tasks and cheers would vanish
+  -- while its name went on rendering to everyone, including you, because that
+  -- branch is deliberately outside the guard. Refused loudly — a caller that
+  -- offers this has a bug, and a silent no-op would hide it behind a control
+  -- that looked like it worked.
+  if exists (select 1 from public.profiles where id = p_blocked and is_bot) then
+    raise exception 'cannot block a bot' using errcode = 'invalid_parameter_value';
+  end if;
+
   -- Idempotent: blocking someone you have already blocked is a no-op rather
   -- than an error the client has to know how to swallow. The `blocks_not_self`
   -- constraint still bites if `p_blocked` is you, which is a bug in the caller
@@ -342,6 +426,15 @@ create policy blocks_select on blocks for select to authenticated
 revoke all on public.blocks  from anon, authenticated;
 revoke all on public.reports from anon, authenticated;
 
+-- And from `service_role`, which is the half of that default this file first
+-- got wrong. Revoking from two client roles left the third holding `Dxtm` on
+-- `reports` — TRUNCATE included — granted by the same default and by nobody's
+-- decision. `service_role` is not reachable from a client, but it is the key
+-- the edge functions carry, and TRUNCATE on the moderation evidence table is
+-- one stray statement away from erasing every report anyone has ever filed.
+-- Nothing reads this table yet, so there is nothing to keep.
+revoke all on public.reports from service_role;
+
 -- Then exactly one privilege back. A policy decides which rows; the grant
 -- decides whether the table is reachable at all, so `blocks` needs this line
 -- for `blocks_select` to mean anything — and `reports`, correspondingly, needs
@@ -353,11 +446,12 @@ grant select on public.blocks to authenticated;
 -- bypassed but still needs the table to be reachable.
 grant all on public.blocks to service_role;
 
--- `reports` gets no grant, to any role, on purpose. Nothing automated reads it
--- yet; the queue is a person with database access, who reaches it as the table
--- owner. When a moderation job exists, `grant select, update on public.reports
--- to service_role` is the line to add — and adding it should be a decision
--- somebody makes, not a privilege that was already lying there.
+-- `reports` therefore holds exactly one privilege set: `postgres`, the owner.
+-- No role a client or an edge function can act as reaches it at all. The queue
+-- is a person with database access, reading it as the owner. When a moderation
+-- job exists, `grant select, update on public.reports to service_role` is the
+-- line to add — a decision somebody makes, rather than a privilege that was
+-- already lying there because a platform default handed it over.
 
 comment on table public.blocks is
   'Symmetric mutes. Written only through block_person/unblock_person; a row hides content in both directions via private.block_between. Does not remove anyone from a circle.';
