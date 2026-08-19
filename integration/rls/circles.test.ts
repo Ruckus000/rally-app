@@ -497,7 +497,11 @@ describe('the invariants, not just the error codes', () => {
     // which arrived holding TRUNCATE that nobody had granted it (see below).
     // It fired a fourth time for `blocks` and `reports`; both were revoked in
     // the migration that added them, and this is the count catching up.
-    expect(rows.length).toBe(32);
+    // A fifth for `task_media`, which is granted `select, insert, delete` to
+    // `authenticated` and nothing at all to `anon` — no TRUNCATE, and no
+    // UPDATE either, since a photo is replaced by removing it and attaching
+    // another rather than by rewriting the row.
+    expect(rows.length).toBe(34);
     for (const r of rows) expect(r.trunc).toBe(false);
   });
 
