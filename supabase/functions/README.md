@@ -155,6 +155,66 @@ answer is ever written to `goal_ratings` — the cache is permanent and shared, 
 one timed-out call written there would freeze a goal at its category price for
 everybody who ever types it.
 
+## `screen-image` — ask the model before anyone else sees it
+
+`POST {} -> { state }`, behind `verify_jwt`. Screens the caller's own pending
+avatar: reads `avatar_path`/`avatar_state`, downloads the object with the
+service role (the bucket is private), sends it to `imageScreening.mjs` as an
+inline base64 part, and calls `mark_avatar_screened` — the only route into
+`ready`, and service-role only.
+
+There is no profile id in the request. The subject is always the caller, and a
+parameter there would let any signed-in account aim the one key that can publish
+an image at somebody else's row.
+
+**Everything that is not `harmful: false` refuses**, and a refusal deletes the
+object as well as marking the row. The bucket's select policy is
+`bucket_id = 'avatars'` for every authenticated account, so a rejected image
+left in place stays readable by anyone who learns its name — and the client that
+uploaded it knows the name. Marking the row alone would hide the picture from
+the app and leave it on the server. Delete first, then mark: the survivable
+failure is a row still `pending`, which renders initials and which a repeat call
+resolves.
+
+`imageVerdict.mjs` explains why `unavailable` blocks here and passes in
+`rate-goal`. Short version: an unscreened goal is a private line of text, an
+unscreened avatar is a picture on the screens of people who have never met its
+owner.
+
+**The model's `reason` is never returned.** It is model-written text, logged for
+diagnostics; the client shows `IMAGE_BLOCKED_COPY`, which does not explain what
+was objected to and so cannot accuse anybody or hand anyone a checklist.
+
+### Deploying
+
+```bash
+npx supabase functions deploy screen-image
+```
+
+Same `GEMINI_API_KEY` as `rate-goal`, and the same default model —
+`gemini-3.5-flash-lite` takes images as well as text, which is why the avatar
+guard needed no second model and no second cost story.
+
+### Running it locally
+
+`npx supabase functions serve --env-file supabase/functions/.env.local`, then
+sign in, upload to `avatars/<your id>/<name>.jpg`, call `set_avatar`, and POST
+to the function. Point `LLM_BASE_URL` at a stub as above to drive the paths a
+real model will not produce on demand:
+
+| Stub responds | Result |
+| --- | --- |
+| `200 {"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"{\"harmful\":false,\"reason\":\"\"}"}]}}]}` | `ready`, object kept |
+| the same with `"harmful":true` | `refused`, object deleted |
+| `200 {"candidates":[{"finishReason":"SAFETY","content":{"parts":[]}}]}` | `refused`, object deleted |
+| any non-2xx, or never answering | `refused`, object deleted |
+
+All four were driven that way through the real edge runtime before this
+shipped, along with: a second call for the same upload (returns the settled
+state and spends no model call), a call after the owner cleared the photo
+(returns `none`, no model call), and an `avatar_path` with no object behind it
+(`refused`).
+
 ## What cannot be tested without hardware
 
 The last hop. Expo hands the message to APNs, and APNs delivers to a real
