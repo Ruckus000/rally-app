@@ -57,6 +57,30 @@ const PERSISTED_KEYS = [
   'people',
   'notifications',
   'globalPosts',
+  /**
+   * A block taken offline must still hold on relaunch — that's the whole point
+   * of this task, and a block that evaporated on force-quit would be worse than
+   * no local filter at all, since it would read as "undone" rather than "never
+   * synced". Deliberately **not** a `VERSION` bump: the field is additive and
+   * self-healing exactly the way `people`/`selfId` were when they were added —
+   * a payload written before it existed simply lacks the key, the spread in
+   * `hydrate()` leaves `initialState.blocked` (`[]`) standing, and the next
+   * pull's `BLOCKS_PULLED` overwrites it with the truth regardless. Nothing
+   * downstream crashes on an empty list the way `DAY_NAMES[task.day]` would on
+   * a missing `day`, so there is nothing here that justifies discarding a
+   * user's staked week, history and totals over.
+   */
+  'blocked',
+  /**
+   * And the reported list, for a stronger reason than `blocked` has. A block is
+   * re-derivable — the next pull hands the whole list back. A report is not:
+   * nothing on the server remembers that *you* asked to stop seeing this, since
+   * `reports` is unreadable by anybody including its author. So this key is the
+   * only copy of "hidden from you", and losing it un-hides the exact thing
+   * somebody went out of their way to get rid of. Additive and no `VERSION`
+   * bump, for the reasons above.
+   */
+  'reported',
 ] as const;
 
 export type Persisted = Pick<State, (typeof PERSISTED_KEYS)[number]>;
@@ -196,6 +220,19 @@ function weekIsSound(value: unknown): boolean {
 const isBoundedString = (v: unknown, max = NAME_MAX): boolean =>
   typeof v === 'string' && v.length <= max;
 
+/**
+ * Undefined is fine, for the reason `PERSISTED_KEYS`' comment on `'blocked'`
+ * gives: a payload written before this slice existed is not corrupt, only old.
+ * What's checked is the shape the filter in `selectors.ts` reads — a list of
+ * ids, nothing fancier — so a malformed entry cannot reach `Set` construction
+ * or an `Array.includes` and crash a render over what is, worst case, a stale
+ * block silently not applying.
+ */
+function blockedIsSound(value: unknown): boolean {
+  if (value === undefined) return true;
+  return Array.isArray(value) && value.every((id) => typeof id === 'string');
+}
+
 function peopleAreSound(value: unknown): boolean {
   if (value === undefined) return true;
   if (!value || typeof value !== 'object') return false;
@@ -232,6 +269,7 @@ function isSound(data: unknown): data is Persisted {
   if (d.pendingRollover && !weekIsSound(d.pendingRollover.to)) return false;
   if (!peopleAreSound(d.people)) return false;
   if (d.selfId !== undefined && typeof d.selfId !== 'string') return false;
+  if (!blockedIsSound(d.blocked)) return false;
   return true;
 }
 

@@ -71,22 +71,45 @@ from someone you blocked should not ring.
 **Local filtering is still required as well**, because a block taken offline has to work
 immediately — the reporter's relief cannot wait for a round trip.
 
-## Blocking someone in your circle
+## Blocking someone in your circle — DECIDED
 
-The genuinely awkward case, and it needs an explicit answer rather than a default.
+**Blocking hides their content but does not remove them from the circle.** Circle
+membership is mutual and deliberate, and leaving a circle is its own act with its own
+consequences for rankings and history. Silently ejecting someone because of a one-tap
+block would be a surprising amount of destruction from a small gesture.
 
-**Recommendation: blocking hides their content but does not remove them from the
-circle.** Circle membership is a mutual, deliberate thing and leaving a circle is its own
-act with its own consequences for rankings and history. Silently ejecting someone because
-of a one-tap block would be a surprising amount of destruction from a small gesture.
+The consequence, accepted: a blocked circle member still appears in the ranked list and
+still counts toward circle totals. The alternative — vanishing them from the circle view
+— makes the rollup maths per-viewer rather than per-circle, so your leaderboard would
+silently disagree with everyone else's for the same circle.
 
-The consequence to accept: a blocked circle member still appears in the ranked list and
-still counts toward circle totals, which may feel wrong to the person who blocked them.
-The alternative — vanishing them entirely — means the leaderboard silently disagrees with
-everyone else's, which is worse.
+**This obliges copy at the point of blocking.** If the block appears not to work because
+the person is still on the podium, the feature has failed even though the code is
+correct. The confirm must say that the circle is a separate thing and name how to leave
+it.
 
-**Flag this one for a decision before implementation.** It is a product call and both
-answers are defensible.
+## Blocking is symmetric — DECIDED
+
+Not stated in the original draft, and the RLS predicate forces an answer.
+
+**A block hides content in both directions.** They stop reaching you, and you stop
+reaching them. One-way blocking leaves the blocked person able to keep cheering, noting
+and pairing on someone who wants nothing to do with them, which defeats the point of the
+control — the harm a block exists to stop is theirs to inflict, not yours to receive.
+
+The cost, and it is real: a block is *implicitly* discoverable. Their cheers on your
+tasks stop landing, and someone paying attention can infer it. The app still never says
+so — see the `blocks` policy below — but this design does not pretend the inference is
+impossible.
+
+## Retroactive — DECIDED
+
+**Every note of theirs disappears from your view, past and future.** One rule, and it is
+what people expect a block to mean. Other people's view of the thread is untouched, so
+the conversation stays intact for everyone else; you simply see a shorter version of it.
+
+A tombstone was considered and rejected: a marker that keeps saying "someone you blocked
+said something here" is the opposite of what the control is for.
 
 ## Entry points
 
@@ -123,7 +146,7 @@ congratulating them for it.
 
 ## Open
 
-- The circle-membership question above.
-- Whether a blocked person's existing notes in *your* threads disappear retroactively or
-  stay. Retroactive is cleaner to reason about; leaving them avoids holes in a
-  conversation others can still see.
+All three previously-open questions are now decided above. What remains genuinely
+unknown is not a design question but a product one: whether anyone will ever read the
+`reports` queue. The table is built so that they can; nothing here promises that they
+will, and the copy shown to the reporter must not either.

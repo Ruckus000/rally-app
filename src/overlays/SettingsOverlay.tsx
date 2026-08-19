@@ -40,7 +40,7 @@ import { closeButton } from './LedgerOverlay';
 import { Trouble } from '../components/Trouble';
 import { useStore } from '../state/store';
 import { NAME_MAX } from '../data/people';
-import { commitSelfName } from '../sync/engine';
+import { commitSelfName, queueUnblock } from '../sync/engine';
 import { linkApple } from '../sync/session';
 import { appleTrouble } from '../lib/appleCopy';
 import { reminderPermission } from '../lib/reminders';
@@ -149,6 +149,15 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
           </Section>
         ) : null}
 
+        {/* Deliberately not last. Settings keeps its destructive controls apart
+            — that is why "Reset app data" is not on this page at all — and an
+            Unblock sitting directly above Sign out would read as a pair of
+            leaving controls. Notifications, and usually Getting back in, stand
+            between them. */}
+        <Section title="Blocked">
+          <BlockedList />
+        </Section>
+
         <Section title="Notifications">
           <RemindersRow />
         </Section>
@@ -237,6 +246,87 @@ function NameField({ current }: { current: string }) {
         paddingVertical: 12,
       }}
     />
+  );
+}
+
+/**
+ * Everyone this account has blocked, and the way to take it back.
+ *
+ * The migration's own argument for this section: a block you cannot find is a
+ * block you cannot lift. Blocking happens on the person sheet, behind a
+ * confirm, and until this list existed there was no second place it appeared —
+ * so a block taken in a bad moment was permanent by accident. The schema was
+ * shaped for this, too: `private.i_blocked` is what lets the blocker still read
+ * a blocked person's profile row, which is the only reason this list can show
+ * names rather than uuids.
+ *
+ * Present for every account, including the demo, because the demo can block.
+ */
+function BlockedList() {
+  const { state } = useStore();
+
+  if (!state.blocked.length) {
+    return (
+      <Card>
+        <Sans size={12.5} lineHeight={17.5} color={color.muted}>
+          Nobody. If you ever block someone, they show up here — this is where
+          you take it back.
+        </Sans>
+      </Card>
+    );
+  }
+
+  return (
+    <View style={{ gap: 8 }}>
+      {state.blocked.map((id) => (
+        <BlockedRow key={id} id={id} />
+      ))}
+    </View>
+  );
+}
+
+/**
+ * One blocked person, named honestly or not named at all.
+ *
+ * `state.people`, not `people.name()`. The lookup is total and answers
+ * "Someone" for an id it has never seen — and on a live account that is every
+ * id until a pull lands, so a list of blocks taken before the directory filled
+ * in would be a column of identical "Someone"s with no way to tell which
+ * unblock is which. The same invention has already reached the server once
+ * from this codebase, through the name field two sections up. Where there is
+ * no name, this says so and shows enough of the uuid to tell two rows apart —
+ * the way the account row above does.
+ */
+function BlockedRow({ id }: { id: string }) {
+  const { state, dispatch } = useStore();
+  const name = state.people[id]?.name?.trim();
+  const shown = name || `Account ${id.slice(0, 8)}`;
+
+  const lift = () => {
+    dispatch({ type: 'UNBLOCK', id });
+    // Both halves in the same tick, per `queueUnblock`: the local list is what
+    // you see, and the queue is what makes it true on the next device.
+    queueUnblock(id);
+  };
+
+  return (
+    <View style={{ ...row, gap: 12, ...cardBox }}>
+      <View style={fill}>
+        <Bri size={15} weight={800}>
+          {shown}
+        </Bri>
+        <Sans size={12.5} lineHeight={17} color={color.muted} style={{ marginTop: 3 }}>
+          {name
+            ? 'You don’t see each other. Your circle’s numbers are unchanged.'
+            : 'Blocked before their name reached this phone.'}
+        </Sans>
+      </View>
+      <Tap onPress={lift} accessibilityLabel={`Unblock ${shown}`} style={rowAction}>
+        <Sans size={12.5} weight={700} color={color.moss}>
+          Unblock
+        </Sans>
+      </Tap>
+    </View>
   );
 }
 
@@ -433,6 +523,14 @@ function SignOutRow({ enabled }: { enabled: boolean }) {
     </View>
   );
 }
+
+/** The trailing text action on a row — 44px through `Tap`'s hitSlop. */
+const rowAction = {
+  minHeight: 36,
+  paddingHorizontal: 8,
+  paddingVertical: 9,
+  justifyContent: 'center' as const,
+};
 
 /** The one card box every tappable row on this page shares. */
 const cardBox = {

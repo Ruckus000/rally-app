@@ -5,7 +5,7 @@
  * must be the metric the ranking uses — showing points there would imply a
  * different sort.
  */
-import { HistoryWeek, Moment, Task, parseHours, weekHeldStreak } from '../data/fixtures';
+import { HistoryWeek, Moment, Note, Task, parseHours, weekHeldStreak } from '../data/fixtures';
 import type { Profile } from '../data/seed';
 import { MemberStats, PersonId, makePeople } from '../data/people';
 import { seedCircle } from '../data/seed';
@@ -221,6 +221,17 @@ export const totalCheersExchanged = (state: State) =>
  * device: an account that knew nobody read "5 people, ranked by follow-through"
  * over a leaderboard of four Wizard of Oz characters — and, because it was
  * never "alone", never saw the invite that would have given it a real one.
+ *
+ * A blocked member is **not** excluded, and that is a decision rather than an
+ * oversight: this feeds `ranking()` and the circle total, which are rollups
+ * over the whole circle, not over what one viewer wants to see. Filtering them
+ * per-viewer would make "how many did the circle close this week" a different
+ * number depending on who was asking — the leaderboard would disagree with
+ * itself the moment two members had blocked different people. Blocking hides a
+ * person's *feed presence* from you (`mergedFeed`, above); it does not remove
+ * them from a circle-wide count. If a later reader "fixes" this to filter
+ * blocked members out here, they will have reintroduced a per-viewer rollup —
+ * read this note first.
  */
 export const circleMembers = (state: State): PersonId[] =>
   state.account === 'live'
@@ -249,6 +260,59 @@ export type FeedSource = 'circle' | 'follow';
 export type FeedEntry = { m: Moment; from: FeedSource };
 
 /**
+ * Strip a blocked person's fingerprints off a moment that survives the block
+ * itself — the note thread and the cheer roster, the two places someone can
+ * still show up on a card that is not theirs.
+ *
+ * Never touches `who`: whether the *card itself* belongs to a blocked person is
+ * `mergedFeed`'s question, not this one, and answering it here would filter it
+ * twice for no gain.
+ *
+ * The self-guard is the reason this exists at all rather than a plain
+ * `.filter(id => !blocked.has(id))`: `blocked` is reducer state, not a promise
+ * the server enforces locally, and nothing stops it from naming `state.selfId`
+ * — `BLOCK` performs no self-check, because the constraint that actually
+ * matters (`blocks_not_self`) lives in the migration and is proven there. A
+ * feed that could make your own note vanish because of a bad local write would
+ * be a worse bug than the one this task exists to close.
+ */
+const stripBlocked = (
+  m: Moment,
+  blocked: ReadonlySet<PersonId>,
+  reported: ReadonlySet<string>,
+  self: PersonId,
+): Moment => {
+  const hides = (id: PersonId) => id !== self && blocked.has(id);
+  // A note is hidden by its own id as well as by its author: reporting one note
+  // is not reporting the person, and must not take the rest of their thread
+  // with it. `id` is optional on `Note` — a fixture note has none, and one
+  // without an id is one nothing could have reported.
+  const gone = (c: Note) => hides(c.k) || (!!c.id && reported.has(c.id));
+  if (!m.cmts?.some(gone) && !m.backers?.some(hides)) return m;
+  return {
+    ...m,
+    cmts: m.cmts?.filter((c) => !gone(c)),
+    backers: m.backers?.filter((id) => !hides(id)),
+  };
+};
+
+/**
+ * Notes with the ones you have blocked or reported taken out.
+ *
+ * Exported because two note threads never pass through `mergedFeed` — the ones
+ * the detail sheet reads straight off `state.moments` and `state.personNotes` —
+ * and "it's hidden from you now" has to be true on the screen you were standing
+ * on when you filed it, not only in the feed.
+ */
+export function visibleNotes(notes: Note[], state: State): Note[] {
+  const blocked = new Set(state.blocked);
+  const reported = new Set(state.reported);
+  return notes.filter(
+    (c) => !((c.k !== state.selfId && blocked.has(c.k)) || (!!c.id && reported.has(c.id))),
+  );
+}
+
+/**
  * The Week tab's one social feed: your circle's moments and the public feed,
  * interleaved by time.
  *
@@ -263,18 +327,41 @@ export type FeedEntry = { m: Moment; from: FeedSource };
  * The origin is attached here rather than stored on the `Moment`, because
  * `Moment` is the persisted and synced shape and this is a rendering question —
  * one the caller already knows the answer to at the moment it merges.
+ *
+ * Blocking is filtered here, and only here — see `state.blocked`'s comment in
+ * `store.tsx`. The server already hides a blocked person's rows via RLS, which
+ * is the *real* enforcement; this is the offline half, the second or two (or
+ * the whole flight) before the next pull can answer. One place because
+ * `mergedFeed` is the one path every card on the Week tab comes through —
+ * `WeekScreen` has no second feed assembler to forget the check in.
+ *
+ * A blocked person never loses their seat in `circleMembers` or the totals it
+ * feeds — see that function's own note. Only the feed, not the roster.
  */
 export function mergedFeed(state: State, quietComebacks: boolean): FeedEntry[] {
+  const blocked = new Set(state.blocked);
+  const reported = new Set(state.reported);
+  // Never hides your own card, whatever `blocked` says — see `stripBlocked`.
+  // A card you reported *is* hidden whoever wrote it, because you asked for
+  // that one specifically rather than for a person.
+  const hidden = (m: Moment) =>
+    (m.who !== state.selfId && blocked.has(m.who)) || reported.has(m.id);
+
   const entries: FeedEntry[] = state.moments
     .filter((m) => quietComebacks || m.kind !== 'quiet')
-    .map((m) => ({ m, from: 'circle' as const }));
+    .filter((m) => !hidden(m))
+    .map((m) => ({
+      m: stripBlocked(m, blocked, reported, state.selfId),
+      from: 'circle' as const,
+    }));
 
   // Circle wins. Nothing can be in both slices today — `pullBots` only returns
   // bot owners, and a bot is in nobody's circle — but a card drawn twice under
   // one React key is a bad way to find that out if it ever changes.
   const seen = new Set(entries.map((e) => e.m.id));
   for (const m of state.globalPosts) {
-    if (!seen.has(m.id)) entries.push({ m, from: 'follow' });
+    if (hidden(m) || seen.has(m.id)) continue;
+    entries.push({ m: stripBlocked(m, blocked, reported, state.selfId), from: 'follow' });
   }
 
   return entries.sort((a, b) => parseHours(a.m.time) - parseHours(b.m.time));
@@ -287,8 +374,35 @@ export function personalFeed(state: State) {
   return { done, open };
 }
 
-/** Who helped you this week: note authors and anyone paired on a stake. */
-export function helpedByThisWeek(tasks: Task[], self: PersonId) {
+/**
+ * Anyone you have blocked, gone from a list of people.
+ *
+ * The ledger is *your* view of the week, so the rule for it is the same rule
+ * the feed follows and the opposite of the one `circleMembers` follows: a
+ * blocked person's contributions disappear from what you are shown, past weeks
+ * included. Retroactive on purpose — a ledger that still reads "Sam, 4 times
+ * this week" is the block visibly not working on the one screen that names
+ * people one by one.
+ *
+ * Never drops you. Same guard, same reason as `stripBlocked`: `blocked` is
+ * local state and nothing but a database constraint stops it naming yourself.
+ */
+export const withoutBlocked = <T extends { k: PersonId }>(rows: T[], state: State): T[] => {
+  const blocked = new Set(state.blocked);
+  return rows.filter((r) => r.k === state.selfId || !blocked.has(r.k));
+};
+
+/**
+ * Who helped you this week: note authors and anyone paired on a stake.
+ *
+ * Takes the whole state rather than the two fields it reads, so that the
+ * blocked filter is not something a caller can forget to pass — the same shape
+ * `helpedThisWeek` below already had.
+ */
+export function helpedByThisWeek(state: State) {
+  const tasks = state.myTasks;
+  const self = state.selfId;
+  const blocked = new Set(state.blocked);
   const map: Partial<Record<PersonId, number>> = {};
   tasks.forEach((t) =>
     (t.cmts ?? []).forEach((c) => {
@@ -301,6 +415,13 @@ export function helpedByThisWeek(tasks: Task[], self: PersonId) {
     .forEach((k) => {
       map[k] = (map[k] ?? 0) + 1;
     });
+  // Dropped whole, rather than counted and then hidden. There is no "3 people
+  // helped you" headline above this list — the only number rendered is the
+  // per-person one, which leaves with its person — so removing the key removes
+  // the name and the count together and nothing is left saying otherwise.
+  blocked.forEach((k) => {
+    if (k !== self) delete map[k];
+  });
   return map;
 }
 
@@ -314,6 +435,12 @@ export function helpedThisWeek(state: State) {
   });
   (Object.keys(state.replied) as PersonId[]).forEach((k) => {
     map[k] = (map[k] ?? 0) + 1;
+  });
+  // See `helpedByThisWeek`. Filtered here rather than in `LedgerOverlay` so
+  // there is one place the rule lives, the way `mergedFeed` is the one place
+  // the feed's copy of it lives.
+  new Set(state.blocked).forEach((k) => {
+    if (k !== state.selfId) delete map[k];
   });
   return map;
 }

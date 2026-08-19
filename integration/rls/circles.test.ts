@@ -491,11 +491,13 @@ describe('the invariants, not just the error codes', () => {
       join pg_namespace n on n.oid = c.relnamespace
       cross join (select rolname from pg_roles where rolname in ('anon','authenticated')) r
       where n.nspname = 'public' and c.relkind = 'r'`);
-    // 14 tables × 2 roles. The count is pinned so that adding a table without
+    // 16 tables × 2 roles. The count is pinned so that adding a table without
     // thinking about its grants fails here rather than shipping — which is what
     // it did for `goal_ratings` and `llm_usage`, and again for `device_tokens`,
     // which arrived holding TRUNCATE that nobody had granted it (see below).
-    expect(rows.length).toBe(28);
+    // It fired a fourth time for `blocks` and `reports`; both were revoked in
+    // the migration that added them, and this is the count catching up.
+    expect(rows.length).toBe(32);
     for (const r of rows) expect(r.trunc).toBe(false);
   });
 
