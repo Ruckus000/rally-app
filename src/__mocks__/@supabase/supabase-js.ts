@@ -992,6 +992,119 @@ const RPC: Record<string, (args: Row) => unknown> = {
     return null;
   },
 
+  /**
+   * The one-round-trip pull, mirroring the migration's CTEs over this fake's
+   * tables. Modelled rather than stubbed because "the RPC answers exactly what
+   * the per-table pulls answer" is the property the engine's fast path relies
+   * on — the fallback and the fast path must not be able to disagree in a test.
+   *
+   * No RLS, like every other read here (the fake's standing caveat): audience
+   * visibility on other people's tasks belongs to the integration suite.
+   */
+  pull_world(args) {
+    const caller = state.session?.user.id;
+    if (!caller) throw new Refusal(pgError('42501', 'not authenticated'));
+
+    const weekStart = args.p_week_start == null ? null : String(args.p_week_start);
+    const limit = Number(args.p_notif_limit ?? 30);
+
+    const myCircleIds = rowsOf('circle_members')
+      .filter((m) => m.profile_id === caller)
+      .map((m) => m.circle_id);
+    const memberIds = new Set(
+      rowsOf('circle_members')
+        .filter((m) => myCircleIds.includes(m.circle_id))
+        .map((m) => m.profile_id),
+    );
+
+    const people = rowsOf('profiles')
+      .filter((p) => memberIds.has(p.id))
+      .map((p) => ({ id: p.id, handle: p.handle, name: p.name }));
+    const bots = rowsOf('profiles')
+      .filter((p) => p.is_bot === true)
+      .map((p) => ({ id: p.id, handle: p.handle, name: p.name }));
+    const botIds = new Set(bots.map((b) => b.id));
+
+    const firstCircle = rowsOf('circles').find((c) => myCircleIds.includes(c.id));
+    const circle = firstCircle
+      ? { id: firstCircle.id, name: firstCircle.name, invite_code: firstCircle.invite_code }
+      : null;
+
+    const notifications = rowsOf('notifications')
+      .filter((n) => n.recipient_id === caller)
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+      .slice(0, limit)
+      .map((n) => ({
+        id: n.id,
+        tier: n.tier,
+        kind: n.kind,
+        payload: n.payload,
+        read_at: n.read_at ?? null,
+        created_at: n.created_at,
+      }));
+
+    const tasks = rowsOf('tasks');
+    const myTasks = weekStart
+      ? tasks.filter((t) => t.owner_id === caller && t.week_start === weekStart)
+      : null;
+    const ownerTasks = weekStart
+      ? tasks.filter(
+          (t) =>
+            t.week_start === weekStart &&
+            t.owner_id !== caller &&
+            (memberIds.has(t.owner_id) || botIds.has(t.owner_id)),
+        )
+      : [];
+
+    const reactions = rowsOf('reactions');
+    const myReactions = reactions
+      .filter((r) => r.actor_id === caller && r.target_type === 'task')
+      .map((r) => ({ target_id: r.target_id, kind: r.kind }));
+
+    const myTaskIds = new Set(tasks.filter((t) => t.owner_id === caller).map((t) => t.id));
+    const notes = rowsOf('notes').filter(
+      (n) => n.recipient_id === caller || (n.task_id != null && myTaskIds.has(n.task_id)),
+    );
+
+    const rollups = rowsOf('week_rollups')
+      .filter((w) => w.profile_id === caller)
+      .sort((a, b) => String(a.week_start).localeCompare(String(b.week_start)))
+      .map((w) => ({
+        week_start: w.week_start,
+        points: w.points,
+        done: w.done,
+        total: w.total,
+        perfect: w.perfect,
+        streak_held: w.streak_held,
+      }));
+
+    const pulledIds = new Set([
+      ...(myTasks ?? []).map((t) => t.id),
+      ...ownerTasks.map((t) => t.id),
+    ]);
+    const cheerCounts: Record<string, number> = {};
+    for (const r of reactions) {
+      if (r.target_type !== 'task' || r.kind !== 'cheer') continue;
+      if (r.actor_id === caller) continue;
+      const id = String(r.target_id);
+      if (!pulledIds.has(r.target_id)) continue;
+      cheerCounts[id] = (cheerCounts[id] ?? 0) + 1;
+    }
+
+    return {
+      people,
+      bots,
+      circle,
+      notifications,
+      my_tasks: myTasks,
+      owner_tasks: ownerTasks,
+      reactions: myReactions,
+      notes,
+      rollups,
+      cheer_counts: cheerCounts,
+    };
+  },
+
   join_circle_by_code(args) {
     const caller = state.session?.user.id;
     if (!caller) throw new Refusal(pgError('42501', 'not authenticated'));

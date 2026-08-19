@@ -643,6 +643,14 @@ export function createEngine(
   let pullTimer: ReturnType<typeof setInterval> | null = null;
   let pulling = false;
   let unsubscribeSession: (() => void) | null = null;
+  /**
+   * Whether the server has `pull_world`. Assumed until it answers that it
+   * does not — a fact about the deployment, not the request, so it is asked
+   * once rather than paying a doomed round trip at the head of every pull.
+   * Per engine, not per process: a restart (or an account move to a different
+   * backend) starts a new engine and asks again.
+   */
+  let worldSupported = true;
 
   function observe(state: State): void {
     const tasks = state.myTasks;
@@ -802,56 +810,81 @@ export function createEngine(
       // The week is whatever the last observation saw. Without one there is no
       // week to ask for, and guessing is worse than waiting a cycle.
       const week = lastWeek;
-      const [people, bots, myCircle, notifications, rows, reactions, notes, rollups] =
-        await Promise.all([
-          wire.pullCircle(userId),
-          wire.pullBots(),
-          wire.pullMyCircle(userId),
-          wire.pullNotifications(userId, NOTIFICATION_MAX),
-          week ? wire.pullTasks(userId, mondayOf(week)) : Promise.resolve(null),
-          wire.pullReactions(userId),
-          wire.pullNotes(userId),
-          // Unconditional, unlike `pullTasks` above: closed weeks do not depend
-          // on which week is on screen, and the one moment this answer matters —
-          // the first pull after a reinstall — is a moment when `lastWeek` may
-          // not have been observed yet.
-          wire.pullRollups(userId),
-        ]);
-
-      // The feed is a second wave rather than a fifth entry in the one above:
-      // it can only ask about people `pullCircle` has just named, and asking
-      // the membership question twice in parallel would cost the same round
-      // trip while making the two answers able to disagree.
       const weekStart = week ? mondayOf(week) : null;
-      // Deduped, because the two reads overlap by design: `pullCircle` answers
-      // for everyone in your circles and `pullBots` for every bot, and a bot
-      // you share a circle with is legitimately in both. Left as-is the same id
-      // goes into the owners query twice and into the directory twice — the
-      // second of which is the only reason a caller downstream would ever have
-      // to think about duplicates at all.
-      const memberIds = uniqueIds(people.map((p) => p.id).filter((id) => id !== userId));
+
+      // One round trip when the server has `pull_world`; the per-table
+      // waterfall when it does not. Same keys, same rows, same visibility —
+      // the function is SECURITY INVOKER, so both paths run under the same
+      // RLS and must not be able to disagree.
+      const world = worldSupported ? await wire.pullWorld(weekStart, NOTIFICATION_MAX) : null;
+      if (worldSupported && !world) worldSupported = false;
+
+      const gathered = world ?? {
+        // The old shape, kept as the floor: three serial waves, because a
+        // client cannot ask a dependent question before hearing the answer to
+        // the previous one — which is exactly what `pull_world` moves into
+        // one statement on the server.
+        ...(await (async () => {
+          const [people, bots, myCircle, notifications, myTasks, reactions, notes, rollups] =
+            await Promise.all([
+              wire.pullCircle(userId),
+              wire.pullBots(),
+              wire.pullMyCircle(userId),
+              wire.pullNotifications(userId, NOTIFICATION_MAX),
+              weekStart ? wire.pullTasks(userId, weekStart) : Promise.resolve(null),
+              wire.pullReactions(userId),
+              wire.pullNotes(userId),
+              // Unconditional, unlike `pullTasks` above: closed weeks do not
+              // depend on which week is on screen, and the one moment this
+              // answer matters — the first pull after a reinstall — is a
+              // moment when `lastWeek` may not have been observed yet.
+              wire.pullRollups(userId),
+            ]);
+
+          // The feed is a second wave rather than a ninth entry in the one
+          // above: it can only ask about people `pullCircle` has just named.
+          // Deduped, because the two reads overlap by design — a bot you share
+          // a circle with is legitimately in both lists.
+          const memberIds = uniqueIds(people.map((p) => p.id).filter((id) => id !== userId));
+          const botIds = uniqueIds(bots.map((b) => b.id));
+          const ownerTasks = weekStart
+            ? await wire.pullTasksByOwners(uniqueIds([...memberIds, ...botIds]), weekStart)
+            : [];
+
+          // A third wave, for the same reason the second is one: it can only
+          // ask about rows the first two have just named. One call for both
+          // feeds' worth of ids — the tasks you can see, and your own.
+          const cheerCounts = await wire.pullCheerCounts(
+            [...ownerTasks.map((row) => String(row.id)), ...(myTasks ?? []).map((t) => t.id)],
+            userId,
+          );
+
+          return { people, bots, circle: myCircle, notifications, myTasks, ownerTasks, reactions, notes, rollups, cheerCounts };
+        })()),
+      };
+
+      const {
+        people,
+        bots,
+        circle: myCircle,
+        notifications,
+        myTasks: rows,
+        ownerTasks: ownerRows,
+        reactions,
+        notes,
+        rollups,
+        cheerCounts: cheers,
+      } = gathered;
+
       const botIds = uniqueIds(bots.map((b) => b.id));
-      // Two feeds, one query, one round trip: `pullTasksByOwners` does not care
-      // whose ids these are, and splitting them again afterwards is cheaper
-      // than asking the same question twice.
-      const ownerRows = weekStart
-        ? await wire.pullTasksByOwners(uniqueIds([...memberIds, ...botIds]), weekStart)
-        : [];
       const isBot = new Set(botIds);
       const friendRows = ownerRows.filter((row) => !isBot.has(String(row.owner_id)));
       const botRows = ownerRows.filter((row) => isBot.has(String(row.owner_id)));
-      // A third wave, for the same reason the second is one: it can only ask
-      // about rows the first two have just named.
-      //
-      // One call for both feeds' worth of ids — the tasks you can see, and your
-      // own. `pullCheerCounts` excludes you either way, which is exactly right
-      // in both directions: not your own cheer on a friend's row, and not your
-      // own cheer on your own row, which is not a cheer you received.
+      // `pullCheerCounts` — and `pull_world`'s counting — exclude you, which
+      // is exactly right in both directions: not your own cheer on a friend's
+      // row, and not your own cheer on your own row, which is not a cheer you
+      // received.
       const myIds = (rows ?? []).map((t) => t.id);
-      const cheers = await wire.pullCheerCounts(
-        [...ownerRows.map((row) => String(row.id)), ...myIds],
-        userId,
-      );
 
       const merge: ServerMerge = {};
       // No rows is the common answer for most of these keys, and a dispatch that

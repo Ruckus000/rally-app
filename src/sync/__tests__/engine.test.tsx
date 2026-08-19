@@ -1549,3 +1549,69 @@ it('leaves no channel behind after unmount', async () => {
   view.unmount();
   expect(realtime.open()).toHaveLength(0);
 });
+
+describe('pull_world', () => {
+  const mayaTask = () =>
+    fakeSupabase.seed({
+      tasks: [
+        {
+          id: '99999999-9999-4999-8999-999999999999',
+          owner_id: OTHER,
+          week_start: weekOnScreen(),
+          day: 2,
+          title: 'Swim 2k',
+          category: 'Fitness',
+          points: 40,
+          aud: 'friends',
+          source: 'staked',
+        },
+      ],
+    });
+
+  it('answers a whole pull in one round trip, with no per-table reads', async () => {
+    mount();
+    await settle();
+    inACircleWith(currentUserId() as string);
+    mayaTask();
+    fakeSupabase.calls.length = 0;
+
+    await settle(60_000);
+
+    // The feed landed…
+    expect(screen.getByTestId('feed')).toHaveTextContent('Swim 2k');
+    // …through the RPC, and through nothing else. A read appearing here means
+    // the waterfall ran alongside the fast path and the two answers could
+    // disagree — the exact bug the single round trip exists to rule out.
+    const worlds = fakeSupabase.calls.filter(
+      (c) => c.method === 'rpc' && c.table === 'pull_world',
+    );
+    expect(worlds.length).toBeGreaterThan(0);
+    expect(fakeSupabase.calls.filter((c) => c.method === 'select')).toHaveLength(0);
+  });
+
+  it('falls back to the per-table pulls on a server without it, and stops asking', async () => {
+    // The next rpc call — the first pull's `pull_world` — answers as an
+    // un-migrated backend would: the function is not in the schema cache.
+    fakeSupabase.failNext(1, {
+      code: 'PGRST202',
+      message: 'Could not find the function public.pull_world in the schema cache',
+    });
+    mount();
+    await settle();
+    inACircleWith(currentUserId() as string);
+    mayaTask();
+
+    await settle(120_000);
+
+    // The waterfall carried the same world the RPC would have.
+    expect(screen.getByTestId('feed')).toHaveTextContent('Swim 2k');
+    // Asked exactly once. "No such function" is a fact about the deployment,
+    // not the request — every pull after the first goes straight to the
+    // per-table reads rather than paying a doomed round trip at the head.
+    const worlds = fakeSupabase.calls.filter(
+      (c) => c.method === 'rpc' && c.table === 'pull_world',
+    );
+    expect(worlds).toHaveLength(1);
+    expect(fakeSupabase.calls.filter((c) => c.method === 'select').length).toBeGreaterThan(0);
+  });
+});

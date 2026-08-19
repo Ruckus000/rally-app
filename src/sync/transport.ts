@@ -73,8 +73,38 @@ export type PushResult =
   | { ok: false; retryable: true; error: string }
   | { ok: false; retryable: false; code: string; error: string };
 
+/**
+ * Everything one pull cycle reads, in one payload — the answer `pull_world`
+ * gives. The keys mirror the per-table pulls one-for-one, because the engine
+ * has to be able to take either answer: a server older than the function
+ * cannot give this one, and the per-table pulls are the fallback.
+ *
+ * `myTasks` is null when no week was asked for — "no week on screen yet" and
+ * "a week with nothing staked" are different answers, exactly as `pullTasks`'s
+ * absence vs its empty array has always distinguished them.
+ */
+export type World = {
+  people: Person[];
+  bots: Person[];
+  circle: CircleRef | null;
+  notifications: Record<string, unknown>[];
+  myTasks: Task[] | null;
+  ownerTasks: Record<string, unknown>[];
+  reactions: ReactionRef[];
+  notes: PulledNote[];
+  rollups: PulledRollup[];
+  cheerCounts: Record<string, number>;
+};
+
 export type Transport = {
   push(entry: WireOp, userId: string): Promise<PushResult>;
+  /**
+   * The whole pull in one round trip, or `null` from a server that does not
+   * have the function yet — the caller falls back to the per-table pulls
+   * below, which remain the contract's floor. Null is a fact about the
+   * *server*, so the caller may remember it rather than asking every cycle.
+   */
+  pullWorld(weekStart: string | null, notifLimit: number): Promise<World | null>;
   pullTasks(userId: string, weekStart: string): Promise<Task[]>;
   pullCircle(userId: string): Promise<Person[]>;
   pullMyCircle(userId: string): Promise<CircleRef | null>;
@@ -198,6 +228,53 @@ const isAlreadyDone = (err: unknown): boolean => asWireError(err).code === '2350
 const writes = (op: WireOp['op']): boolean => op !== 'task.delete' && op !== 'reaction.remove';
 
 const isKind = (v: string): v is ReactionKind => (REACTION_KINDS as readonly string[]).includes(v);
+
+/**
+ * A `reactions` row into a ref, or nothing for a kind a newer build invented —
+ * dropping it beats rendering it as whichever kind this build would fall back
+ * to. Shared by `pullReactions` and `pullWorld`, whose rows must read the same.
+ */
+const rowToReactionRef = (r: unknown): ReactionRef[] => {
+  const row = r as { target_id: unknown; kind: unknown };
+  const kind = String(row.kind);
+  return isKind(kind) ? [{ targetId: String(row.target_id), kind }] : [];
+};
+
+/**
+ * A `notes` row into the shape the client can place, or nothing for a row that
+ * somehow names no target: the CHECK guarantees exactly one, but a row is
+ * untrusted input like any other, and one naming neither must not be given a
+ * target the client invents for it. Shared by `pullNotes` and `pullWorld`.
+ */
+const rowToPulledNote = (r: unknown): PulledNote[] => {
+  const row = r as Record<string, unknown>;
+  const target: NoteTarget | null =
+    typeof row.task_id === 'string'
+      ? { taskId: row.task_id }
+      : typeof row.recipient_id === 'string'
+        ? { recipientId: row.recipient_id }
+        : null;
+  if (!target) return [];
+  return [
+    {
+      id: String(row.id),
+      authorId: String(row.author_id),
+      body: String(row.body ?? ''),
+      target,
+      at: String(row.created_at ?? ''),
+    },
+  ];
+};
+
+/** A `week_rollups` row into the pulled shape. Shared by `pullRollups` and `pullWorld`. */
+const rowToPulledRollup = (row: Record<string, unknown>): PulledRollup => ({
+  weekStart: String(row.week_start),
+  points: Number(row.points ?? 0),
+  done: Number(row.done ?? 0),
+  total: Number(row.total ?? 0),
+  perfect: !!row.perfect,
+  streakHeld: !!row.streak_held,
+});
 
 /**
  * `notes_exactly_one_target` is a CHECK over both columns, so the one that is
@@ -643,14 +720,7 @@ export function supabaseTransport(): Transport {
       .order('week_start', { ascending: true });
     if (error) fail(error);
 
-    return (data ?? []).map((row) => ({
-      weekStart: String(row.week_start),
-      points: Number(row.points ?? 0),
-      done: Number(row.done ?? 0),
-      total: Number(row.total ?? 0),
-      perfect: !!row.perfect,
-      streakHeld: !!row.streak_held,
-    }));
+    return (data ?? []).map((row) => rowToPulledRollup(row as Record<string, unknown>));
   };
 
   const pullMyCircle = async (userId: string): Promise<CircleRef | null> => {
@@ -696,13 +766,7 @@ export function supabaseTransport(): Transport {
       .eq('target_type', TARGET_TYPE);
     if (error) fail(error);
 
-    return (data ?? []).flatMap((r) => {
-      const row = r as { target_id: unknown; kind: unknown };
-      const kind = String(row.kind);
-      // A kind a newer build invented. Dropping it beats rendering it as
-      // whichever kind this build would fall back to.
-      return isKind(kind) ? [{ targetId: String(row.target_id), kind }] : [];
-    });
+    return (data ?? []).flatMap(rowToReactionRef);
   };
 
   /**
@@ -732,32 +796,76 @@ export function supabaseTransport(): Transport {
       onMine = res.data ?? [];
     }
 
-    return [...(toMe.data ?? []), ...onMine].flatMap((r) => {
-      const row = r as Record<string, unknown>;
-      // The CHECK guarantees exactly one target, but a row is untrusted input
-      // like any other: one that somehow names neither is dropped rather than
-      // given a target the client invents for it.
-      const target: NoteTarget | null =
-        typeof row.task_id === 'string'
-          ? { taskId: row.task_id }
-          : typeof row.recipient_id === 'string'
-            ? { recipientId: row.recipient_id }
-            : null;
-      if (!target) return [];
-      return [
-        {
-          id: String(row.id),
-          authorId: String(row.author_id),
-          body: String(row.body ?? ''),
-          target,
-          at: String(row.created_at ?? ''),
-        },
-      ];
+    return [...(toMe.data ?? []), ...onMine].flatMap(rowToPulledNote);
+  };
+
+  /**
+   * The whole pull in one round trip — `pull_world` on the server, which runs
+   * the same queries the per-table pulls make, as the caller, under the same
+   * RLS, inside one statement. See the migration for why SECURITY INVOKER is
+   * the load-bearing part.
+   *
+   * `null` means the server does not have the function: `PGRST202` is
+   * PostgREST's "not in my schema cache", `42883` is Postgres's "no such
+   * function" — both are facts about the deployment, not about this request,
+   * so the caller is right to remember the answer and stop asking. Every other
+   * failure throws, exactly as the per-table pulls do.
+   */
+  const pullWorld = async (
+    weekStart: string | null,
+    notifLimit: number,
+  ): Promise<World | null> => {
+    const { data, error } = await getSupabase().rpc('pull_world', {
+      p_week_start: weekStart,
+      p_notif_limit: notifLimit,
     });
+    if (error) {
+      const code = (error as WireError).code ?? '';
+      if (code === 'PGRST202' || code === '42883') return null;
+      fail(error as WireError);
+    }
+
+    const w = (data ?? {}) as Record<string, unknown>;
+    const rows = (v: unknown): Record<string, unknown>[] =>
+      Array.isArray(v) ? (v as Record<string, unknown>[]) : [];
+
+    const circleRow = (w.circle ?? null) as Record<string, unknown> | null;
+    const circle: CircleRef | null = circleRow?.id
+      ? {
+          id: String(circleRow.id),
+          name: String(circleRow.name ?? ''),
+          inviteCode: String(circleRow.invite_code ?? ''),
+        }
+      : null;
+
+    // Counted server-side, but still narrowed here: a count is untrusted input
+    // like any row, and NaN in a cheer chip is worse than no chip.
+    const cheerCounts: Record<string, number> = {};
+    if (w.cheer_counts && typeof w.cheer_counts === 'object' && !Array.isArray(w.cheer_counts)) {
+      for (const [id, n] of Object.entries(w.cheer_counts as Record<string, unknown>)) {
+        const count = Number(n);
+        if (Number.isFinite(count)) cheerCounts[id] = count;
+      }
+    }
+
+    return {
+      people: rows(w.people).map(rowToPerson),
+      bots: rows(w.bots).map(rowToPerson),
+      circle,
+      notifications: rows(w.notifications),
+      // Null and empty stay distinct across the wire — see `World.myTasks`.
+      myTasks: w.my_tasks == null ? null : rows(w.my_tasks).map(rowToTask),
+      ownerTasks: rows(w.owner_tasks),
+      reactions: rows(w.reactions).flatMap(rowToReactionRef),
+      notes: rows(w.notes).flatMap(rowToPulledNote),
+      rollups: rows(w.rollups).map(rowToPulledRollup),
+      cheerCounts,
+    };
   };
 
   return {
     push,
+    pullWorld,
     pullTasks,
     pullCircle,
     pullMyCircle,
