@@ -17,9 +17,8 @@ import React from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { render, screen } from '@testing-library/react-native';
 
-import Root from '../../../App';
+import { App, Root } from '../../App';
 import { BootScreen } from '../../screens/BootScreen';
-import { App } from '../../App';
 import { StoreProvider } from '../../state/store';
 import { color } from '../tokens';
 import { Scheme, ThemeProvider, useColors, useTheme } from '../ThemeProvider';
@@ -155,7 +154,11 @@ describe('the real root', () => {
     // exists. Asserting the placement rather than trusting the JSX: if it
     // migrates back down into `src/App` to be nearer the store, that is a
     // design change and should have to argue with a test.
-    render(<Root />);
+    // `Root` and not the entry `App.tsx`, which imports `expo-font` and drags
+    // the font stack into the test run — that resolves on a developer machine
+    // and not on a clean `npm ci`. The claim here is about where the provider
+    // sits, and it should not need fonts to make it.
+    render(<Root ready={false} />);
     const providers = screen.UNSAFE_getAllByType(ThemeProvider);
     // Exactly one. A second nested inside `src/App` would work and would be a
     // thing a reader has to reason about for no benefit.
@@ -163,6 +166,13 @@ describe('the real root', () => {
     // Before the fonts and the persisted state arrive, the branch is the boot
     // screen — which is the whole reason the provider is up here.
     expect(providers[0].findByType(BootScreen)).toBeTruthy();
+  });
+
+  it('covers the other branch too, once the app is ready', () => {
+    render(<Root ready restored={null} />);
+    const providers = screen.UNSAFE_getAllByType(ThemeProvider);
+    expect(providers).toHaveLength(1);
+    expect(providers[0].findByType(App)).toBeTruthy();
   });
 
   it('leaves the store below it, because the palette is not account state', () => {
