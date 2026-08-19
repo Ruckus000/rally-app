@@ -179,6 +179,61 @@ describe('who can see it — the audience model, not a copy of it', () => {
   });
 });
 
+describe('a block reaches the photo too', () => {
+  /**
+   * The gap this suite exists to keep closed. `reports_and_blocks` taught
+   * every select policy about blocks by pairing a guard with `can_see_task`
+   * at each call site; the media policies were written before that convention
+   * and called the helper alone. Without the follow-up migration, blocking
+   * someone would take away their week and leave them the photograph of it.
+   */
+  const block = async (who: SeedHandle, target: SeedHandle) => {
+    const { error } = await asUser(who).rpc('block_person', { p_blocked: idOf(target) });
+    expect(error).toBeNull();
+  };
+
+  afterEach(async () => {
+    await sql('delete from public.blocks');
+  });
+
+  it('hides a circle-mate’s photo once they are blocked', async () => {
+    expect((await attach('friends')).error).toBeNull();
+    expect(await canSee('dre', 'friends')).toBe(true);
+
+    await block('dre', 'maya');
+
+    expect(await canSee('dre', 'friends')).toBe(false);
+  });
+
+  it('hides it in the other direction too — a block is not one-sided', async () => {
+    expect((await attach('friends')).error).toBeNull();
+    await block('maya', 'dre');
+    expect(await canSee('dre', 'friends')).toBe(false);
+  });
+
+  it('leaves the owner their own photo', async () => {
+    expect((await attach('friends')).error).toBeNull();
+    await block('dre', 'maya');
+    expect(await canSee('maya', 'friends')).toBe(true);
+  });
+
+  it('refuses to sign the file for a blocked reader', async () => {
+    // Checked separately on purpose: a signed URL is minted against
+    // storage.objects, not against task_media, so a guard on only the row
+    // would leave the file readable to somebody who cannot read its row.
+    const name = pathFor(idOf('maya'), taskOf.friends, uuid(20));
+    const pixel = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: 'image/jpeg' });
+    expect(
+      (await asUser('maya').storage.from('task-media').upload(name, pixel, { upsert: true })).error,
+    ).toBeNull();
+    expect((await asUser('dre').storage.from('task-media').createSignedUrl(name, 60)).error).toBeNull();
+
+    await block('dre', 'maya');
+
+    expect((await asUser('dre').storage.from('task-media').createSignedUrl(name, 60)).error).not.toBeNull();
+  });
+});
+
 describe('the file itself', () => {
   const BUCKET = 'task-media';
   /** A one-pixel JPEG is enough: what is under test is the policy, not the codec. */
