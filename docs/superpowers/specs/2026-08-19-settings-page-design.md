@@ -224,11 +224,18 @@ Mutation testing targets both new guards:
 
 ```
 signOutVisible = account === 'live' && !(session.status === 'ready' && session.anonymous)
-signOutEnabled = session.status === 'ready' && !session.anonymous && pendingCount === 0
+signOutEnabled = session.status === 'ready' && !session.anonymous
+attemptSignOut aborts when pending() is non-empty after the flush
 ```
 
-Each condition must be individually killable — in particular `pendingCount === 0`,
-which is the one whose absence is invisible until someone loses work.
+The queue check is deliberately **not** part of `signOutEnabled`. Gating the rendered
+button on `pending().length === 0` would grey it out for a queue that the flush is
+about to empty — the button would appear broken precisely when the app is about to do
+the right thing. The check belongs after the flush, where the answer is real.
+
+Each condition must be individually killable — in particular the abort in
+`attemptSignOut`, which is the one whose absence is invisible until someone loses
+work.
 
 No new integration test. Nothing here touches RLS or adds a `WireOp`, so the existing
 integration suite stands as the gate rather than growing.
