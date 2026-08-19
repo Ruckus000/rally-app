@@ -19,6 +19,7 @@
 import { attemptSignOut, unsentLine } from '../signOut';
 import * as outbox from '../../../sync/outbox';
 import * as session from '../../../sync/session';
+import * as engine from '../../../sync/useSyncEngine';
 import type { OutboxEntry } from '../../../sync/outbox';
 
 /** The real shape, not a widened cast — see `OutboxEntry` in `sync/outbox.ts`. */
@@ -37,11 +38,13 @@ describe('attemptSignOut', () => {
   let flush: jest.SpyInstance;
   let pending: jest.SpyInstance;
   let out: jest.SpyInstance;
+  let kick: jest.SpyInstance;
 
   beforeEach(() => {
     flush = jest.spyOn(outbox, 'flushOutbox').mockResolvedValue(undefined);
     pending = jest.spyOn(outbox, 'pending').mockReturnValue([]);
     out = jest.spyOn(session, 'signOutEverywhere').mockResolvedValue(undefined);
+    kick = jest.spyOn(engine, 'kickSync').mockImplementation(() => {});
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -54,6 +57,14 @@ describe('attemptSignOut', () => {
     await attemptSignOut();
 
     expect(order).toEqual(['flush', 'signOut']);
+  });
+
+  it('starts a send rather than only persisting, so the retry can succeed', async () => {
+    // `flushOutbox` writes the queue to AsyncStorage; it does not send. Without
+    // the kick, a refusal would leave nothing in motion and the user would be
+    // retrying against a queue only the 5-second scheduler was going to move.
+    await attemptSignOut();
+    expect(kick).toHaveBeenCalled();
   });
 
   it('signs out when the queue drained', async () => {

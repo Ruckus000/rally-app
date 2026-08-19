@@ -2,7 +2,8 @@
  * Leaving an account, in the only order that does not lose anything.
  *
  * 1. Flush the outbox to disk, so the queue as it stands right now is durable
- *    before anything touches the session.
+ *    before anything touches the session, and kick a drain so anything queued
+ *    is actually in motion.
  * 2. Look at what is still queued. If anything is, stop — see below.
  * 3. Sign out, which deregisters this device's push token while there is still
  *    a session to do it with.
@@ -21,18 +22,24 @@
  * the thing the person did last, with nobody told. They are told instead, and
  * asked to reconnect.
  *
- * Read `flushOutbox` before you trust step 1 to do more than it does: it is a
+ * Read `flushOutbox` before you trust it to do more than it does: it is a
  * *persistence* flush — it cancels the debounce and writes the queue to
- * AsyncStorage — not a send. Sending is `drain`, which needs a `QueueTransport`
- * and is owned by the engine; the only handle the app has on it is
- * `kickSync()`, which is fire-and-forget and cannot be awaited. That is fine
- * here, because the check that follows fails *closed*: a queue the scheduler
- * has not got to yet refuses the sign-out rather than losing it. The cost is a
- * refusal that a five-second wait would have cleared. The fix, if that ever
- * grates, is an awaitable drain on the engine — not a weaker check here.
+ * AsyncStorage — not a send. Sending is `drain`, owned by the engine, and the
+ * only handle the app has on it is `kickSync()`, which returns void and so
+ * cannot be awaited. Hence the shape of step 1: persist, start a send, and then
+ * check anyway, knowing the check will still see the queue this run.
+ *
+ * That is deliberate rather than a shortcut. The check fails *closed* — a queue
+ * the drain has not finished refuses the sign-out rather than losing it — and
+ * the kick is what makes the copy honest, because "give it a moment and try
+ * again" is only fair advice if something is actually moving. The cost is one
+ * refusal the user has to tap through. The known limitation, recorded rather
+ * than papered over: with an awaitable drain on the engine this could resolve
+ * on the first tap. That belongs in `src/sync/`, not in a weaker check here.
  */
 import { flushOutbox, pending } from '../../sync/outbox';
 import { signOutEverywhere } from '../../sync/session';
+import { kickSync } from '../../sync/useSyncEngine';
 
 export type SignOutOutcome =
   | { ok: true }
@@ -41,6 +48,13 @@ export type SignOutOutcome =
 
 export async function attemptSignOut(): Promise<SignOutOutcome> {
   await flushOutbox();
+
+  // Fire-and-forget by construction — `kick()` returns void, so this cannot be
+  // awaited and the check below will still see the queue. That is the point:
+  // the refusal is immediate and honest, and the drain it starts is what makes
+  // the retry seconds later succeed rather than waiting on the scheduler.
+  // Null-safe on a demo account, where no engine is mounted to kick.
+  kickSync();
 
   // By key, not by entry: the key is the row and the entry is the attempt.
   const unsent = new Set(pending().map((e) => e.key)).size;
@@ -56,6 +70,6 @@ export async function attemptSignOut(): Promise<SignOutOutcome> {
  */
 export function unsentLine(unsent: number): string {
   return unsent === 1
-    ? 'One thing hasn’t reached the server yet. Reconnect and try again — it’d be lost otherwise.'
-    : `${unsent} things haven’t reached the server yet. Reconnect and try again — they’d be lost otherwise.`;
+    ? 'One thing hasn’t reached the server yet. Give it a moment and try again — it’d be lost otherwise.'
+    : `${unsent} things haven’t reached the server yet. Give it a moment and try again — they’d be lost otherwise.`;
 }
