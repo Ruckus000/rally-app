@@ -11,15 +11,24 @@
  * forgets a scope, fails *here* — as maya's private task appearing in dre's
  * world, or maya appearing in jordan's — not in any unit test.
  */
-import { asAnon, asUser, idOf } from '../support/clients';
+import { randomUUID } from 'node:crypto';
+import { asAnon, asService, asUser, idOf } from '../support/clients';
 import { CIRCLE_IDS, SEED_BOTS } from '../fixtures/world';
 
 /** 2026-08-10 is a Monday, which is what `week_start` means. */
 const WEEK = '2026-08-10';
 
+type Person = {
+  id: string;
+  handle: string;
+  name: string;
+  avatar_path: string | null;
+  avatar_state: string;
+};
+
 type World = {
-  people: { id: string; handle: string; name: string }[];
-  bots: { id: string; handle: string; name: string }[];
+  people: Person[];
+  bots: Person[];
   circle: { id: string; name: string; invite_code: string } | null;
   notifications: unknown[];
   my_tasks: { id: string; title: string }[] | null;
@@ -138,6 +147,56 @@ describe('cheer counts', () => {
     // …and his own tap comes back in `reactions`, which is the other half of
     // the contract: the count plus the tap the client already knows about.
     expect(world.reactions).toContainEqual({ target_id: taskIds.friends, kind: 'cheer' });
+  });
+});
+
+/**
+ * The case the whole avatar column exists for, and the one no unit test can
+ * reach: `avatar_state` moves to `ready` only inside `mark_avatar_screened`,
+ * which is revoked from every role a client can hold. So the *only* way an
+ * account ever learns its own photo was approved is by reading its own
+ * profile row back out of a pull — and `alex` (you_rally) is in no circle, so
+ * before this the `people` CTE returned nothing about her at all.
+ */
+describe('your own row, for an account in no circle', () => {
+  const SOLO = 'you' as const;
+
+  afterEach(async () => {
+    const { error } = await asUser(SOLO).rpc('set_avatar', { p_path: null });
+    expect(error).toBeNull();
+  });
+
+  it('is in `people` at all, with no circle to arrive as a by-product of', async () => {
+    const world = await worldOf(SOLO);
+    expect(world.circle).toBeNull();
+    expect(world.people.map((p) => p.id)).toEqual([idOf(SOLO)]);
+  });
+
+  it('carries the screening verdict, which arrives nowhere else', async () => {
+    const path = `${idOf(SOLO)}/${randomUUID()}.jpg`;
+
+    // What the client can do for itself: point at the object, land on pending.
+    expect((await asUser(SOLO).rpc('set_avatar', { p_path: path })).error).toBeNull();
+    const pending = (await worldOf(SOLO)).people.find((p) => p.id === idOf(SOLO));
+    expect(pending).toMatchObject({ avatar_path: path, avatar_state: 'pending' });
+
+    // What only the screener can do, holding the service key.
+    const verdict = await asService().rpc('mark_avatar_screened', {
+      p_profile: idOf(SOLO),
+      p_state: 'ready',
+    });
+    expect(verdict.error).toBeNull();
+
+    const ready = (await worldOf(SOLO)).people.find((p) => p.id === idOf(SOLO));
+    expect(ready).toMatchObject({ avatar_path: path, avatar_state: 'ready' });
+  });
+
+  it('carries the columns for circle-mates and bots too, so one mapper reads all three', async () => {
+    const world = await worldOf('dre');
+    for (const row of [...world.people, ...world.bots]) {
+      expect(row).toHaveProperty('avatar_path');
+      expect(row.avatar_state).toBe('none');
+    }
   });
 });
 

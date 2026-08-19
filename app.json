@@ -39,6 +39,14 @@
         }
       ],
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Rally uses your photos so you can put a face on your profile.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/splash-icon.png",

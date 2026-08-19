@@ -11,6 +11,36 @@ import { hashTint } from '../theme/tokens';
 
 export type PersonId = string;
 export type Trend = 'up' | 'down' | 'same';
+
+/**
+ * `profiles.avatar_state`, mirrored by hand from the migration's check
+ * constraint. Only `ready` may ever render bytes — see `Avatar`.
+ */
+export type AvatarState = 'none' | 'pending' | 'ready' | 'refused';
+
+/** The four the server will answer with, as a set, for narrowing a wire value. */
+const AVATAR_STATES: readonly string[] = ['none', 'pending', 'ready', 'refused'];
+
+/**
+ * The longest `avatar_path` this app will hold, and the same argument as
+ * `NAME_MAX` one column over: the path is written by another person's client
+ * (`set_avatar` checks only that the first segment is their own uuid, not that
+ * the rest is short), it arrives in a payload this device persists, and a
+ * payload that fails validation on restore is discarded whole. A real path is
+ * `<uuid>/<uuid>.jpg` — 78 characters — so this is generous by a factor of two.
+ */
+export const AVATAR_PATH_MAX = 160;
+
+/** Anything the server did not say, or said in a shape from a later build, is "no photo". */
+export const avatarStateOf = (value: unknown): AvatarState =>
+  typeof value === 'string' && AVATAR_STATES.includes(value) ? (value as AvatarState) : 'none';
+
+/** Dropped rather than truncated: half a path names no object, and the honest answer is initials. */
+export const avatarPathOf = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.length > 0 && value.length <= AVATAR_PATH_MAX
+    ? value
+    : undefined;
+
 export type MemberStats = { done: number; total: number; streak: number; given: number };
 
 export type Person = {
@@ -30,6 +60,17 @@ export type Person = {
    * account that knew nobody.
    */
   bot?: boolean;
+  /**
+   * The object name in the private `avatars` bucket — never a URL. Signing it
+   * happens in `lib/avatarUrl.ts`, whose answers expire; this is the durable
+   * half and the only one that is persisted.
+   */
+  avatarPath?: string;
+  /**
+   * Whether those bytes have been screened. Absent means `none`, which is what
+   * every demo person and every row from a build before this feature is.
+   */
+  avatarState?: AvatarState;
 };
 
 /** Deliberately `| undefined`: without noUncheckedIndexedAccess a plain Record would hand back a

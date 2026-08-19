@@ -15,14 +15,24 @@ three account modes (`fresh` and `seeded`) make no network call at all.
 
 ## Status
 
-First applied 2026-08-10 with `supabase db push`. Re-counted against the hosted
-project on 2026-08-19, after all seventeen migrations:
+First applied 2026-08-10 with `supabase db push`. Re-counted 2026-08-19 against a
+freshly reset local stack carrying all eighteen migrations, by querying
+`pg_tables`, `pg_policies`, `pg_type` and `pg_proc` directly.
+
+That method matters, because the previous re-count was done by grepping
+`create policy` across the migrations and came out at 28. It is 26. Six policies
+are dropped and recreated by `20260819164832_reports_and_blocks.sql`, so grep
+counts each of them twice — an error that will recur every time a migration
+amends an existing policy. **Count from the database, not from the files.**
+
+`storage.objects` policies are not included here and never have been; the
+`avatars` bucket adds four of them.
 
 | Check | Result |
 |---|---|
 | Tables in `public` | 16 |
 | Tables with RLS enabled | 16 |
-| Policies | 28 |
+| Policies in `public` | 26 |
 | Enums | 5 |
 | `private` helpers | 12, six of them called by policies |
 | `supabase db advisors --type all` | see *What the advisors say* below |
@@ -283,6 +293,132 @@ before the block existed, since the stranger shares no circle with them and
 isn't a bot. That is the accepted trade for an unblock list that shows a
 person instead of an identifier nobody recognises. It is not an oversight,
 and it is not free.
+
+## Avatars: a face behind a screening gate
+
+Added in `20260819194501_avatars.sql`: two columns on `profiles`, a private
+`avatars` bucket, four storage policies, and two RPCs. If `task_media` (photos
+on goals, an unmerged branch at the time of writing) has also landed by the
+time you read this, that is a second private bucket following the same shape
+— private, signed reads, path rooted at the owner, client-minted object names,
+no update policy on the row. This section only writes down where an avatar is
+*not* like a goal photo; it does not assume it is the only bucket in the
+project.
+
+**The state machine.** `avatar_state` is `none | pending | ready | refused`,
+checked by a constraint. A goal photo is scoped to the goal's audience; an
+avatar has no audience to delegate to — it is rendered on every screen that
+names you, to everyone signed in. So the column isn't answering "who can see
+this", it's answering "has anyone looked at this yet", and that has to be
+settled before the first render rather than after the first report.
+`pending` therefore renders initials **including to the image's own owner**
+(`src/components/Avatar.tsx`, `src/lib/avatarUrl.ts`) — the part that looks
+like over-caution and isn't. If an unscreened image rendered to its uploader,
+the uploader's own screenshot would be the distribution channel, and
+screening would have bought a delay instead of a decision. Only `ready` ever
+reaches a screen. `refused` is kept distinct from `none` so the app can say
+why nothing appears, rather than a refusal reading like a silently failed
+upload.
+
+**Why the bucket is private.** A public bucket moves visibility out of RLS
+and into "does anyone know the URL" — normally argued about content with a
+narrow audience, which makes it worth saying why it still holds here even
+though an avatar's *intended* audience is everyone signed in. It is not the
+`ready` image a public bucket would expose; it's the `pending` one and the
+`refused` one, sitting in the same bucket under a name the uploader chose
+and therefore knows. A public bucket would turn the screening gate into a
+client-side render rule with the bytes sitting behind a guessable URL the
+whole time — and the one image that gate must hold back is exactly the one
+somebody has a reason to go looking for. A takedown against a public URL is
+also cosmetic: the bytes stay reachable to anyone who already has the link,
+because revoking public read access on a bucket doesn't retract a URL
+already handed out. A private bucket's signed URLs expire on their own
+(`AVATAR_URL_TTL_SECONDS = 3600` in `src/lib/avatarUrl.ts`) whether or not
+anyone remembers to act.
+
+**Why the storage policy compares text, not casts.** The path is
+`<owner_id>/<name>.jpg`, and the insert/update/delete policies check
+`(storage.foldername(name))[1] = (select auth.uid())::text` — text against
+text, deliberately not `... = auth.uid()`, which would cast the client-chosen
+path segment to `uuid`. A malformed segment then fails to parse and Postgres
+raises `22P02` *inside the policy* — which is not one bad upload failing, it
+is that policy failing for whoever evaluates it next. `task_media` hit the
+same trap with `payload ->> 'actor_id'` and guarded it with a regex; here the
+question is only "is this string the caller's id", so there's nothing to
+parse and a malformed name is simply a policy miss. Casting the *other* side,
+`auth.uid()::text`, is safe because that value is a uuid or null and never
+malformed.
+
+**Why the write path is two RPCs, not a column grant — and the trap
+Postgres itself points you at.** `authenticated` already holds
+`grant update (name) on public.profiles` from `20260813120745_oz_bots.sql`,
+narrowed to one column so nobody could promote themselves to `is_bot`. A
+column-level grant does not widen when the table gains columns, so
+`avatar_path` and `avatar_state` arrive unwritable by inheritance, without
+anyone deciding it for this feature specifically. That's a real gate, but
+"safe because of a grant three migrations away" is exactly the kind of
+coupling this schema has learned to distrust — the same lesson `reports_and_blocks`
+already applied to a different table. So the migration doesn't lean on it:
+`set_avatar(p_path)` is `SECURITY DEFINER`, and the whole of its security
+property is that `'ready'` and `'refused'` appear nowhere in its signature —
+a client can move itself into `pending` and back to `none` and nowhere
+else, because the state written there is a literal in the function body, not
+a parameter. `mark_avatar_screened(p_profile, p_state)` is the only route
+into `ready`, and it is revoked from every role a client can hold and granted
+only to `service_role` — the edge function calls it, never the app. **Do not
+add `grant update (avatar_path, avatar_state) on public.profiles to
+authenticated`.** It would reopen the whole gate, restoring a direct write
+path to `ready`. The temptation is real, because Postgres's own error message
+walks you toward exactly that: try to `UPDATE` a column you don't hold and
+you get *"permission denied for table profiles"* with a HINT suggesting you
+grant `UPDATE` on the table — generic wording for a column-privilege miss,
+and advice that is right for almost every other case and wrong for this one.
+The migration's own comments say so, so the next person reads it before
+typing it.
+
+**Why the screener fails closed while `rate-goal` fails open.**
+`_shared/imageVerdict.mjs` is the deliberate mirror image of
+`_shared/verdict.mjs`. Both give the same three-way shape to a screening
+call — an answer, a refusal, and a call that never arrived — and resolve
+`unavailable` in opposite directions. `rate-goal`'s `screeningVerdict` treats
+a timeout, a 429, or a garbled body as `ok`: failing closed there would mean
+a slow model silently stopping someone from writing down their week, and the
+thing withheld is a sentence its author typed, shown only to the circle they
+chose. `imageVerdict` treats the identical set of non-answers as `blocked`:
+the thing withheld here is a picture that lands on the screens of people who
+have never met its owner, and a false pass isn't recoverable by the person
+who has already seen it — publishing exactly what app stores remove apps
+for. The cost of getting it wrong the cautious way is one person asked to
+upload again; the cost of getting it wrong the other way is silence about
+the very images this feature exists to catch. Same shape, opposite
+resolution, on purpose — and the model call is not free either: `screen-image`
+shares `rate-goal`'s per-user daily cap (`bump_llm_usage`, 200/day, one
+counter for both), and going over it also resolves `blocked`, deleting the
+pending upload rather than leaving it stranded unscreened.
+
+**On refusal, the object is deleted, not just the row.** The bucket's select
+policy is `bucket_id = 'avatars'` for every authenticated account — deliberate,
+since an avatar's audience is everyone — so an object that survives a refusal
+is readable by anyone who learns its name, and the client that uploaded it
+already knows the name. `screen-image` deletes the storage object before
+marking the row `refused`; marking the row alone would hide the picture from
+the app while leaving it addressable on the server for as long as the bucket
+exists. The order matters: delete first, then mark, so the survivable failure
+is a row still `pending` — which renders initials, and which a repeat call
+resolves — rather than a row saying `refused` over bytes that are still
+there.
+
+**Client shape:** pick → downscale to 512px JPEG (`expo-image-manipulator`,
+which drops EXIF as a side effect of re-encoding rather than by any explicit
+strip step — see *Known limits* in `TESTING.md`) → upload → `set_avatar` →
+`screen-image`. Clearing a photo and replacing one both delete the storage
+object being abandoned — `src/lib/avatarUpload.ts`. `Avatar` renders a photo
+only when `avatar_state === 'ready'` and a signed URL has come back; every
+other state, and any URL that fails to load, draws initials instead. Signed
+URLs live an hour, are held in a module-level cache rather than persisted,
+and are dropped on sign-out (`resetAvatarUrls`) since they're bearer tokens
+for objects the next account signed into this device has no business holding
+links to.
 
 ## Phasing
 

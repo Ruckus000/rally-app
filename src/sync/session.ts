@@ -10,6 +10,7 @@
 import { getSupabase, hasSupabaseConfig } from '../lib/supabase';
 import { getPushToken } from '../lib/push';
 import { requestAppleIdentity } from '../lib/appleAuth';
+import { resetAvatarUrls } from '../lib/avatarUrl';
 
 export type SessionState =
   | { status: 'off' } // demo mode or no config — never touches the network
@@ -311,6 +312,10 @@ export async function signOutEverywhere(): Promise<void> {
   fatal = null;
   expired = false;
   signingOut = true;
+  // Signed avatar URLs are bearer links to objects in a private bucket, good
+  // for an hour after this account stops existing on this phone. They live only
+  // in memory, so this is the whole of forgetting them.
+  resetAvatarUrls();
   // Before the call, not after, so the sync layer stops immediately rather than
   // for the length of a round trip it does not need to wait on.
   set(OFF);

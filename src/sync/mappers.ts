@@ -21,7 +21,14 @@ import type {
   Task,
 } from '../data/fixtures';
 import { NOTIF_TIERS, weekSummary } from '../data/fixtures';
-import { personOf, type MemberStats, type Person, type PersonId } from '../data/people';
+import {
+  avatarPathOf,
+  avatarStateOf,
+  personOf,
+  type MemberStats,
+  type Person,
+  type PersonId,
+} from '../data/people';
 import {
   buildWeekContext,
   dayIndexOf,
@@ -185,11 +192,28 @@ export function rowToHistoryWeek(rollup: {
   };
 }
 
+/**
+ * A `profiles` row as the directory holds it.
+ *
+ * The two avatar fields are narrowed rather than copied: `avatar_state` is
+ * another client's column and a value this build does not know becomes `none`,
+ * which renders initials — the one answer that is safe for a word we cannot
+ * read. `avatar_path` is bounded here for the reason `NAME_MAX` bounds the
+ * name: this row is persisted, and a payload that fails validation on restore
+ * takes the whole device's state with it.
+ */
 export function rowToPerson(row: Record<string, unknown>): Person {
   const id = str(row.id) as PersonId;
   const name = str(row.name).trim();
   const handle = str(row.handle).trim();
-  return personOf(id, name || handle || 'Someone');
+  const avatarPath = avatarPathOf(row.avatar_path);
+  const avatarState = avatarStateOf(row.avatar_state);
+  return personOf(id, name || handle || 'Someone', {
+    // Only carried when there is something to carry, so a person with no photo
+    // compares equal to the same person from a build that had no such column.
+    ...(avatarPath && avatarState !== 'none' ? { avatarPath } : {}),
+    ...(avatarState === 'none' ? {} : { avatarState }),
+  });
 }
 
 /**
