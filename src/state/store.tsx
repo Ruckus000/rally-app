@@ -42,6 +42,7 @@ import {
   seedYearLevels,
 } from '../data/seed';
 import {
+  AvatarState,
   MemberStats,
   NAME_MAX,
   People,
@@ -442,6 +443,17 @@ export type Action =
   | { type: 'BLOCK'; id: PersonId }
   | { type: 'UNBLOCK'; id: PersonId }
   | { type: 'BLOCKS_PULLED'; ids: PersonId[] }
+  /**
+   * Your own avatar just moved, as reported by `lib/avatarUpload`, which is the
+   * only thing on this device that can know before the next pull does. No
+   * outbox op: the server has already been told (`set_avatar` is an RPC), and
+   * this is the local copy catching up so that Settings stops offering to add a
+   * photo that is already there — and, more sharply, so that a replace made
+   * seconds later hands `previousPath` the object that is actually current
+   * rather than the one from a minute ago, which is how objects get orphaned in
+   * a bucket every signed-in account can read.
+   */
+  | { type: 'SET_AVATAR'; path: string | null; state: AvatarState }
   | { type: 'OPEN_REPORT'; target: ReportTarget }
   | { type: 'CLOSE_REPORT' }
   | { type: 'REPORT_FILED'; id: string };
@@ -615,6 +627,10 @@ const samePerson = (a: Person, b: Person): boolean =>
     a.tint === b.tint &&
     a.trend === b.trend &&
     !!a.bot === !!b.bot &&
+    // Both halves. The path alone would miss a photo going from `pending` to
+    // `ready` under the same name, which is the merge that turns a face on.
+    a.avatarPath === b.avatarPath &&
+    a.avatarState === b.avatarState &&
     sameStats(a.stats, b.stats));
 
 /**
@@ -1277,6 +1293,29 @@ export function reducer(state: State, action: Action): State {
         Object.values(state.people)
           .filter((p): p is Person => !!p && p.id !== state.selfId)
           .concat({ ...current, ...personOf(state.selfId, named) }),
+      );
+      return { ...state, people };
+    }
+
+    case 'SET_AVATAR': {
+      const current = state.people[state.selfId];
+      if (!current) return state;
+      const path = action.path ?? undefined;
+      const avatarState = action.state === 'none' ? undefined : action.state;
+      if (current.avatarPath === path && current.avatarState === avatarState) return state;
+
+      // Spread-and-overwrite, exactly as `RENAME_SELF` does: everything else
+      // about you survives, and the two avatar fields move together — a path
+      // with no state, or a state with no path, is a photo nothing can render
+      // and nothing can clean up.
+      const next: Person = { ...current, avatarPath: path, avatarState };
+      if (!path) delete next.avatarPath;
+      if (!avatarState) delete next.avatarState;
+
+      const people = indexPeople(
+        Object.values(state.people)
+          .filter((p): p is Person => !!p && p.id !== state.selfId)
+          .concat(next),
       );
       return { ...state, people };
     }

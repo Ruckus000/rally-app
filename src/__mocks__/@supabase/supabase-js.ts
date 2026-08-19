@@ -103,12 +103,24 @@ const SCHEMA: Record<string, TableSpec> = {
       // predates the Oz bots is a person.
       is_bot: { default: () => false },
       joined_at: { default: () => now() },
+      // The object name in the private `avatars` bucket, never a URL. Nullable,
+      // and defaulted alongside its state so a seeded profile looks like one the
+      // signup trigger made.
+      avatar_path: { default: () => null },
+      avatar_state: { default: () => 'none' },
     },
     unique: [{ name: 'profiles_handle_key', cols: ['handle'] }],
     checks: [
       {
         name: 'profiles_handle_check',
         ok: (r) => typeof r.handle === 'string' && /^[a-z0-9_.]{3,30}$/.test(r.handle),
+      },
+      {
+        name: 'profiles_avatar_state_known',
+        ok: (r) =>
+          r.avatar_state === null ||
+          r.avatar_state === undefined ||
+          ['none', 'pending', 'ready', 'refused'].includes(r.avatar_state as string),
       },
       {
         name: 'profiles_name_length',

@@ -1,12 +1,33 @@
 /**
- * Avatars are generated initials on tinted circles. The initials are
- * decorative — the accessible name is the person's full name.
+ * Avatars are generated initials on tinted circles — and, for the one person in
+ * a hundred who has uploaded a face and had it screened, the face instead.
+ *
+ * Initials are the designed default and not a failure mode (`HANDOFF.md`: *no
+ * image assets… avatars are generated initials on tinted circles*), which is
+ * what makes the fallback rule below cheap to state: **bytes render only when
+ * the state is `ready` and a signed URL is in hand.** Everything else — no
+ * path, `none`, `pending`, `refused`, a URL that has not arrived yet, a URL
+ * that failed to load — draws the letters. There is no third rendering, and in
+ * particular no broken-image glyph.
+ *
+ * ─── why `pending` draws initials, to its own owner ───────────────────────
+ *
+ * This is a security property, not a nicety. `pending` means the bytes are on
+ * the server and the screener has not answered, and the rule the whole feature
+ * rests on is that an unscreened image never reaches a screen. Rendering it to
+ * "just the owner, who took the photo anyway" sounds harmless and is not: the
+ * owner's screenshot is then a distribution channel for an image the model was
+ * never given the chance to refuse, and the account it came from is the one
+ * that wanted it distributed. The server agrees at every layer — `set_avatar`
+ * cannot write `ready`, only `mark_avatar_screened` can, and it is service-role
+ * only — so this component is the last of several locks, not the only one.
  */
 import React from 'react';
-import { StyleProp, View, ViewStyle } from 'react-native';
+import { Image, StyleProp, View, ViewStyle } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { color } from '../theme/tokens';
 import { PersonId } from '../data/people';
+import { useAvatarUrl } from '../lib/avatarUrl';
 import { usePeople } from '../state/store';
 import { Bri, Tap } from './primitives';
 
@@ -27,13 +48,28 @@ export function Avatar({
   style?: StyleProp<ViewStyle>;
 }) {
   const people = usePeople();
+  const person = who ? people.get(who) : undefined;
   const ini = initials ?? (who ? people.initials(who) : '?');
   const bg = tint ?? (who ? people.tint(who) : color.chip);
   const name = label ?? (who ? people.name(who) : undefined);
 
+  // `null` unless there is a screened photo and a URL that has not expired.
+  const photo = useAvatarUrl(person?.avatarPath, person?.avatarState);
+  /**
+   * The URL whose image would not load — expired between signing and fetching,
+   * an object deleted underneath us, a dead connection. Held as the URL rather
+   * than a boolean so that a freshly signed one gets its own chance: comparing
+   * it against `photo` resets the flag with no effect and no extra render.
+   */
+  const [broken, setBroken] = React.useState<string | null>(null);
+  const src = photo && photo !== broken ? photo : null;
+
   return (
     <View
       accessible={!!name}
+      // The photo is exactly as decorative as the initials it replaces — same
+      // name, whichever is drawn. The `<Image>` itself carries none, and
+      // `accessible` on this view collapses it away from a screen reader.
       accessibilityLabel={name}
       style={[
         {
@@ -43,13 +79,25 @@ export function Avatar({
           backgroundColor: bg,
           alignItems: 'center',
           justifyContent: 'center',
+          // The photo is square and this is a circle.
+          overflow: 'hidden',
         },
         style,
       ]}
     >
-      <Bri size={Math.round(size * 0.4)} weight={700} color={color.avatarText}>
-        {ini}
-      </Bri>
+      {src ? (
+        <Image
+          testID="avatar-photo"
+          source={{ uri: src }}
+          onError={() => setBroken(src)}
+          resizeMode="cover"
+          style={{ width: size, height: size }}
+        />
+      ) : (
+        <Bri size={Math.round(size * 0.4)} weight={700} color={color.avatarText}>
+          {ini}
+        </Bri>
+      )}
     </View>
   );
 }

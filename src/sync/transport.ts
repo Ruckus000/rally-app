@@ -18,6 +18,7 @@ import type { Task } from '../data/fixtures';
 import type { Person } from '../data/people';
 import type { CircleRef } from '../state/store';
 import { getSupabase } from '../lib/supabase';
+import { avatarStateOf } from '../data/people';
 import { rowToPerson, rowToTask, taskToRow } from './mappers';
 import type { NoteTarget, SyncableNote } from './notes';
 import { REACTION_KINDS, type ReactionKind, type ReactionRef } from './reactions';
@@ -154,6 +155,24 @@ export type Transport = {
    * parameter anyway, for the same signature every other pull in this type has.
    */
   pullBlocks(userId: string): Promise<string[]>;
+  /**
+   * Finish a screening that was interrupted, if there is one.
+   *
+   * The leak it closes: `pickAndUploadAvatar` writes `pending` over a live
+   * object and *then* asks the screener, so an app killed in between leaves a
+   * row nothing on the client ever revisits and bytes in a bucket every
+   * signed-in account can read. Nobody would report it — the owner sees
+   * initials, which is exactly what `pending` is supposed to look like.
+   *
+   * Safe to call whenever, which is why it needs no bookkeeping of its own:
+   * `mark_avatar_screened` moves only rows that are still `pending`, so a
+   * verdict arriving twice cannot republish something the owner has since
+   * removed, and an account with nothing pending pays one `select`.
+   *
+   * Answers nothing and never throws. There is no screen waiting on it and no
+   * queue behind it; the next launch asks again.
+   */
+  resumePendingAvatar(userId: string): Promise<void>;
 };
 
 /** A `week_rollups` row on the way back, before it becomes a `HistoryWeek`. */
@@ -165,6 +184,15 @@ export type PulledRollup = {
   perfect: boolean;
   streakHeld: boolean;
 };
+
+/**
+ * The profile columns every directory read asks for.
+ *
+ * Named in one place because there are two reads — the circle and the bots —
+ * and a column added to one of them only is a photo that renders for your
+ * friends and not for the Oz bots, or the other way round.
+ */
+const PROFILE_COLUMNS = 'id,handle,name,avatar_path,avatar_state';
 
 /**
  * Every reaction this client writes or reads is on a task. The only other member
@@ -735,6 +763,25 @@ export function supabaseTransport(): Transport {
     }
   };
 
+  const resumePendingAvatar = async (userId: string): Promise<void> => {
+    try {
+      const { data, error } = await getSupabase()
+        .from('profiles')
+        .select('avatar_state')
+        .eq('id', userId);
+      if (error) return;
+      const state = (data ?? [])[0] as { avatar_state?: unknown } | undefined;
+      if (avatarStateOf(state?.avatar_state) !== 'pending') return;
+      // The same call `pickAndUploadAvatar` makes, and it reads `auth.uid()`
+      // itself — there is no path or profile in the body for this device to get
+      // wrong about which photo it is finishing.
+      await getSupabase().functions.invoke('screen-image', { body: {} });
+    } catch {
+      // Offline, or a screener having a bad day. Both are "not today": the row
+      // stays `pending`, which renders initials, and the next launch tries again.
+    }
+  };
+
   const pullTasks = async (userId: string, weekStart: string): Promise<Task[]> => {
     const { data, error } = await getSupabase()
       .from('tasks')
@@ -757,16 +804,23 @@ export function supabaseTransport(): Transport {
     const mine = await supabase.from('circle_members').select('circle_id').eq('profile_id', userId);
     if (mine.error) fail(mine.error);
     const circleIds = (mine.data ?? []).map((r) => (r as { circle_id: unknown }).circle_id);
-    if (circleIds.length === 0) return [];
 
-    const members = await supabase.from('circle_members').select('profile_id').in('circle_id', circleIds);
+    const members = circleIds.length
+      ? await supabase.from('circle_members').select('profile_id').in('circle_id', circleIds)
+      : { data: [] as unknown[], error: null };
     if (members.error) fail(members.error);
+    // Your own row, always, whether or not you are in a circle with anybody.
+    // It used to arrive only as a by-product of sharing a circle — fine while
+    // a profile was a name you had typed yourself, and wrong the moment it
+    // carries a column only the server can write: an account on its own would
+    // never learn that its own photo had been screened, and Settings would
+    // offer to add one over a photo that was already there.
     const profileIds = [
+      userId,
       ...new Set((members.data ?? []).map((r) => (r as { profile_id: unknown }).profile_id)),
     ];
-    if (profileIds.length === 0) return [];
 
-    const profiles = await supabase.from('profiles').select('id,handle,name').in('id', profileIds);
+    const profiles = await supabase.from('profiles').select(PROFILE_COLUMNS).in('id', profileIds);
     if (profiles.error) fail(profiles.error);
     return (profiles.data ?? []).map((row) => rowToPerson(row as Record<string, unknown>));
   };
@@ -807,7 +861,7 @@ export function supabaseTransport(): Transport {
   const pullBots = async (): Promise<Person[]> => {
     const { data, error } = await getSupabase()
       .from('profiles')
-      .select('id,handle,name')
+      .select(PROFILE_COLUMNS)
       .eq('is_bot', true);
     if (error) fail(error);
     // Deliberately unflagged. `circleMembers` needs to know which of these are
@@ -1061,5 +1115,6 @@ export function supabaseTransport(): Transport {
     pullReactions,
     pullNotes,
     pullBlocks,
+    resumePendingAvatar,
   };
 }
