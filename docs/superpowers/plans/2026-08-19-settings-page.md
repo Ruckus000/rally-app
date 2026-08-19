@@ -476,10 +476,9 @@ export function canSecure(
 }
 ```
 
-Check the import path for `AccountMode` before running — `src/state/store.tsx:31`
-imports it, and the source module is the one to copy from. If it is exported from
-`../../data/seed`, the import above is correct as written; if it is elsewhere, fix the
-path rather than re-exporting it.
+`AccountMode` is exported from `src/data/seed.ts:48`, so `../../data/seed` is correct
+as written. `SessionState` is exported from `src/sync/session.ts`. No new exports are
+needed anywhere.
 
 - [ ] **Step 4: Run the test**
 
@@ -866,7 +865,6 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
               <Sans size={14} weight={600} style={fill}>
                 {busy ? 'Securing…' : 'Secure this account'}
               </Sans>
-              <Icon name="chevron" size={14} color={color.muted} />
             </Tap>
             <Sans size={12} color={color.muted} style={{ marginTop: 8 }}>
               Attaches your Apple ID. Nothing changes here — it just means you can sign
@@ -1086,12 +1084,15 @@ function SignOutSection() {
 }
 ```
 
-Two things to verify while implementing, rather than assume:
+One thing to fix as you type it: the top-level `SettingsOverlay` destructures `people`
+and never uses it (the rename lives in `NameSection`, which reads the store itself).
+Drop it from the destructure or `npm run lint` will flag it.
 
-1. `Icon` may not have a `chevron` name. Run `grep -n "IconName\|': " src/components/Icon.tsx`
-   and use a name that exists, or drop the icon from that row — it is decorative.
-2. The `people` binding in the top-level component is unused as written. Remove it from
-   the destructure; `npm run lint` will flag it otherwise.
+The icon set is a closed union — `bell`, `check`, `chevronLeft`, `close`, `plus`,
+`comment`, `heart`, `send`, `week`, `circle`, `me`, `due`, `streak`, `wrap`
+(`src/components/Icon.tsx:8`). There is no `chevron`, which is why the rows above carry
+no trailing glyph. If you want one, `chevronLeft` is the only near fit and it points the
+wrong way — leave it out rather than adding to the set for decoration.
 
 - [ ] **Step 4: Run the test**
 
