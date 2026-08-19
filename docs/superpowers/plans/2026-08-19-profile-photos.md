@@ -89,7 +89,17 @@ Read `integration/rls/task_media.test.ts` **on the other branch** first if you c
 
 - [ ] **Step 2** — extend `complete()` to accept optional image parts, or add a sibling `completeWithImage()`. Prefer whichever keeps `llm.ts`'s existing comments true. Do not duplicate the retry, timeout and refusal handling.
 
-- [ ] **Step 3** — the handler: authenticate the caller, read `avatar_path` for that user, download the object with the service role, screen it, then set `avatar_state` to `ready` or `refused` **and clear `avatar_path` on refusal**, so a refused object cannot be signed later. Follow `rate-goal/index.ts` for auth, usage counting and timeouts.
+- [ ] **Step 3** — the handler: authenticate the caller, read `avatar_path` for that user, download the object with the service role, screen it, then call `mark_avatar_screened` with `ready` or `refused`.
+
+  **On refusal, delete the storage object as well as clearing the row.** Task 1 surfaced
+  this: the bucket's select policy is `bucket_id = 'avatars'` for every authenticated
+  user, so an object that survives a refusal stays readable to anyone who learns its
+  name — and the name was known to the client that uploaded it. Clearing `avatar_path`
+  hides it from the app and leaves it on the server. The same applies when
+  `set_avatar(null)` clears a photo: **Task 5 must delete the object**, or every replaced
+  avatar accumulates in the bucket, readable forever.
+
+  Follow `rate-goal/index.ts` for auth, usage counting and timeouts.
 
 - [ ] **Step 4** — `supabase functions serve` and exercise both outcomes by hand. `npm run typecheck` does **not** cover this directory; say so in your report rather than implying it was typechecked.
 
@@ -158,6 +168,7 @@ Read `integration/rls/task_media.test.ts` **on the other branch** first if you c
 | 3 | `avatar_state` gate | let a client set `'ready'` | the gate test |
 | 4 | `Avatar.tsx` | render the image while `pending` | the pending-fallback test |
 | 5 | `avatarUpload.ts` | skip the downscale | the downscale test |
+| 6 | `screen-image` | skip the object delete on refusal | the orphaned-object test |
 
 Mutation 1 is the one that would publish an unscreened image whenever the model is having a bad day. Mutation 3 is the one that makes the whole screener decorative.
 
