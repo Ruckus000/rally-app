@@ -12,6 +12,7 @@ import { appleTrouble } from '../lib/appleCopy';
 import { Trouble } from '../components/Trouble';
 import { deadLetters } from '../sync/outbox';
 import { nextWeekAfter, useStore } from '../state/store';
+import { canSecure } from '../overlays/settings/guards';
 import { allTasksDone, cheersGiven, circleMembers, weekPoints } from '../state/selectors';
 import { Avatar } from '../components/Avatar';
 import { Bri, Caps, GlowBloom, Sans, Tap, fill, row } from '../components/primitives';
@@ -64,11 +65,7 @@ export function MeScreen() {
    * link succeeded. iOS only: on Android there is no provider to reach, so the
    * row would be an offer the app cannot keep.
    */
-  const canSecure =
-    live &&
-    Platform.OS === 'ios' &&
-    state.session.status === 'ready' &&
-    state.session.anonymous;
+  const canSecureAccount = canSecure(state.account, state.session, Platform.OS);
   const [securing, setSecuring] = React.useState(false);
   const [secureTrouble, setSecureTrouble] = React.useState<string | null>(null);
 
@@ -172,7 +169,7 @@ export function MeScreen() {
             <Sans size={12} color={onDark.secondary} style={{ marginTop: 2 }}>
               {subtitle}
             </Sans>
-            {canSecure ? (
+            {canSecureAccount ? (
               <Tap
                 onPress={securing ? undefined : () => void secureAccount()}
                 accessibilityLabel="Secure this account with Apple, so you can sign back in"
@@ -462,6 +459,27 @@ export function MeScreen() {
         <Bri size={15} weight={800} color={color.ink}>
           See this week’s ledger
         </Bri>
+      </Tap>
+
+      {/*
+        Not dev-gated, unlike everything below it. This is the only route a
+        live account has to its own identity, to Apple linking, and to signing
+        out — before it existed, those were spread across a card, a banner that
+        only appears on failure, and an onboarding screen you cannot get back to.
+      */}
+      <Tap
+        onPress={() => dispatch({ type: 'OPEN_SETTINGS' })}
+        accessibilityLabel="Settings"
+        style={{
+          minHeight: 50,
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginTop: 10,
+        }}
+      >
+        <Sans size={13} weight={600} color={color.muted}>
+          Settings
+        </Sans>
       </Tap>
 
       {/*

@@ -47,13 +47,9 @@ export function signOutEnabled(session: SessionState): boolean {
 /**
  * Whether to offer Apple linking.
  *
- * `MeScreen` computes this same predicate inline today, against the same
- * `state.session` and `Platform.OS`, rather than calling this function — so
- * there are two copies of one rule and nothing stops them drifting apart.
- * That's real duplication, not a mirrored guarantee: it exists because this
- * function didn't, until now. Task 6 folds `MeScreen` onto this one and
- * retires the inline copy; until then, a change here needs the same change
- * there.
+ * `MeScreen`'s own "Secure this account" row calls this directly rather than
+ * keeping its own copy of the rule — the Me card and the Settings row offer
+ * the same action, so there is exactly one place that decides who gets it.
  */
 export function canSecure(
   account: AccountMode | null,

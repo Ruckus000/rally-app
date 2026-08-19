@@ -18,6 +18,7 @@ import { MeScreen } from './screens/MeScreen';
 import { PlanOverlay } from './overlays/PlanOverlay';
 import { LedgerOverlay } from './overlays/LedgerOverlay';
 import { NotificationsOverlay } from './overlays/NotificationsOverlay';
+import { SettingsOverlay } from './overlays/SettingsOverlay';
 import { OnboardOverlay } from './overlays/OnboardOverlay';
 import { RolloverOverlay } from './overlays/RolloverOverlay';
 import { DetailSheet } from './overlays/DetailSheet';
@@ -91,6 +92,7 @@ function Shell() {
       {state.sheet ? <DetailSheet bottomInset={insets.bottom} /> : null}
       {state.wrapOpen ? <LedgerOverlay topInset={insets.top} bottomInset={insets.bottom} /> : null}
       {state.notifOpen ? <NotificationsOverlay topInset={insets.top} /> : null}
+      {state.settingsOpen ? <SettingsOverlay topInset={insets.top} /> : null}
       {state.onboardStep ? (
         <OnboardOverlay topInset={insets.top} bottomInset={insets.bottom} />
       ) : null}
