@@ -166,6 +166,24 @@ grant execute on function private.i_blocked(uuid) to authenticated;
 -- arranged: the guard tests the *author*, not a timestamp, so notes and cheers
 -- written before the block are hidden too. There is no moment after which the
 -- old content becomes visible again except unblocking.
+--
+-- ─── a coupling, found by mutation testing and written down here ──────────
+--
+-- Folding the ownership branch *inside* the guard, and folding the `is_bot`
+-- branch inside it, are both no-ops today. Mutation testing tried each and no
+-- test failed. That is not because the tests are weak — it is because
+-- `block_between` can never be true for either pair: `blocks_not_self` forbids
+-- a self-row, and `block_person` refuses bots, so neither a self nor a bot can
+-- appear in `blocks` at all.
+--
+-- So the safety of those two branches is *incidental* to invariants enforced
+-- elsewhere, not structural to these policies. Both invariants are themselves
+-- tested — removing the bot refusal fails `refuses a bot, loudly`. But if
+-- either is ever relaxed, these branches stop being decorative and start being
+-- load-bearing, and no test will say so at the moment it changes.
+--
+-- Keep them outside the guard. The cost is nothing; the alternative is a policy
+-- whose correctness depends on a constraint three hundred lines away.
 
 drop policy tasks_select on tasks;
 create policy tasks_select on tasks for select to authenticated
