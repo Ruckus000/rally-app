@@ -1204,6 +1204,36 @@ closes (around line 463) and **before** the `__DEV__` block:
 
 `Sans`, `Tap`, `color` and `dispatch` are all already in scope in that component.
 
+- [ ] **Step 3b: Make the Me card share the guard rather than duplicate it**
+
+`src/screens/MeScreen.tsx:67` computes its own `canSecure`:
+
+```tsx
+  const canSecure =
+    live &&
+    Platform.OS === 'ios' &&
+    state.session.status === 'ready' &&
+    state.session.anonymous;
+```
+
+That is a second, independent implementation of the predicate now living in
+`src/overlays/settings/guards.ts`. The two must agree — the Me card and the Settings
+row offer the same action — and nothing currently makes them. Replace it with a call:
+
+```tsx
+  const canSecureAccount = canSecure(state.account, state.session, Platform.OS);
+```
+
+importing `canSecure` from `../overlays/settings/guards`, and update the one usage site
+below it. Rename the local to avoid shadowing the import. Keep the existing block
+comment above it — it explains *why* the rule is what it is, which the guard module's
+own comment does not repeat — but drop any clause that describes the inline
+computation rather than the rule.
+
+Run `npm test -- src/screens/__tests__/secureAccount.test.tsx` afterwards: that suite
+exercises this exact rule through the real `MeScreen`, so it is the proof the swap
+changed nothing.
+
 - [ ] **Step 4: Render the overlay in the shell**
 
 In `src/App.tsx`, beside the other overlays. Place it **after** `NotificationsOverlay`
