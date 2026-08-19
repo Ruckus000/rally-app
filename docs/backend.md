@@ -16,15 +16,15 @@ three account modes (`fresh` and `seeded`) make no network call at all.
 ## Status
 
 First applied 2026-08-10 with `supabase db push`. Re-counted against the hosted
-project on 2026-08-18, after all fourteen migrations:
+project on 2026-08-19, after all seventeen migrations:
 
 | Check | Result |
 |---|---|
-| Tables in `public` | 14 |
-| Tables with RLS enabled | 14 |
-| Policies | 24 |
+| Tables in `public` | 16 |
+| Tables with RLS enabled | 16 |
+| Policies | 28 |
 | Enums | 5 |
-| `private` helpers | 10, four of them called by policies |
+| `private` helpers | 12, six of them called by policies |
 | `supabase db advisors --type all` | see *What the advisors say* below |
 
 Four of those tables — `device_tokens`, `goal_ratings`, `llm_usage` and
@@ -37,6 +37,13 @@ function's owner, each one deriving its actor from `auth.uid()` rather than
 trusting an argument. No client has any business reading these tables. The
 advisor reports each of the four as an INFO, and this paragraph is the answer
 to all of them.
+
+A fifth table, `reports`, joins them as of `20260819164832_reports_and_blocks.sql`
+— but it is not the same case, and folding it into the paragraph above would
+overstate how reachable it is. The other four are still written by
+`service_role`, which holds a grant on each; `reports` holds a grant for
+nobody but its owner, not even `service_role`. See *Reports and blocks* below
+for why.
 
 Probed from the `anon` role with the publishable key: `select` on `tasks`
 returns `[]`, `insert` is refused with `42501 new row violates row-level
@@ -75,7 +82,7 @@ Every current finding, and why it stands:
 
 | Finding | Level | Why it is there |
 |---|---|---|
-| `rls_enabled_no_policy` ×4 | INFO | The four server-only tables above. Deny-everything is the intent. |
+| `rls_enabled_no_policy` ×5 | INFO | The four server-only tables above, plus `reports`. Deny-everything is the intent. |
 | `authenticated_security_definer_function_executable` ×4 | WARN | `create_circle`, `join_circle_by_code`, `register_device`, `unregister_device`. This is the RPC surface — `authenticated` calling them is the whole point, and each scopes its writes to `auth.uid()`. |
 | `auth_allow_anonymous_sign_ins` ×10 | WARN | Every account in the app **is** an anonymous sign-in. The advisor is flagging the design, not a slip. |
 | `auth_leaked_password_protection` | WARN | There are no passwords. Nothing to protect. |
@@ -208,6 +215,75 @@ Supabase docs:
    ownership or membership predicate, and every `UPDATE` carries both `USING`
    and `WITH CHECK` so a row can't be reassigned to someone else.
 
+## Reports and blocks
+
+Two controls for when someone else is the problem, added in
+`20260819164832_reports_and_blocks.sql`. They are opposite postures on
+purpose: `blocks` is yours to read, `reports` is nobody's.
+
+**`reports` has no policies and no grant at all — not even to `service_role`.**
+RLS is on and there is no `create policy` for it anywhere: not for the
+reporter, not for the subject, not for `authenticated`. `anon` and
+`authenticated` are revoked per the pattern the section above already
+describes, and `service_role` is revoked too, which is the one thing this
+table does differently from `device_tokens`, `goal_ratings`, `llm_usage` and
+`bot_goal_candidates` — each of those still grants `service_role` a way in,
+because an edge function writes them. Nothing writes `reports` except the
+`report_content` RPC, running as its own definer, so there is no writer that
+needs the grant and no reader this table should hand one to. What's left
+reachable is `postgres`, the table's owner — reading the queue means having
+database access and querying as the owner, not calling anything a client or
+an edge function can reach. A readable report table is a list of who accused
+whom, and that list is more dangerous than the reports are useful: the one
+thing a person filing a report is owed is that its subject cannot find it.
+There is no moderation team yet, so nothing currently needs to read this
+table — the queue exists so that one could, later. When that day comes, the
+line to add is `grant select, update on public.reports to service_role`: one
+line, a decision somebody makes on purpose, rather than a privilege that was
+already sitting there because a platform default handed it over.
+
+**Blocking is symmetric.** `private.block_between(other)` is true if a block
+exists in either direction, and every amended policy below calls it that way.
+A one-directional block would hide the blocked person from you while leaving
+them free to keep cheering your tasks and writing notes on them — precisely
+the contact the control exists to stop. Symmetry has a cost, and it belongs
+in this document rather than left for someone to discover: a block is
+*implicitly* discoverable. Once you block someone, their cheers stop
+landing on your tasks, your name stops turning up for them, and an
+attentive person can work out what happened. The app never says so — no
+screen, no toast, no notification names a block — but the inference is
+available, and writing as though it weren't would be dishonest. The
+alternative, a block that leaves no trace at all, is a block that doesn't
+actually stop the contact it exists to stop.
+
+**`week_rollups_select` is deliberately not filtered**, even though it
+exposes other members' numbers the same way the six amended policies expose
+other members' content. Blocking someone doesn't remove them from the
+circle; it hides what they say. A rollup isn't something they said — it's a
+number the circle's shared arithmetic is made of. Filtering it would make
+circle totals per-viewer instead of per-circle: two members of the same
+circle would get two different answers to "how did we do this week," and
+neither of them would be wrong. Leaving someone out of the maths is a
+different feature — leaving the circle — and belongs on that control, not
+this one.
+
+**`profiles_select` carries a branch none of the other five amended
+policies need.** `private.i_blocked(other)` is one-directional — true only
+for "have *I* blocked them," never the reverse — and it sits outside the
+`block_between` guard, alongside the pre-existing `is_bot` branch. Without
+it, blocking someone would stop *their name resolving for the person who
+blocked them*, because the ordinary branch (`shares_circle_with`) is
+guarded by the symmetric check, and Settings needs an unblock list of
+people, not uuids. So say the consequence plainly, because it's easy to
+miss and a reader deserves to know: **blocking someone makes their profile
+marginally more visible than it was a moment before.** A circle-less
+account that blocks a stranger off the public feed can, from that moment
+on, resolve that stranger's name and handle — something it could not do
+before the block existed, since the stranger shares no circle with them and
+isn't a bot. That is the accepted trade for an unblock list that shows a
+person instead of an identifier nobody recognises. It is not an oversight,
+and it is not free.
+
 ## Phasing
 
 Each phase leaves the app working.
@@ -264,8 +340,11 @@ Each phase leaves the app working.
   version of it here that does not silently lose one of the two weeks.
 - **Humans on the global feed.** The feed is scoped to the Oz bots, who are
   openly fictional and readable by everyone. Letting real users' `everyone`
-  tasks in implies moderation, reporting and abuse handling — out of scope
-  here, and not a small annexe.
+  tasks in implies moderation, reporting and abuse handling. Reporting and
+  blocking are now built — see *Reports and blocks* above — but that is not
+  the same as moderation: `report_content` fills a queue nobody reads yet,
+  because there is no moderation team. Opening the feed to real strangers
+  before one exists is still out of scope, and not a small annexe.
 - **Cost.** The project sits in a separate Free-plan organisation, so it costs
   nothing. Free projects pause after 7 days of inactivity and restore within
   90; that is fine for development and is the thing to revisit before anyone

@@ -7,6 +7,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import {
+  Alert,
   Animated,
   KeyboardAvoidingView,
   Platform,
@@ -27,7 +28,7 @@ import {
 } from '../data/fixtures';
 import { DAY_NAMES } from '../data/week';
 import { CIRCLE_NAME_MAX, useStore } from '../state/store';
-import { myStats } from '../state/selectors';
+import { myStats, visibleNotes } from '../state/selectors';
 import { SHEET_DURATION, sheetEasing, useReducedMotion } from '../theme/motion';
 import { Avatar } from '../components/Avatar';
 import { Icon } from '../components/Icon';
@@ -36,7 +37,9 @@ import { Trouble } from '../components/Trouble';
 import { Overlay } from './Overlay';
 import { createCircle } from '../sync/transport';
 import { kickSync } from '../sync/useSyncEngine';
+import { queueBlock } from '../sync/engine';
 import type { PersonId } from '../data/people';
+import type { ReportTarget } from '../state/store';
 
 export function DetailSheet({ bottomInset }: { bottomInset: number }) {
   const { state, dispatch } = useStore();
@@ -151,7 +154,13 @@ function TaskSheet({ id }: { id: string }) {
   const tintColor = who ? people.tint(who) : color.chip;
   const first = who ? people.first(who) : '';
   // A demo post has no thread of its own — what we can show is what you said.
-  const cmts: Note[] = (mine?.cmts ?? moment?.cmts ?? state.globalNotes[id] ?? []) as Note[];
+  // Filtered, because this thread never passes through `mergedFeed` — the sheet
+  // reads the moment straight out of state. Without this a note you just
+  // reported is still sitting there on the screen you reported it from.
+  const cmts: Note[] = visibleNotes(
+    (mine?.cmts ?? moment?.cmts ?? state.globalNotes[id] ?? []) as Note[],
+    state,
+  );
   const pts = mine?.pts ?? moment?.pts;
   const title = 'title' in raw ? (raw.title ?? '') : '';
 
@@ -276,6 +285,8 @@ function TaskSheet({ id }: { id: string }) {
         Notes ({cmts.length})
       </Caps>
       <NoteThread notes={cmts} emptyText="Nothing here yet." />
+
+      {who ? <SafetyFooter target={{ kind: 'task', id, who }} /> : null}
     </ScrollView>
   );
 }
@@ -362,7 +373,9 @@ function PersonSheet({ who }: { who: PersonId }) {
           sub: `${DAY_NAMES[m.day]}${m.pts ? ` · +${m.pts}` : ''}`,
           done: !!m.done,
         }));
-  const notes = [...(PERSON_NOTES[who] ?? []), ...(state.personNotes[who] ?? [])];
+  // `visibleNotes` drops anything from somebody this account has blocked —
+  // main's rule, applied to the same thread this sheet has always shown.
+  const notes = visibleNotes([...(PERSON_NOTES[who] ?? []), ...(state.personNotes[who] ?? [])], state);
 
   return (
     <ScrollView
@@ -481,6 +494,8 @@ function PersonSheet({ who }: { who: PersonId }) {
         Notes
       </Caps>
       <NoteThread notes={notes} emptyText="You could be the first voice they hear today." />
+
+      <SafetyFooter target={{ kind: 'profile', id: who, who }} />
     </ScrollView>
   );
 }
@@ -738,6 +753,118 @@ const inviteRow = {
   paddingHorizontal: 13,
 };
 
+/* ── reporting, and blocking ────────────────────────────────────────────── */
+
+/**
+ * Whether this app will offer to report or block someone at all.
+ *
+ * Two absences, both deliberate. Yourself, because `blocks_not_self` refuses
+ * the row and reporting your own post is a form to nowhere. A bot, because
+ * `block_person` raises `22023` on one — and a control that opens a three-step
+ * flow whose last tap fails at the database is worse than no control. Neither
+ * refusal is worth explaining on screen: there is no honest label for a button
+ * that cannot work, so there is no button. `ReportSheet` makes the same call
+ * for the same reason, one screen further in.
+ */
+function useSafety(who: PersonId | undefined): boolean {
+  const { state } = useStore();
+  if (!who) return false;
+  return who !== state.selfId && !state.people[who]?.bot;
+}
+
+/**
+ * The one way out of a bad post or a bad week, per sheet.
+ *
+ * A footer, not a control on the header and emphatically not a fourth icon on
+ * the engagement row — that row is 🔥, 💬 and an optional word at 44px and has
+ * no room left. Text at the end of the sheet is the right weight for something
+ * a person needs perhaps twice a year and should never be nudged toward: it is
+ * findable by anyone looking for it and invisible to everyone else. `Tap` gets
+ * it to 44px through hitSlop, so the quiet type costs nothing in aim.
+ *
+ * Blocking is offered only on the person sheet, because that is the only sheet
+ * whose subject *is* a person. From a post, the route to a block is the report
+ * sheet's second step — which is where the sentence about the circle lives, and
+ * that sentence has to be read before a block, not after.
+ */
+function SafetyFooter({ target }: { target: ReportTarget }) {
+  const { dispatch, people } = useStore();
+  const offer = useSafety(target.who);
+  if (!offer) return null;
+
+  const name = people.name(target.who);
+  const first = people.first(target.who);
+  const profile = target.kind === 'profile';
+
+  /**
+   * The same two facts `ReportSheet`'s block step spells out, in the shape a
+   * confirm can hold: what a block does, and the thing it cannot do. Without
+   * the second sentence the first thing you see after blocking someone is that
+   * person, still on the ranked list, and the reasonable conclusion is that it
+   * did not work. An `Alert` because this is the app's idiom for a decision
+   * with a consequence — sign-out uses it — and because a second sheet over
+   * this one would be a third overlay deep.
+   */
+  const block = () =>
+    Alert.alert(
+      `Block ${name}?`,
+      `You stop seeing ${first} — their week, their notes, their cheers. They stop seeing yours. Neither of you is told.\n\n${first} stays in your circle: still on the ranked list, still counted in its totals, because those are the circle’s numbers and not your view of it.`,
+      [
+        { text: 'Not now', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: () => {
+            dispatch({ type: 'BLOCK', id: target.who });
+            // Both halves in the same tick, per `queueBlock`: only the queue
+            // survives the app closing.
+            queueBlock(target.who);
+            // This sheet is full of the person who was just blocked.
+            dispatch({ type: 'CLOSE_SHEET' });
+          },
+        },
+      ],
+    );
+
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        gap: 4,
+        marginTop: 18,
+        paddingTop: 12,
+        borderTopWidth: 1,
+        borderTopColor: color.divider,
+      }}
+    >
+      <Tap
+        onPress={() => dispatch({ type: 'OPEN_REPORT', target })}
+        accessibilityLabel={profile ? `Report ${name}` : 'Report this post'}
+        style={footerAction}
+      >
+        <Sans size={12.5} weight={600} color={color.muted}>
+          Report
+        </Sans>
+      </Tap>
+      {profile ? (
+        <Tap onPress={block} accessibilityLabel={`Block ${name}`} style={footerAction}>
+          <Sans size={12.5} weight={600} color={color.muted}>
+            Block
+          </Sans>
+        </Tap>
+      ) : null}
+    </View>
+  );
+}
+
+const footerAction = {
+  minHeight: 34,
+  paddingHorizontal: 10,
+  paddingVertical: 8,
+  justifyContent: 'center' as const,
+};
+
 /* ── shared ─────────────────────────────────────────────────────────────── */
 
 function NoteThread({ notes, emptyText }: { notes: Note[]; emptyText: string }) {
@@ -751,26 +878,86 @@ function NoteThread({ notes, emptyText }: { notes: Note[]; emptyText: string }) 
   return (
     <View style={{ gap: 8 }}>
       {notes.map((c, i) => (
-        <View key={`${c.w}-${i}`} style={{ flexDirection: 'row', gap: 9, alignItems: 'flex-start' }}>
-          <Avatar who={c.k} size={28} label={c.w} />
-          <View
-            style={{
-              backgroundColor: color.card,
-              borderRadius: radius.chip,
-              paddingVertical: 9,
-              paddingHorizontal: 13,
-              maxWidth: '82%',
-            }}
-          >
-            <Sans size={11} weight={700} color={color.muted} style={{ marginBottom: 2 }}>
-              {c.w}
-            </Sans>
-            <Sans size={13.5} lineHeight={18}>
-              {c.t}
-            </Sans>
-          </View>
-        </View>
+        <NoteBubble key={`${c.w}-${i}`} note={c} />
       ))}
+    </View>
+  );
+}
+
+/**
+ * One note, and — held down — the way to report it.
+ *
+ * A note is the smallest thing in this app that can be abusive, and it is also
+ * the densest: a thread is a stack of 28px avatars and two lines of type, with
+ * no room for a control beside each one that would not turn the thread into a
+ * column of buttons. So the note *is* the control, on a long press, the way a
+ * message bubble is in every chat app anyone has used.
+ *
+ * The cost is honest: there is no visible affordance, and somebody who has
+ * never held a bubble down will not find it. What that buys is a thread that
+ * still reads as a conversation. The screen reader is told outright, via the
+ * hint and a named `longpress` action, so the least discoverable case is the
+ * one that gets an explicit sentence.
+ *
+ * Absent — a plain, untappable bubble — for your own notes, for bots, and for
+ * a note with no id. That last one is not a guard against the user: fixture
+ * notes predate client-minted ids, and a report filed against `undefined` is a
+ * row the server would accept and nobody could ever act on.
+ */
+function NoteBubble({ note }: { note: Note }) {
+  const { dispatch } = useStore();
+  const offer = useSafety(note.k) && !!note.id;
+
+  const bubble = (
+    <View
+      style={{
+        backgroundColor: color.card,
+        borderRadius: radius.chip,
+        paddingVertical: 9,
+        paddingHorizontal: 13,
+        maxWidth: '82%',
+        minHeight: 44,
+        justifyContent: 'center',
+      }}
+    >
+      <Sans size={11} weight={700} color={color.muted} style={{ marginBottom: 2 }}>
+        {note.w}
+      </Sans>
+      <Sans size={13.5} lineHeight={18}>
+        {note.t}
+      </Sans>
+    </View>
+  );
+
+  if (!offer) {
+    return (
+      <View style={{ flexDirection: 'row', gap: 9, alignItems: 'flex-start' }}>
+        <Avatar who={note.k} size={28} label={note.w} />
+        {bubble}
+      </View>
+    );
+  }
+
+  const report = () =>
+    dispatch({ type: 'OPEN_REPORT', target: { kind: 'note', id: note.id as string, who: note.k } });
+
+  return (
+    <View style={{ flexDirection: 'row', gap: 9, alignItems: 'flex-start' }}>
+      <Avatar who={note.k} size={28} label={note.w} />
+      <Tap
+        onLongPress={report}
+        // Not a button: it does not do anything when tapped, and announcing
+        // "button" would promise that it does. Text with an action on it.
+        accessibilityRole="text"
+        accessibilityLabel={`Note from ${note.w}: ${note.t}`}
+        accessibilityHint="Press and hold to report this note"
+        accessibilityActions={[{ name: 'longpress', label: 'Report this note' }]}
+        onAccessibilityAction={(e) => {
+          if (e.nativeEvent.actionName === 'longpress') report();
+        }}
+      >
+        {bubble}
+      </Tap>
     </View>
   );
 }

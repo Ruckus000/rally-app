@@ -85,7 +85,7 @@ import {
   mergeNotes,
   reconcileActed,
 } from '../sync/engine';
-import type { PulledNote } from '../sync/transport';
+import type { PulledNote, ReportSubject } from '../sync/transport';
 import type { ReactionRef } from '../sync/reactions';
 import { pauseRealtime, resumeRealtime, teardownRealtime } from '../sync/realtime';
 import { kickSync, useSyncEngine } from '../sync/useSyncEngine';
@@ -98,6 +98,21 @@ export type Tab = 'week' | 'circle' | 'me';
  */
 export type Scope = 'personal' | 'feed';
 export type SheetRef = { type: 'task' | 'person' | 'invite'; id: string | null } | null;
+/**
+ * What the report sheet is open against.
+ *
+ * Deliberately **not** folded into `SheetRef`. The two look alike — both are a
+ * kind plus an id — and they are not the same question. `SheetRef` names a
+ * screen to render; this names a *subject* to file a report about, and its
+ * `kind` values are the migration's `reports_kind_known` constraint, not a list
+ * of sheets. Merging them would mean `OPEN_SHEET` could open a report and
+ * `CLOSE_SHEET` could close one, and the report sheet has to be able to sit
+ * above an open detail sheet without replacing it.
+ *
+ * `who` is the person the content belongs to, carried because the block step
+ * needs it and a note does not otherwise say who wrote it by id.
+ */
+export type ReportTarget = { kind: ReportSubject; id: string; who: PersonId };
 /**
  * Deliberately coarse. Onboarding is seven screens now, and all seven of them
  * are transient: which chips are lit, what you've typed, which suggestions you
@@ -257,6 +272,12 @@ export type State = {
   editingId: string | null;
 
   planOpen: boolean;
+  /**
+   * Account settings. An overlay like the others, and like the others it is a
+   * fact about this session rather than about the account — so it is not in
+   * `PERSISTED_KEYS` and reopening the app never lands you inside it.
+   */
+  settingsOpen: boolean;
   wrapOpen: boolean;
   wrapWeek: number | null;
   notifOpen: boolean;
@@ -270,6 +291,39 @@ export type State = {
   toast: string | null;
   /** Bumped on every toast so an identical message still re-animates. */
   toastSeq: number;
+
+  /**
+   * Who this account has blocked, by id. The server already hides a blocked
+   * person's rows via RLS — see `integration/rls/blocks.test.ts` — so this list
+   * exists for the gap RLS cannot cover: the moment between the tap and the
+   * next round trip, where a phone with no signal has to look like the block
+   * already happened. `BLOCKS_PULLED` replaces it wholesale on the next pull,
+   * so the server stays the authority the instant it can answer; this is only
+   * ever the offline half.
+   *
+   * Persisted, so a block survives a relaunch offline — see
+   * `PERSISTED_KEYS` in persistence.ts.
+   */
+  blocked: PersonId[];
+
+  /**
+   * The report sheet's subject, or null when it is closed. Session state like
+   * every other overlay flag, so it is not persisted — reopening the app never
+   * lands you inside a half-filed report.
+   */
+  reportTarget: ReportTarget | null;
+
+  /**
+   * Subject ids this account has reported, and therefore hides.
+   *
+   * Unlike `blocked`, this is **not** the offline half of something the server
+   * also enforces. Filing a report changes nothing the server will show you:
+   * `reports` is a write-only record and there is no moderation queue draining
+   * it. So this list is the *entire* mechanism behind "it's hidden from you" —
+   * which is why it is persisted (see `PERSISTED_KEYS`). If it evaporated on
+   * relaunch the content would come back, and the sheet would have lied.
+   */
+  reported: string[];
 };
 
 /** An account starts empty; onboarding decides what it gets seeded with. */
@@ -317,6 +371,7 @@ const initialState: State = {
   draftAud: null,
   editingId: null,
   planOpen: false,
+  settingsOpen: false,
   wrapOpen: false,
   wrapWeek: null,
   notifOpen: false,
@@ -327,6 +382,9 @@ const initialState: State = {
   onboardStep: 'onboarding',
   toast: null,
   toastSeq: 0,
+  blocked: [],
+  reportTarget: null,
+  reported: [],
 };
 
 export type Action =
@@ -363,6 +421,8 @@ export type Action =
   | { type: 'CLOSE_WRAP' }
   | { type: 'OPEN_NOTIF' }
   | { type: 'CLOSE_NOTIF' }
+  | { type: 'OPEN_SETTINGS' }
+  | { type: 'CLOSE_SETTINGS' }
   | { type: 'SET_NOTIF_FILTER'; filter: 'all' | NotifTier }
   | { type: 'READ_NOTIF'; id: string }
   | { type: 'READ_ALL_NOTIFS' }
@@ -370,6 +430,7 @@ export type Action =
   | { type: 'INVITE'; key: PersonId }
   | { type: 'SET_ACCOUNT'; mode: AccountMode }
   | { type: 'RESET'; mode: AccountMode }
+  | { type: 'SIGN_OUT' }
   | { type: 'ROLLOVER_DETECTED'; to: WeekContext }
   | { type: 'COMMIT_ROLLOVER'; carryIds: string[] }
   | { type: 'SKIP_ONBOARD' }
@@ -377,7 +438,13 @@ export type Action =
   | { type: 'RENAME_SELF'; name: string }
   | { type: 'SESSION'; session: SessionState }
   | { type: 'UNSAVED'; count: number }
-  | { type: 'SERVER_MERGE'; merge: ServerMerge };
+  | { type: 'SERVER_MERGE'; merge: ServerMerge }
+  | { type: 'BLOCK'; id: PersonId }
+  | { type: 'UNBLOCK'; id: PersonId }
+  | { type: 'BLOCKS_PULLED'; ids: PersonId[] }
+  | { type: 'OPEN_REPORT'; target: ReportTarget }
+  | { type: 'CLOSE_REPORT' }
+  | { type: 'REPORT_FILED'; id: string };
 
 /**
  * What a pull hands the reducer, already narrowed to the rows it knows how to
@@ -470,11 +537,13 @@ const withToast = (s: State, message?: string): State =>
 /** Everything an overlay-to-overlay route has to clear. */
 const CLEARED = {
   sheet: null,
+  reportTarget: null,
   note: '',
   wrapOpen: false,
   wrapWeek: null,
   notifOpen: false,
   planOpen: false,
+  settingsOpen: false,
 } satisfies Partial<State>;
 
 /** Fields the composer clears when an edit session ends — saved or abandoned. */
@@ -923,6 +992,12 @@ export function reducer(state: State, action: Action): State {
     case 'CLOSE_NOTIF':
       return { ...state, notifOpen: false };
 
+    case 'OPEN_SETTINGS':
+      return { ...state, settingsOpen: true };
+
+    case 'CLOSE_SETTINGS':
+      return { ...state, settingsOpen: false };
+
     case 'SET_NOTIF_FILTER':
       return { ...state, notifFilter: action.filter };
 
@@ -1010,6 +1085,28 @@ export function reducer(state: State, action: Action): State {
         // of one list, so there is nothing left to choose between.
         scope: 'feed',
       };
+    }
+
+    /**
+     * Sign out, which is `RESET` with one difference that is the entire point.
+     *
+     * `RESET` sets `onboardStep: null` — it drops you into the app with a fresh
+     * account. This sets it to `'onboarding'`, via `initialState`, because the
+     * Welcome screen is where `recoverWithApple` lives. Without that, signing
+     * out would be a one-way door and this whole feature would be a way to lose
+     * an account rather than a way to leave one.
+     *
+     * The wipe is required, not merely tidy: the restore path refuses to fill
+     * history onto a device that already has some, so anything left behind here
+     * would mean signing back in restores nothing.
+     *
+     * `week` is re-read rather than inherited from `initialState`, which
+     * captured the calendar at module load and may be a week stale in a
+     * long-lived process.
+     */
+    case 'SIGN_OUT': {
+      const week = liveWeek();
+      return { ...initialState, week, day: week.today };
     }
 
     case 'ROLLOVER_DETECTED':
@@ -1242,6 +1339,55 @@ export function reducer(state: State, action: Action): State {
       }
 
       return { ...state, session: next, selfId, people };
+    }
+
+    case 'BLOCK': {
+      // Idempotent, like `ACT`'s add half: a second tap — or a retry of an
+      // entry the queue already sent — must not grow the list a second time.
+      if (state.blocked.includes(action.id)) return state;
+      return { ...state, blocked: [...state.blocked, action.id] };
+    }
+
+    case 'UNBLOCK': {
+      if (!state.blocked.includes(action.id)) return state;
+      return { ...state, blocked: state.blocked.filter((id) => id !== action.id) };
+    }
+
+    case 'BLOCKS_PULLED':
+      // The server's whole answer, replacing rather than merging: an unblock
+      // on another device is an absence here, and a union would leave it lit
+      // on this phone forever — the same reasoning as `reconcileActed`.
+      return { ...state, blocked: action.ids };
+
+    case 'OPEN_REPORT':
+      // Leaves `sheet` alone on purpose: the report sheet is opened from on top
+      // of whatever you were looking at, and closing it should put you back
+      // there rather than on an empty screen.
+      return { ...state, reportTarget: action.target };
+
+    case 'CLOSE_REPORT':
+      // Cancelling is exactly this and nothing else. No report, no block, no
+      // toast — a person who opened this sheet by accident owes the app
+      // nothing, and a "Nothing was sent" reassurance would be one more thing
+      // to read on the way out.
+      return { ...state, reportTarget: null };
+
+    case 'REPORT_FILED': {
+      // Idempotent for the same reason `BLOCK` is: the same subject reported
+      // twice is one hidden thing, not two list entries.
+      const reported = state.reported.includes(action.id)
+        ? state.reported
+        : [...state.reported, action.id];
+      // If the detail sheet is standing on the very thing that just went
+      // hidden, close it. Leaving it up would show the reported card for as
+      // long as the user kept looking at it, which is the one moment the
+      // promise "it's hidden from you now" is easiest to catch out.
+      const sheet = state.sheet?.id === action.id ? null : state.sheet;
+      // `reportTarget` deliberately stays. Filing is the middle of this flow,
+      // not the end: the sheet has to still be there to say what just happened
+      // and to offer the block as a second, separate decision. `CLOSE_REPORT`
+      // is the only thing that clears it.
+      return { ...state, reported, sheet };
     }
 
     case 'SERVER_MERGE': {

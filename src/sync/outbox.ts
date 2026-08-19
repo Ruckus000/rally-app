@@ -36,7 +36,15 @@ export type OutboxOp =
   // itself never travels this queue — see `media.ts` for why it has its own —
   // and this is only ever enqueued once the upload has been acknowledged, so
   // the row cannot promise an object that is not there.
-  | 'media.attach';
+  | 'media.attach'
+  // A report never updates and never withdraws — `report_content` is
+  // insert-shaped, like `rollup.add` above.
+  | 'report.file'
+  // Symmetric with `task.upsert`/`task.delete`: two ops sharing one coalescing
+  // key (`block:<id>`), so a block taken back before it ever sent collapses to
+  // nothing rather than firing both in sequence.
+  | 'block.add'
+  | 'block.remove';
 
 export type OutboxEntry = {
   /** Client-minted, and the idempotency key the transport should send. */
@@ -103,6 +111,9 @@ const OPS: readonly OutboxOp[] = [
   'profile.update',
   'device.register',
   'media.attach',
+  'report.file',
+  'block.add',
+  'block.remove',
 ];
 
 // ─── module state ─────────────────────────────────────────────────────────

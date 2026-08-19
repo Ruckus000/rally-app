@@ -20,10 +20,12 @@ import { MeScreen } from './screens/MeScreen';
 import { PlanOverlay } from './overlays/PlanOverlay';
 import { LedgerOverlay } from './overlays/LedgerOverlay';
 import { NotificationsOverlay } from './overlays/NotificationsOverlay';
+import { SettingsOverlay } from './overlays/SettingsOverlay';
 import { OnboardOverlay } from './overlays/OnboardOverlay';
 import { RolloverOverlay } from './overlays/RolloverOverlay';
 import { DetailSheet } from './overlays/DetailSheet';
 import { Presence } from './overlays/Overlay';
+import { ReportSheet } from './overlays/ReportSheet';
 import { Toast } from './components/Toast';
 import { SyncBanner } from './components/SyncBanner';
 import { UnsavedBanner } from './components/UnsavedBanner';
@@ -93,8 +95,17 @@ function Shell() {
       <Presence open={state.wrapOpen} zIndex={55}>
         <LedgerOverlay topInset={insets.top} bottomInset={insets.bottom} />
       </Presence>
+      {/* Above the detail sheet rather than instead of it — a report is
+          started from something you were already looking at, and cancelling
+          puts you back on it. See the zIndex note in ReportSheet.tsx. */}
+      <Presence open={!!state.reportTarget} zIndex={57}>
+        <ReportSheet />
+      </Presence>
       <Presence open={state.notifOpen} zIndex={58}>
         <NotificationsOverlay topInset={insets.top} bottomInset={insets.bottom} />
+      </Presence>
+      <Presence open={state.settingsOpen} zIndex={59}>
+        <SettingsOverlay topInset={insets.top} />
       </Presence>
       <Presence open={!!state.onboardStep} zIndex={70}>
         <OnboardOverlay topInset={insets.top} bottomInset={insets.bottom} />

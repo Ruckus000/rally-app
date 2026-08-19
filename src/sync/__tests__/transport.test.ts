@@ -296,6 +296,201 @@ describe('the profile name', () => {
   });
 });
 
+/**
+ * Reporting and blocking, both RPCs that read `auth.uid()` rather than take an
+ * owner — the reason `signedIn()` is needed here and not for `task.upsert` and
+ * friends, which stamp `owner_id` from the `userId` argument instead.
+ *
+ * The point of this block is the permanent/retryable split, not the writes
+ * themselves: `block_person` refusing a bot or yourself, and `report_content`
+ * refusing a shape the schema does not know, must dead-letter on the first
+ * attempt rather than spin — that is the one failure that would burn a
+ * device's battery silently, retrying a write the server will never accept.
+ */
+describe('reporting and blocking', () => {
+  const BOT = '55555555-5555-4555-8555-555555555555';
+
+  const signedIn = async () => {
+    const { data } = await getSupabase().auth.signInAnonymously();
+    return data.session?.user.id as string;
+  };
+
+  const blockOp = (blockedId: string): WireOp => ({
+    id: 'entry-block',
+    at: AT,
+    op: 'block.add',
+    blockedId,
+  });
+
+  const unblockOp = (blockedId: string): WireOp => ({
+    id: 'entry-unblock',
+    at: AT,
+    op: 'block.remove',
+    blockedId,
+  });
+
+  const reportOp = (over: Partial<{ subjectKind: string; subjectId: string; reason: string }> = {}): WireOp => ({
+    id: 'entry-report',
+    at: AT,
+    op: 'report.file',
+    subjectKind: 'task',
+    subjectId: TASK_ID,
+    reason: 'spam',
+    ...over,
+  } as WireOp);
+
+  beforeEach(() => {
+    fakeSupabase.seed({ profiles: [{ id: BOT, handle: 'ozbot', name: 'Oz', is_bot: true }] });
+  });
+
+  describe('block.add', () => {
+    it('blocks someone, sending no owner at all', async () => {
+      const me = await signedIn();
+
+      expect(await transport.push(blockOp(SOMEONE_ELSE), me)).toEqual({ ok: true });
+
+      expect(fakeSupabase.rows('blocks')).toEqual([
+        expect.objectContaining({ blocker_id: me, blocked_id: SOMEONE_ELSE }),
+      ]);
+      const call = fakeSupabase.calls.find((c) => c.table === 'block_person');
+      expect(call?.body).toEqual({ p_blocked: SOMEONE_ELSE });
+    });
+
+    it('is a no-op the second time', async () => {
+      const me = await signedIn();
+
+      expect(await transport.push(blockOp(SOMEONE_ELSE), me)).toEqual({ ok: true });
+      expect(await transport.push(blockOp(SOMEONE_ELSE), me)).toEqual({ ok: true });
+
+      expect(fakeSupabase.rows('blocks')).toHaveLength(1);
+    });
+
+    it('refuses a bot as permanent, not retryable — 22023', async () => {
+      const me = await signedIn();
+
+      const result = await transport.push(blockOp(BOT), me);
+
+      expect(result).toMatchObject({ ok: false, retryable: false, code: '22023' });
+      expect(fakeSupabase.rows('blocks')).toEqual([]);
+    });
+
+    it('refuses blocking yourself as permanent, not retryable — 23514', async () => {
+      const me = await signedIn();
+
+      const result = await transport.push(blockOp(me), me);
+
+      expect(result).toMatchObject({ ok: false, retryable: false, code: '23514' });
+      expect(fakeSupabase.rows('blocks')).toEqual([]);
+    });
+
+    it('is retryable when there is no network', async () => {
+      const me = await signedIn();
+      fakeSupabase.goOffline();
+
+      expect(await transport.push(blockOp(SOMEONE_ELSE), me)).toMatchObject({
+        ok: false,
+        retryable: true,
+      });
+    });
+  });
+
+  describe('block.remove', () => {
+    it('unblocks someone', async () => {
+      const me = await signedIn();
+      await transport.push(blockOp(SOMEONE_ELSE), me);
+
+      expect(await transport.push(unblockOp(SOMEONE_ELSE), me)).toEqual({ ok: true });
+      expect(fakeSupabase.rows('blocks')).toEqual([]);
+    });
+
+    it('unblocking someone never blocked is not an error', async () => {
+      const me = await signedIn();
+
+      expect(await transport.push(unblockOp(SOMEONE_ELSE), me)).toEqual({ ok: true });
+    });
+  });
+
+  describe('report.file', () => {
+    it('files the report, sending no owner at all', async () => {
+      const me = await signedIn();
+
+      expect(await transport.push(reportOp(), me)).toEqual({ ok: true });
+
+      expect(fakeSupabase.rows('reports')).toEqual([
+        expect.objectContaining({
+          reporter_id: me,
+          subject_kind: 'task',
+          subject_id: TASK_ID,
+          reason: 'spam',
+        }),
+      ]);
+      const call = fakeSupabase.calls.find((c) => c.table === 'report_content');
+      expect(call?.body).toEqual({
+        p_subject_kind: 'task',
+        p_subject_id: TASK_ID,
+        p_reason: 'spam',
+      });
+    });
+
+    it('does not deduplicate — a repeat report is a second row', async () => {
+      const me = await signedIn();
+
+      await transport.push(reportOp(), me);
+      await transport.push(reportOp(), me);
+
+      expect(fakeSupabase.rows('reports')).toHaveLength(2);
+    });
+
+    it('refuses a reason the schema does not know as permanent — 23514', async () => {
+      const me = await signedIn();
+
+      const result = await transport.push(reportOp({ reason: 'annoying' }), me);
+
+      expect(result).toMatchObject({ ok: false, retryable: false, code: '23514' });
+      expect(fakeSupabase.rows('reports')).toEqual([]);
+    });
+
+    it('refuses a subject kind the schema does not know as permanent — 23514', async () => {
+      const me = await signedIn();
+
+      const result = await transport.push(reportOp({ subjectKind: 'avatar' }), me);
+
+      expect(result).toMatchObject({ ok: false, retryable: false, code: '23514' });
+      expect(fakeSupabase.rows('reports')).toEqual([]);
+    });
+
+    it('is retryable when there is no network', async () => {
+      const me = await signedIn();
+      fakeSupabase.goOffline();
+
+      expect(await transport.push(reportOp(), me)).toMatchObject({
+        ok: false,
+        retryable: true,
+      });
+    });
+  });
+});
+
+describe('pullBlocks', () => {
+  const signedIn = async () => {
+    const { data } = await getSupabase().auth.signInAnonymously();
+    return data.session?.user.id as string;
+  };
+
+  it('returns the ids this account has blocked', async () => {
+    const me = await signedIn();
+    await transport.push({ id: 'b1', at: AT, op: 'block.add', blockedId: SOMEONE_ELSE }, me);
+
+    expect(await transport.pullBlocks(me)).toEqual([SOMEONE_ELSE]);
+  });
+
+  it('is empty when nothing has been blocked', async () => {
+    const me = await signedIn();
+
+    expect(await transport.pullBlocks(me)).toEqual([]);
+  });
+});
+
 describe('push', () => {
   it('writes the task, stamping owner_id from the session', async () => {
     expect(await transport.push(upsert(), ME)).toEqual({ ok: true });

@@ -9,6 +9,7 @@ import {
   cancelWeekReminder,
   nextMonday,
   reminderBody,
+  reminderPermission,
   scheduleWeekReminder,
 } from '../reminders';
 import { fakeNotifications, __resetForTests } from '../../__mocks__/expo-notifications';
@@ -113,5 +114,28 @@ describe('keeping the sentence true', () => {
 
   it('cancels cleanly when there is nothing scheduled', async () => {
     await expect(cancelWeekReminder()).resolves.toBeUndefined();
+  });
+});
+
+describe('reminderPermission', () => {
+  // Pinned at the root rather than only through the Settings row, which is
+  // currently the one place that reads all three branches. If that row is
+  // ever rewritten, this is what keeps the contract — that "asked and
+  // refused" and "never asked" are different answers — from quietly vanishing
+  // with it.
+  it('reports granted once the OS says yes', async () => {
+    fakeNotifications.alreadyGranted();
+
+    expect(await reminderPermission()).toBe('granted');
+  });
+
+  it('reports denied once the OS has refused and will not prompt again', async () => {
+    await askForReminders();
+
+    expect(await reminderPermission()).toBe('denied');
+  });
+
+  it('reports undetermined before the OS has ever been asked', async () => {
+    expect(await reminderPermission()).toBe('undetermined');
   });
 });

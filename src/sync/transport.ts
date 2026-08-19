@@ -69,7 +69,19 @@ export type WireOp =
       total: number;
       perfect: boolean;
       streakHeld: boolean;
-    };
+    }
+  // No reporter or blocker id, for the same reason `device.register` carries no
+  // `profile_id`: the RPC reads `auth.uid()` itself, so there is no owner for a
+  // payload to name and therefore none to forge.
+  | { id: string; at: number; op: 'report.file'; subjectKind: ReportSubject; subjectId: string; reason: ReportReason }
+  | { id: string; at: number; op: 'block.add'; blockedId: string }
+  | { id: string; at: number; op: 'block.remove'; blockedId: string };
+
+/** Matches `reports_kind_known` in the migration — kept in lockstep by hand. */
+export type ReportSubject = 'task' | 'note' | 'profile';
+
+/** Matches `reports_reason_known` in the migration — kept in lockstep by hand. */
+export type ReportReason = 'harassment' | 'spam' | 'sexual' | 'violence' | 'self_harm' | 'other';
 
 /** A `notes` row on the way back, narrowed into the shape the client can place. */
 export type PulledNote = {
@@ -133,6 +145,15 @@ export type Transport = {
    * `pullCircle` and `pullMyCircle` are two functions rather than one.
    */
   pullRollups(userId: string): Promise<PulledRollup[]>;
+  /**
+   * Who this account has blocked. `userId` is not used to build the query —
+   * `blocks_select` already scopes the row to `blocker_id = auth.uid()`, so a
+   * `.eq('blocker_id', userId)` here would be redundant at best and, on a
+   * session whose `userId` argument ever drifted from the actual caller, would
+   * silently narrow to nothing instead of surfacing the mismatch. Kept as a
+   * parameter anyway, for the same signature every other pull in this type has.
+   */
+  pullBlocks(userId: string): Promise<string[]>;
 };
 
 /** A `week_rollups` row on the way back, before it becomes a `HistoryWeek`. */
@@ -578,6 +599,44 @@ export function supabaseTransport(): Transport {
       return;
     }
 
+    if (entry.op === 'report.file') {
+      // An RPC, like `register_device`, and for the same reason: `reports` is
+      // readable by nobody, and a client granted only INSERT could not resolve
+      // its own row back to check it, which upsert-style dedupe would need.
+      // `report_content` does not dedupe anyway — see the migration — so this
+      // is a plain fire-and-forget call.
+      const { error } = await supabase.rpc('report_content', {
+        p_subject_kind: entry.subjectKind,
+        p_subject_id: entry.subjectId,
+        p_reason: entry.reason,
+      });
+      if (error) throw error;
+      return;
+    }
+
+    if (entry.op === 'block.add') {
+      // `block_person` is `on conflict do nothing` inside the function itself,
+      // so a replay of an already-applied block returns cleanly with no error
+      // to classify — unlike `reaction.add`, there is no 23505 path here at
+      // all. What it does raise: 22023 for a bot (`invalid_parameter_value`)
+      // and 23514 for yourself (`blocks_not_self`). Neither is in `isNetwork`
+      // or `isTransient`, so `classify` already falls them through to its
+      // default branch — permanent — which is what they must be: no retry
+      // turns a bot into a person or turns you into someone else.
+      const { error } = await supabase.rpc('block_person', { p_blocked: entry.blockedId });
+      if (error) throw error;
+      return;
+    }
+
+    if (entry.op === 'block.remove') {
+      // `unblock_person` deletes-if-present and never errors on "not found",
+      // the same shape as `task.delete` and for the same reason: a retry after
+      // a timeout must not be able to fail because the first attempt landed.
+      const { error } = await supabase.rpc('unblock_person', { p_blocked: entry.blockedId });
+      if (error) throw error;
+      return;
+    }
+
     if (entry.op === 'rollup.add') {
       // `ignoreDuplicates` for the reason `reaction.add` uses it: a replay has
       // already achieved its intent. A week closes once, so there is nothing on
@@ -836,6 +895,18 @@ export function supabaseTransport(): Transport {
     return (data ?? []).map((row) => rowToPulledRollup(row as Record<string, unknown>));
   };
 
+  /**
+   * The block list. `userId` names nobody in the query — `blocks_select`
+   * already reads it off `auth.uid()`, and a `.eq('blocker_id', userId)` here
+   * would be pure restatement, not narrowing. Present in the signature only
+   * because every other pull in `Transport` takes it.
+   */
+  const pullBlocks = async (userId: string): Promise<string[]> => {
+    const { data, error } = await getSupabase().from('blocks').select('blocked_id');
+    if (error) fail(error);
+    return (data ?? []).map((row) => String((row as { blocked_id: unknown }).blocked_id));
+  };
+
   const pullMyCircle = async (userId: string): Promise<CircleRef | null> => {
     const supabase = getSupabase();
 
@@ -989,5 +1060,6 @@ export function supabaseTransport(): Transport {
     pullCheerCounts,
     pullReactions,
     pullNotes,
+    pullBlocks,
   };
 }

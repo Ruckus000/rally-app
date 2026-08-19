@@ -8,7 +8,7 @@ import React from 'react';
 import { ScrollView, View } from 'react-native';
 import { color, gutter, radius } from '../theme/tokens';
 import { useStore, usePeople } from '../state/store';
-import { helpedByThisWeek, helpedThisWeek, pluralTimes } from '../state/selectors';
+import { helpedByThisWeek, helpedThisWeek, pluralTimes, withoutBlocked } from '../state/selectors';
 import { Avatar } from '../components/Avatar';
 import { Icon } from '../components/Icon';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
@@ -24,18 +24,23 @@ export function LedgerOverlay({ topInset, bottomInset }: { topInset: number; bot
     ? history.did
     : state.myTasks.filter((t) => t.done).map((t) => ({ title: t.title, points: t.pts }));
 
-  const helpedByMap = helpedByThisWeek(state.myTasks, state.selfId);
+  const helpedByMap = helpedByThisWeek(state);
   const helpedMap = helpedThisWeek(state);
 
+  // The two selectors above already drop the people you have blocked. A stored
+  // week does not go through them — `history` is a snapshot written when the
+  // week closed, before the block existed — so it gets the same filter here.
+  // Retroactive is the decided rule: blocking someone takes them out of your
+  // view of every week, not just the one you are standing in.
   const helpedBy = history
-    ? history.helpedBy.map((h) => ({ k: h.k, detail: h.detail }))
+    ? withoutBlocked(history.helpedBy, state).map((h) => ({ k: h.k, detail: h.detail }))
     : (Object.keys(helpedByMap) as PersonId[]).map((k) => ({
         k,
         detail: `${pluralTimes(helpedByMap[k] ?? 0)} this week`,
       }));
 
   const helped = history
-    ? history.helped.map((h) => ({ k: h.k, detail: h.detail }))
+    ? withoutBlocked(history.helped, state).map((h) => ({ k: h.k, detail: h.detail }))
     : (Object.keys(helpedMap) as PersonId[]).map((k) => ({
         k,
         detail: pluralTimes(helpedMap[k] ?? 0),

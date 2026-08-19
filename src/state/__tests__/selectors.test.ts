@@ -11,6 +11,7 @@ import {
   circleMembers,
   circleSuggestions,
   helpedByThisWeek,
+  helpedThisWeek,
   mergedFeed,
   myRank,
   personalFeed,
@@ -224,12 +225,51 @@ describe('the merged feed', () => {
   });
 });
 
+describe('reported content', () => {
+  /**
+   * The other half of what the report sheet promises. A block hides a person
+   * and the server enforces it; a report hides one thing and *nothing* on the
+   * server enforces that — `reports` is write-only and no queue drains it — so
+   * this filter is the entire mechanism behind "it's hidden from you".
+   */
+  it('leaves the feed, without taking the rest of the person with it', () => {
+    const theirs = base.moments.filter((m) => m.who !== base.selfId);
+    const state = { ...base, reported: [theirs[0]!.id] };
+    const ids = mergedFeed(state, true).map((e) => e.m.id);
+    expect(ids).not.toContain(theirs[0]!.id);
+    expect(ids.filter((id) => id !== theirs[0]!.id)).toEqual(
+      mergedFeed(base, true)
+        .map((e) => e.m.id)
+        .filter((id) => id !== theirs[0]!.id),
+    );
+  });
+});
+
 describe('ledger rollup', () => {
   it('credits note authors and pairs, never yourself', () => {
-    const map = helpedByThisWeek(base.myTasks, base.selfId);
+    const map = helpedByThisWeek(base);
     expect(map.you).toBeUndefined();
     expect(map.dre).toBeGreaterThan(0);
     expect(map.maya).toBeGreaterThan(0);
+  });
+
+  /**
+   * The ledger is your view of the week, so it follows the feed's rule and not
+   * `circleMembers`' rule: a blocked person's contributions leave it, and they
+   * leave it with their count rather than leaving a name-less number behind.
+   * Both halves are asserted, because they are two functions and the one that
+   * gets forgotten is whichever one a later change did not touch.
+   */
+  it('drops the people you have blocked, in both directions', () => {
+    const blocked = { ...base, blocked: ['maya' as const] };
+    expect(helpedByThisWeek(blocked).maya).toBeUndefined();
+    expect(helpedByThisWeek(blocked).dre).toBeGreaterThan(0);
+
+    const acted = {
+      ...blocked,
+      acted: { [`${base.moments.find((m) => m.who === 'maya')!.id}:cheer`]: true as const },
+    };
+    expect(helpedThisWeek(acted).maya).toBeUndefined();
   });
 });
 

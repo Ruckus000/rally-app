@@ -63,6 +63,7 @@ export const baseState: State = {
   draftAud: null,
   editingId: null,
   planOpen: false,
+  settingsOpen: false,
   wrapOpen: false,
   wrapWeek: null,
   notifOpen: false,
@@ -73,6 +74,9 @@ export const baseState: State = {
   onboardStep: null,
   toast: null,
   toastSeq: 0,
+  blocked: [],
+  reportTarget: null,
+  reported: [],
 };
 
 /** An account that declined the circle: no tasks, no moments, no history. */
