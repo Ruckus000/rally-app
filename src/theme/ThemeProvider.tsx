@@ -45,10 +45,9 @@
  * ## The two awkward shapes, settled here so the next four PRs do not re-argue
  *
  * Most of the ~470 reads are `color.x` inside a component body, and those are
- * a one-line change. Two shapes are not. The second one turned up in the leaf
- * files and is solved in the code; the first did not — none of the four
- * smallest files has a module-level style object — so it is decided here, in
- * writing, rather than left for whoever hits `SettingsOverlay` first.
+ * a one-line change. Two shapes are not, and both are settled — in code, not
+ * only in prose, because a convention nobody has compiled is a convention
+ * nobody has tested.
  *
  * **1. A module-level style object that reads the palette.** `SettingsOverlay`
  * has `cardBox`, `LedgerOverlay` has `closeButton`, and there are more. These
@@ -67,6 +66,13 @@
  * site's diff to adding `(color)`. It does allocate a fresh object per render,
  * but these are inline style objects that React Native already rebuilds every
  * render, so nothing regresses.
+ *
+ * `LedgerOverlay`'s `closeButton` is converted this way here, as the worked
+ * example. It is deliberately one whose three call sites — `LedgerOverlay`,
+ * `NotificationsOverlay`, `SettingsOverlay` — are all in files that have *not*
+ * been migrated and still pass the static `color` import. That is the state
+ * every PR between this one and the last lives in, and it type-checks and
+ * renders identically, which is the thing worth proving.
  *
  * **2. A default parameter that reads the palette.** `primitives.tsx` had
  * `color: c = color.ink` on `Bri`, `Sans` and `Caps`. You cannot call a hook

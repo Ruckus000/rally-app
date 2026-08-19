@@ -13,7 +13,7 @@
  * literal. A literal here would be a second copy of the palette that drifts.
  */
 import React from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { render, screen } from '@testing-library/react-native';
 
 import { Bri, Caps, Sans } from '../primitives';
@@ -21,7 +21,8 @@ import { Banner, BannerAction } from '../Banner';
 import { BootScreen } from '../../screens/BootScreen';
 import { TabBar } from '../../shell/TabBar';
 import { StoreProvider } from '../../state/store';
-import { Scheme, ThemeProvider } from '../../theme/ThemeProvider';
+import { closeButton } from '../../overlays/LedgerOverlay';
+import { Palette, Scheme, ThemeProvider, useColors } from '../../theme/ThemeProvider';
 import { color } from '../../theme/tokens';
 
 /** `undefined` means no provider at all — the case most of the suite is in. */
@@ -108,4 +109,35 @@ it('falls back only on undefined, the way a parameter default did', () => {
   );
   expect(styleOf('empty').color).toBe('');
   expect(styleOf('absent').color).toBe(color.ink);
+});
+
+
+/**
+ * The other shape: a module-level style object that reads the palette.
+ *
+ * `closeButton` is shared by three overlays, none of which is migrated yet —
+ * they all still pass the static `color` import. That is the whole point of
+ * the factory shape: it has to work for a caller holding the old import *and*
+ * a caller holding the hook, because every PR between this one and the last
+ * has files of both kinds sitting next to each other.
+ */
+describe('the module-level style factory', () => {
+  it('gives the same box whether the caller has the import or the hook', () => {
+    function Caller() {
+      const palette: Palette = useColors();
+      return <Text testID="box">{JSON.stringify(closeButton(palette))}</Text>;
+    }
+    render(
+      <ThemeProvider>
+        <Caller />
+      </ThemeProvider>,
+    );
+    const fromHook = JSON.parse(screen.getByTestId('box').props.children as string);
+    expect(fromHook).toEqual(closeButton(color));
+  });
+
+  it('still draws the close button on card, inside a divider', () => {
+    expect(closeButton(color).backgroundColor).toBe(color.card);
+    expect(closeButton(color).borderColor).toBe(color.divider);
+  });
 });

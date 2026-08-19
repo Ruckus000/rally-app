@@ -26,6 +26,7 @@ import {
 } from '@expo-google-fonts/instrument-sans';
 import { App } from './src/App';
 import { BootScreen } from './src/screens/BootScreen';
+import { ThemeProvider } from './src/theme/ThemeProvider';
 import { loadPersistedState } from './src/state/store';
 import type { State } from './src/state/store';
 
@@ -68,9 +69,23 @@ export default function Root() {
   // The wrapper carries `onLayout` so neither the boot screen nor the app has
   // to take a prop about splash-screen timing, which is nothing to do with
   // either of them.
+  //
+  // `ThemeProvider` is here, above the branch, rather than inside `src/App`
+  // where it started. The boot screen is the other branch, and it is drawn
+  // before the app exists — a provider below the branch would leave the first
+  // thing anyone sees as the one surface the palette does not reach. Today
+  // that is invisible, because there is one palette. In the PR that adds the
+  // dark one it would be a light screen flashing in front of a dark app on a
+  // dark device, and the sort of thing that ships because everybody assumed it
+  // belonged to somebody else's PR.
+  //
+  // One provider, not two. Nesting a second inside `src/App` would have worked
+  // and would have been something a reader has to reason about for no benefit.
   return (
-    <View style={{ flex: 1 }} onLayout={reveal}>
-      {ready ? <App restored={restored} /> : <BootScreen />}
-    </View>
+    <ThemeProvider>
+      <View style={{ flex: 1 }} onLayout={reveal}>
+        {ready ? <App restored={restored} /> : <BootScreen />}
+      </View>
+    </ThemeProvider>
   );
 }

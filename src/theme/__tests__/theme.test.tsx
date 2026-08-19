@@ -17,6 +17,8 @@ import React from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { render, screen } from '@testing-library/react-native';
 
+import Root from '../../../App';
+import { BootScreen } from '../../screens/BootScreen';
 import { App } from '../../App';
 import { StoreProvider } from '../../state/store';
 import { color } from '../tokens';
@@ -147,14 +149,29 @@ describe('outside a provider', () => {
 });
 
 describe('the real root', () => {
-  it('mounts the provider, and mounts it above the store', () => {
-    // Above the store rather than inside it because the palette is a device
-    // fact, not account state. Asserting the nesting rather than trusting the
-    // JSX: if somebody later moves it inside `StoreProvider` to reach state,
-    // that is a design change and should have to argue with a test.
+  it('mounts one provider, above the branch that chooses boot screen or app', () => {
+    // Above the branch, not inside `src/App`, so the boot screen is covered
+    // too — it is the first thing anyone sees and it is drawn before the app
+    // exists. Asserting the placement rather than trusting the JSX: if it
+    // migrates back down into `src/App` to be nearer the store, that is a
+    // design change and should have to argue with a test.
+    render(<Root />);
+    const providers = screen.UNSAFE_getAllByType(ThemeProvider);
+    // Exactly one. A second nested inside `src/App` would work and would be a
+    // thing a reader has to reason about for no benefit.
+    expect(providers).toHaveLength(1);
+    // Before the fonts and the persisted state arrive, the branch is the boot
+    // screen — which is the whole reason the provider is up here.
+    expect(providers[0].findByType(BootScreen)).toBeTruthy();
+  });
+
+  it('leaves the store below it, because the palette is not account state', () => {
+    // `App` carries no provider of its own any more; it inherits the root's,
+    // and the store sits inside that rather than around it. Nothing in the
+    // reducer reads the palette and a signed-out shell still has to be drawn.
     render(<App persist={false} sync={false} />);
-    const provider = screen.UNSAFE_getByType(ThemeProvider);
-    expect(provider.findByType(StoreProvider)).toBeTruthy();
+    expect(screen.UNSAFE_queryByType(ThemeProvider)).toBeNull();
+    expect(screen.UNSAFE_getByType(StoreProvider)).toBeTruthy();
   });
 
   it('still paints the real chrome in the real palette', () => {

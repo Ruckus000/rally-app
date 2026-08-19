@@ -10,7 +10,6 @@ import React, { useEffect, useState } from 'react';
 import { Animated, ScrollView, StatusBar, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { color, gutter } from './theme/tokens';
-import { ThemeProvider } from './theme/ThemeProvider';
 import { sheetEasing, useReducedMotion } from './theme/motion';
 import { StoreProvider, useStore, Config, State } from './state/store';
 import { Header } from './shell/Header';
@@ -47,17 +46,16 @@ export function App({
 }) {
   return (
     <SafeAreaProvider>
-      {/* Outside the store on purpose. Which palette you get is a fact about
-          the device, not about the account — nothing in the reducer reads it,
-          and a signed-out shell still has to be drawn in something. When the
-          Settings override lands it will pass a `scheme` down from persisted
-          state, and that is still the palette following the person rather than
-          the store owning it. */}
-      <ThemeProvider>
-        <StoreProvider config={config} restored={restored} persist={persist} sync={sync}>
-          <Shell />
-        </StoreProvider>
-      </ThemeProvider>
+      {/* `ThemeProvider` is above this, in the root `App.tsx`, so that it also
+          covers the boot screen — see the note there. Which palette you get is
+          a fact about the device, not about the account: nothing in the reducer
+          reads it, and a signed-out shell still has to be drawn in something.
+          When the Settings override lands it will pass a `scheme` down from
+          persisted state, which is still the palette following the person
+          rather than the store owning it. */}
+      <StoreProvider config={config} restored={restored} persist={persist} sync={sync}>
+        <Shell />
+      </StoreProvider>
     </SafeAreaProvider>
   );
 }

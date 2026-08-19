@@ -111,7 +111,7 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
         <Bri size={19} weight={800} tracking={-0.3} style={fill}>
           Settings
         </Bri>
-        <Tap onPress={close} accessibilityLabel="Close settings" style={closeButton}>
+        <Tap onPress={close} accessibilityLabel="Close settings" style={closeButton(color)}>
           <Icon name="close" size={16} color={color.ink} />
         </Tap>
       </View>
