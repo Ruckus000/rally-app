@@ -270,6 +270,52 @@ const SCHEMA: Record<string, TableSpec> = {
       updated_at: { default: () => now() },
     },
   },
+
+  // Modelled for the same reason `device_tokens` is: both tables are written
+  // only through RPCs (`block_person` / `unblock_person` / `report_content`
+  // below), never through the query builder directly, but `pullBlocks` reads
+  // `blocks` with a plain select and the RPCs' refusals are exactly the
+  // classification behaviour `transport.test.ts` needs pinned — a fake that
+  // did not know these tables existed would swallow that the way this file's
+  // own header warns about.
+  blocks: {
+    pk: ['blocker_id', 'blocked_id'],
+    columns: {
+      blocker_id: { notNull: true, references: 'profiles' },
+      blocked_id: { notNull: true, references: 'profiles' },
+      created_at: { default: () => now() },
+    },
+    checks: [
+      { name: 'blocks_not_self', ok: (r) => r.blocker_id !== r.blocked_id },
+    ],
+  },
+
+  reports: {
+    pk: ['id'],
+    columns: {
+      id: { notNull: true, default: () => uuid() },
+      reporter_id: { notNull: true, references: 'profiles' },
+      subject_kind: { notNull: true },
+      subject_id: { notNull: true },
+      reason: { notNull: true },
+      created_at: { default: () => now() },
+      resolution: {},
+      resolved_at: {},
+    },
+    checks: [
+      {
+        name: 'reports_kind_known',
+        ok: (r) => ['task', 'note', 'profile'].includes(String(r.subject_kind)),
+      },
+      {
+        name: 'reports_reason_known',
+        ok: (r) =>
+          ['harassment', 'spam', 'sexual', 'violence', 'self_harm', 'other'].includes(
+            String(r.reason),
+          ),
+      },
+    ],
+  },
 };
 
 // ─── determinism ──────────────────────────────────────────────────────────
@@ -989,6 +1035,72 @@ const RPC: Record<string, (args: Row) => unknown> = {
     if (at >= 0) rows.splice(at, 1);
     // Deleting nothing is not an error, which is what lets sign-out call it
     // unconditionally.
+    return null;
+  },
+
+  /**
+   * `report_content`. Deliberately not deduplicated, matching the migration's
+   * own comment: two identical reports are two rows, because a repeat is
+   * itself a signal (it happened again, or nothing came of the first one).
+   * `reports_kind_known` / `reports_reason_known` are plain CHECKs in the real
+   * schema, not a Postgres enum, so a bad value is refused as `23514` here —
+   * the same code `validate()` raises for every other CHECK, not `22P02`.
+   */
+  report_content(args) {
+    const caller = state.session?.user.id;
+    if (!caller) throw new Refusal(pgError('42501', 'not signed in'));
+
+    const row = withDefaults('reports', {
+      reporter_id: caller,
+      subject_kind: args.p_subject_kind,
+      subject_id: args.p_subject_id,
+      reason: args.p_reason,
+    });
+    validate('reports', row, null);
+    rowsOf('reports').push(row);
+    return null;
+  },
+
+  /**
+   * `block_person`. Two refusals the real function raises deliberately, ahead
+   * of the write: a bot (`22023`, `invalid_parameter_value` — checked first,
+   * exactly as the migration orders it) and yourself (`23514`, caught by
+   * `blocks_not_self` when the row is validated). Otherwise idempotent: `on
+   * conflict do nothing` in the real function, modelled here as a pre-check
+   * rather than as a caught 23505, because that is the shape the migration
+   * itself chose and a caught-then-swallowed 23505 would leave the self-block
+   * check unreachable on a replay.
+   */
+  block_person(args) {
+    const caller = state.session?.user.id;
+    if (!caller) throw new Refusal(pgError('42501', 'not signed in'));
+
+    const blocked = String(args.p_blocked ?? '');
+    const isBot = rowsOf('profiles').some((p) => p.id === blocked && p.is_bot === true);
+    if (isBot) throw new Refusal(pgError('22023', 'cannot block a bot'));
+
+    const rows = rowsOf('blocks');
+    const already = rows.some((r) => r.blocker_id === caller && r.blocked_id === blocked);
+    if (already) return null;
+
+    const row = withDefaults('blocks', { blocker_id: caller, blocked_id: blocked });
+    validate('blocks', row, null);
+    rows.push(row);
+    return null;
+  },
+
+  /**
+   * `unblock_person`. No "not signed in" guard, matching `unregister_device`
+   * above and the real function itself: it is scoped to `blocker_id =
+   * auth.uid()`, so a caller with no session simply matches no row rather than
+   * being refused, and deleting nothing is not an error.
+   */
+  unblock_person(args) {
+    const caller = state.session?.user.id;
+    const blocked = String(args.p_blocked ?? '');
+    const rows = rowsOf('blocks');
+    const at = rows.findIndex((r) => r.blocker_id === caller && r.blocked_id === blocked);
+    if (at >= 0) rows.splice(at, 1);
     return null;
   },
 
