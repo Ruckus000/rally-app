@@ -74,6 +74,7 @@ export const baseState: State = {
   onboardStep: null,
   toast: null,
   toastSeq: 0,
+  blocked: [],
 };
 
 /** An account that declined the circle: no tasks, no moments, no history. */

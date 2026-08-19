@@ -53,6 +53,8 @@ import {
   isAuthExpired,
   supabaseTransport,
   type PulledNote,
+  type ReportReason,
+  type ReportSubject,
   type WireOp as WireEntry,
   type Transport,
 } from './transport';
@@ -127,6 +129,17 @@ function wireEntry(op: OutboxOp, payload: Record<string, unknown>, entry: QueueE
         perfect: !!payload.perfect,
         streakHeld: !!payload.streakHeld,
       };
+    case 'report.file':
+      return {
+        ...head,
+        op,
+        subjectKind: payload.subjectKind as ReportSubject,
+        subjectId: String(payload.subjectId),
+        reason: payload.reason as ReportReason,
+      };
+    case 'block.add':
+    case 'block.remove':
+      return { ...head, op, blockedId: String(payload.blockedId) };
   }
 }
 
@@ -358,6 +371,50 @@ const DEVICE_KEY = 'device';
  */
 export function queueDeviceToken(token: string, platform: string): void {
   if (token) enqueue('device.register', DEVICE_KEY, { token, platform });
+}
+
+/** The coalescing key a block and its own reversal share — see `queueUnblock`. */
+const blockKey = (blockedId: string): string => `block:${blockedId}`;
+
+/**
+ * Queue a block for the server, in the same tick the reducer applies it.
+ *
+ * Like `queueDeviceToken`, called from the dispatch site rather than derived
+ * in `observe`: `observe` diffs *state slices*, and `state.blocked` is exactly
+ * such a slice — so the natural instinct is to diff it there the way `acted`
+ * is diffed. That would be wrong for the same reason a diff-based approach was
+ * rejected for reactions and notes: `BLOCKS_PULLED` also writes `state.blocked`,
+ * on every pull, authoritatively — so a diff cannot tell a block this device
+ * just took from a block the server just confirmed, and would enqueue the
+ * server's own answer straight back at it. Queueing at the two call sites that
+ * dispatch `BLOCK`/`UNBLOCK` (never at the one that dispatches `BLOCKS_PULLED`)
+ * means the echo cannot arise, the same way `queueRollup` avoids it for history.
+ *
+ * The coalescing key is the person, not the action — `block:<id>`, shared with
+ * `queueUnblock` — so a block taken back before it ever left the device
+ * collapses to nothing rather than firing an add and a remove in sequence.
+ */
+export function queueBlock(blockedId: string): void {
+  enqueue('block.add', blockKey(blockedId), { blockedId });
+}
+
+/** The reversal. Same key as `queueBlock`, same reasoning; see there. */
+export function queueUnblock(blockedId: string): void {
+  enqueue('block.remove', blockKey(blockedId), { blockedId });
+}
+
+/**
+ * Queue a report. One-way, like `queueRollup`: a report is never edited or
+ * withdrawn, so there is no coalescing to design around — the key only has to
+ * keep two reports of the *same thing* from queuing twice if the UI somehow
+ * lets someone tap Report on a card twice before the first one drains.
+ */
+export function queueReport(
+  subjectKind: ReportSubject,
+  subjectId: string,
+  reason: ReportReason,
+): void {
+  enqueue('report.file', `report:${subjectKind}:${subjectId}`, { subjectKind, subjectId, reason });
 }
 
 /**

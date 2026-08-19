@@ -31,7 +31,15 @@ export type OutboxOp =
   // A week that closed. Named `add` rather than `upsert` because that is what it
   // is: `week_rollups` grants insert and nothing else, and a replay is absorbed
   // by on-conflict-do-nothing rather than by writing the row a second time.
-  | 'rollup.add';
+  | 'rollup.add'
+  // A report never updates and never withdraws — `report_content` is
+  // insert-shaped, like `rollup.add` above.
+  | 'report.file'
+  // Symmetric with `task.upsert`/`task.delete`: two ops sharing one coalescing
+  // key (`block:<id>`), so a block taken back before it ever sent collapses to
+  // nothing rather than firing both in sequence.
+  | 'block.add'
+  | 'block.remove';
 
 export type OutboxEntry = {
   /** Client-minted, and the idempotency key the transport should send. */
@@ -97,6 +105,9 @@ const OPS: readonly OutboxOp[] = [
   'note.add',
   'profile.update',
   'device.register',
+  'report.file',
+  'block.add',
+  'block.remove',
 ];
 
 // ─── module state ─────────────────────────────────────────────────────────

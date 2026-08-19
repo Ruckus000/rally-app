@@ -276,6 +276,20 @@ export type State = {
   toast: string | null;
   /** Bumped on every toast so an identical message still re-animates. */
   toastSeq: number;
+
+  /**
+   * Who this account has blocked, by id. The server already hides a blocked
+   * person's rows via RLS — see `integration/rls/blocks.test.ts` — so this list
+   * exists for the gap RLS cannot cover: the moment between the tap and the
+   * next round trip, where a phone with no signal has to look like the block
+   * already happened. `BLOCKS_PULLED` replaces it wholesale on the next pull,
+   * so the server stays the authority the instant it can answer; this is only
+   * ever the offline half.
+   *
+   * Persisted, so a block survives a relaunch offline — see
+   * `PERSISTED_KEYS` in persistence.ts.
+   */
+  blocked: PersonId[];
 };
 
 /** An account starts empty; onboarding decides what it gets seeded with. */
@@ -334,6 +348,7 @@ const initialState: State = {
   onboardStep: 'onboarding',
   toast: null,
   toastSeq: 0,
+  blocked: [],
 };
 
 export type Action =
@@ -387,7 +402,10 @@ export type Action =
   | { type: 'RENAME_SELF'; name: string }
   | { type: 'SESSION'; session: SessionState }
   | { type: 'UNSAVED'; count: number }
-  | { type: 'SERVER_MERGE'; merge: ServerMerge };
+  | { type: 'SERVER_MERGE'; merge: ServerMerge }
+  | { type: 'BLOCK'; id: PersonId }
+  | { type: 'UNBLOCK'; id: PersonId }
+  | { type: 'BLOCKS_PULLED'; ids: PersonId[] };
 
 /**
  * What a pull hands the reducer, already narrowed to the rows it knows how to
@@ -1282,6 +1300,24 @@ export function reducer(state: State, action: Action): State {
 
       return { ...state, session: next, selfId, people };
     }
+
+    case 'BLOCK': {
+      // Idempotent, like `ACT`'s add half: a second tap — or a retry of an
+      // entry the queue already sent — must not grow the list a second time.
+      if (state.blocked.includes(action.id)) return state;
+      return { ...state, blocked: [...state.blocked, action.id] };
+    }
+
+    case 'UNBLOCK': {
+      if (!state.blocked.includes(action.id)) return state;
+      return { ...state, blocked: state.blocked.filter((id) => id !== action.id) };
+    }
+
+    case 'BLOCKS_PULLED':
+      // The server's whole answer, replacing rather than merging: an unblock
+      // on another device is an absence here, and a union would leave it lit
+      // on this phone forever — the same reasoning as `reconcileActed`.
+      return { ...state, blocked: action.ids };
 
     case 'SERVER_MERGE': {
       // A merge, never an assignment: rows arriving from someone else's phone

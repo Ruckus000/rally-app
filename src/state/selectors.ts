@@ -221,6 +221,17 @@ export const totalCheersExchanged = (state: State) =>
  * device: an account that knew nobody read "5 people, ranked by follow-through"
  * over a leaderboard of four Wizard of Oz characters — and, because it was
  * never "alone", never saw the invite that would have given it a real one.
+ *
+ * A blocked member is **not** excluded, and that is a decision rather than an
+ * oversight: this feeds `ranking()` and the circle total, which are rollups
+ * over the whole circle, not over what one viewer wants to see. Filtering them
+ * per-viewer would make "how many did the circle close this week" a different
+ * number depending on who was asking — the leaderboard would disagree with
+ * itself the moment two members had blocked different people. Blocking hides a
+ * person's *feed presence* from you (`mergedFeed`, above); it does not remove
+ * them from a circle-wide count. If a later reader "fixes" this to filter
+ * blocked members out here, they will have reintroduced a per-viewer rollup —
+ * read this note first.
  */
 export const circleMembers = (state: State): PersonId[] =>
   state.account === 'live'
@@ -249,6 +260,33 @@ export type FeedSource = 'circle' | 'follow';
 export type FeedEntry = { m: Moment; from: FeedSource };
 
 /**
+ * Strip a blocked person's fingerprints off a moment that survives the block
+ * itself — the note thread and the cheer roster, the two places someone can
+ * still show up on a card that is not theirs.
+ *
+ * Never touches `who`: whether the *card itself* belongs to a blocked person is
+ * `mergedFeed`'s question, not this one, and answering it here would filter it
+ * twice for no gain.
+ *
+ * The self-guard is the reason this exists at all rather than a plain
+ * `.filter(id => !blocked.has(id))`: `blocked` is reducer state, not a promise
+ * the server enforces locally, and nothing stops it from naming `state.selfId`
+ * — `BLOCK` performs no self-check, because the constraint that actually
+ * matters (`blocks_not_self`) lives in the migration and is proven there. A
+ * feed that could make your own note vanish because of a bad local write would
+ * be a worse bug than the one this task exists to close.
+ */
+const stripBlocked = (m: Moment, blocked: ReadonlySet<PersonId>, self: PersonId): Moment => {
+  const hides = (id: PersonId) => id !== self && blocked.has(id);
+  if (!m.cmts?.some((c) => hides(c.k)) && !m.backers?.some(hides)) return m;
+  return {
+    ...m,
+    cmts: m.cmts?.filter((c) => !hides(c.k)),
+    backers: m.backers?.filter((id) => !hides(id)),
+  };
+};
+
+/**
  * The Week tab's one social feed: your circle's moments and the public feed,
  * interleaved by time.
  *
@@ -263,18 +301,34 @@ export type FeedEntry = { m: Moment; from: FeedSource };
  * The origin is attached here rather than stored on the `Moment`, because
  * `Moment` is the persisted and synced shape and this is a rendering question —
  * one the caller already knows the answer to at the moment it merges.
+ *
+ * Blocking is filtered here, and only here — see `state.blocked`'s comment in
+ * `store.tsx`. The server already hides a blocked person's rows via RLS, which
+ * is the *real* enforcement; this is the offline half, the second or two (or
+ * the whole flight) before the next pull can answer. One place because
+ * `mergedFeed` is the one path every card on the Week tab comes through —
+ * `WeekScreen` has no second feed assembler to forget the check in.
+ *
+ * A blocked person never loses their seat in `circleMembers` or the totals it
+ * feeds — see that function's own note. Only the feed, not the roster.
  */
 export function mergedFeed(state: State, quietComebacks: boolean): FeedEntry[] {
+  const blocked = new Set(state.blocked);
+  // Never hides your own card, whatever `blocked` says — see `stripBlocked`.
+  const hidden = (m: Moment) => m.who !== state.selfId && blocked.has(m.who);
+
   const entries: FeedEntry[] = state.moments
     .filter((m) => quietComebacks || m.kind !== 'quiet')
-    .map((m) => ({ m, from: 'circle' as const }));
+    .filter((m) => !hidden(m))
+    .map((m) => ({ m: stripBlocked(m, blocked, state.selfId), from: 'circle' as const }));
 
   // Circle wins. Nothing can be in both slices today — `pullBots` only returns
   // bot owners, and a bot is in nobody's circle — but a card drawn twice under
   // one React key is a bad way to find that out if it ever changes.
   const seen = new Set(entries.map((e) => e.m.id));
   for (const m of state.globalPosts) {
-    if (!seen.has(m.id)) entries.push({ m, from: 'follow' });
+    if (hidden(m) || seen.has(m.id)) continue;
+    entries.push({ m: stripBlocked(m, blocked, state.selfId), from: 'follow' });
   }
 
   return entries.sort((a, b) => parseHours(a.m.time) - parseHours(b.m.time));
