@@ -6,7 +6,8 @@ import React from 'react';
 import { View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
-import { color, onDark, radius, shadows } from '../theme/tokens';
+import { onDark, radius, shadows } from '../theme/tokens';
+import { useColors } from '../theme/ThemeProvider';
 import { Sans, Tap } from '../components/primitives';
 import { Icon, IconName } from '../components/Icon';
 import { useStore, Tab } from '../state/store';
@@ -19,6 +20,7 @@ const TABS: { key: Tab; label: string; icon: IconName }[] = [
 
 /** The lime radial bloom behind the active tab icon. */
 function ActiveGlow({ active }: { active: boolean }) {
+  const color = useColors();
   if (!active) return null;
   return (
     <View pointerEvents="none" style={{ position: 'absolute', top: -9, left: -9, width: 48, height: 48 }}>
@@ -36,6 +38,7 @@ function ActiveGlow({ active }: { active: boolean }) {
 }
 
 export function TabBar({ bottomInset }: { bottomInset: number }) {
+  const color = useColors();
   const { state, dispatch } = useStore();
 
   return (

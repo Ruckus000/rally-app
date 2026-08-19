@@ -41,6 +41,55 @@
  * `onDark` is not here either, and for a different reason: the dark design
  * keeps every already-dark surface exactly as it is, so the `onDark` ramp is
  * scheme-independent by construction. It can stay a plain import.
+ *
+ * ## The two awkward shapes, settled here so the next four PRs do not re-argue
+ *
+ * Most of the ~470 reads are `color.x` inside a component body, and those are
+ * a one-line change. Two shapes are not. The second one turned up in the leaf
+ * files and is solved in the code; the first did not — none of the four
+ * smallest files has a module-level style object — so it is decided here, in
+ * writing, rather than left for whoever hits `SettingsOverlay` first.
+ *
+ * **1. A module-level style object that reads the palette.** `SettingsOverlay`
+ * has `cardBox`, `LedgerOverlay` has `closeButton`, and there are more. These
+ * become a **function of the palette, keeping their name**:
+ *
+ * ```ts
+ * const cardBox = (color: Palette): ViewStyle => ({ backgroundColor: color.card, … });
+ * // call site: style={{ ...row, gap: 12, ...cardBox(color) }}
+ * ```
+ *
+ * The alternative — move the object inside the component — only works when
+ * exactly one component uses it, and `cardBox` has six call sites across five
+ * components. Threading it as a prop or duplicating it per component would be
+ * a real refactor hiding inside a mechanical one. A factory keeps the object a
+ * single named thing at module scope, keeps it greppable, and keeps each call
+ * site's diff to adding `(color)`. It does allocate a fresh object per render,
+ * but these are inline style objects that React Native already rebuilds every
+ * render, so nothing regresses.
+ *
+ * **2. A default parameter that reads the palette.** `primitives.tsx` had
+ * `color: c = color.ink` on `Bri`, `Sans` and `Caps`. You cannot call a hook
+ * in a parameter default, so the default **moves into the body with `??`**,
+ * and the parameter keeps its name:
+ *
+ * ```ts
+ * export function Bri({ color: c, … }: TypeProps) {
+ *   const colors = useColors();
+ *   // … color: c ?? colors.ink
+ * ```
+ *
+ * `??` and not `||`: a parameter default fires only on `undefined`, and `||`
+ * would also swallow an empty string. That is a behaviour change, and this
+ * migration is not allowed one.
+ *
+ * ## What to call the hook's result
+ *
+ * `const color = useColors()` — shadowing the old import name on purpose, so
+ * the body of a migrated file is byte-identical to what it was and the diff is
+ * the import plus one line. That is what makes 470 reads reviewable. Where the
+ * name `color` is already taken in that scope — `primitives.tsx` has a `color`
+ * prop — use `colors`.
  */
 import React, { createContext, useContext, useMemo } from 'react';
 import { useColorScheme } from 'react-native';

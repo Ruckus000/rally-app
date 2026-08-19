@@ -13,10 +13,12 @@
  */
 import React from 'react';
 import { View } from 'react-native';
-import { color, gutter, radius } from '../theme/tokens';
+import { gutter, radius } from '../theme/tokens';
+import { useColors } from '../theme/ThemeProvider';
 import { Sans, Tap, row } from './primitives';
 
 export function BannerAction({ label, onPress }: { label: string; onPress: () => void }) {
+  const color = useColors();
   return (
     <Tap
       accessibilityLabel={label}
@@ -42,6 +44,7 @@ export function BannerAction({ label, onPress }: { label: string; onPress: () =>
 }
 
 export function Banner({ message, children }: { message: string; children?: React.ReactNode }) {
+  const color = useColors();
   return (
     <View
       accessibilityRole="alert"
