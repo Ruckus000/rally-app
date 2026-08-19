@@ -36,6 +36,10 @@ where `expo-apple-authentication` does not exist, no account can be secured, so 
 account can sign out — which is correct rather than a gap: there is no way back, so
 there must be no way out.
 
+The Android page is therefore Account, Your name, Notifications and nothing else. The
+Account section says why in one line, so the absence reads as a decision rather than a
+missing feature. Google sign-in is what changes this, and it is not this spec.
+
 ### Signing out wipes the device back to pre-onboarding
 
 Recovery deliberately refuses to restore history onto a device that already has
@@ -56,8 +60,13 @@ row at the bottom of the Me screen rather than a header control, leaving the sha
 
 ### Scope
 
-In: account state, your name, notification permission, Secure this account, Sign out,
-Reset app data.
+In: account state, your name, notification permission, Secure this account, Sign out.
+
+**Reset app data stays behind `__DEV__`.** It was going to be promoted to a shipping
+row; it is not. It is data loss with no undo, and putting it one row below Sign out
+made two destructive controls siblings. A real user's route out is Sign out. The
+consequence is deliberate: on Android, and on any anonymous account, the settings page
+carries no destructive control at all.
 
 Deferred, each needing its own spec:
 
@@ -103,17 +112,55 @@ sync layer stops on its own with no new flag to poll.
 device signed out and then force-quit reopens on Welcome rather than back inside an
 account it no longer has a session for.
 
-### Sign-out ordering
+### Sign-out ordering, and the queue it must not drop
 
 The one part with a real failure mode. In order:
 
-1. `flushOutbox()` — best-effort, so work already staked reaches the server.
-2. `await signOutEverywhere()` — deregisters this device's push token while it still
+1. `await flushOutbox()` — so work already staked reaches the server.
+2. **Re-read `pending()`. If it is non-empty, stop and say so** — sign-out does not
+   proceed. See below.
+3. `await signOutEverywhere()` — deregisters this device's push token while it still
    has a session to do it with.
-3. `dispatch({ type: 'SIGN_OUT' })`.
+4. `dispatch({ type: 'SIGN_OUT' })`.
 
 Dispatching first would change `selfId`, fire the `lastSelfId` effect
 (`src/state/store.tsx:1647`), and clear the outbox before it drained.
+
+Step 2 is the guard this feature exists to avoid needing elsewhere. `flushOutbox` is
+best-effort and `signOutEverywhere` deliberately completes locally when it cannot reach
+the network — so without the check, signing out in a tunnel with three staked tasks
+still queued drops them from the device by the wipe having never reached the server,
+and signing back in restores everything except them. Silent permanent loss, on a page
+whose whole premise is that no such path should exist.
+
+Instead the confirm refuses, naming the count:
+
+> *Three things haven't reached the server yet. Reconnect and try again — they'd be
+> lost otherwise.*
+
+Counted distinct by `key`, not by entry, for the reason `unsavedCount` documents: a
+task written and then deleted is two ops about one thing. `pending()` in
+`src/sync/outbox.ts` returns the live queue; `unsavedCount()` is **not** the right
+primitive here — it counts dead letters, which are permanently refused rather than
+merely unsent.
+
+### When there is no session
+
+`canSignOut` needs `session.status === 'ready'` to know whether the account is
+anonymous — `anonymous` is a JWT claim, not persisted state. So a secured user with no
+signal has no way for the page to confirm they are secured.
+
+The row is therefore **shown disabled with a reason** rather than hidden, so the
+control does not appear and vanish with connectivity:
+
+> *Sign out — needs a connection.*
+
+Known imprecision, named rather than hidden: on a live account whose session has never
+reached `ready`, the page cannot tell secured from anonymous, so it shows the disabled
+row in both cases. If the session then resolves anonymous, the row is replaced by
+"Secure this account". The disabled copy is true either way — signing out does need a
+connection — so the transient state does not lie, it is merely less specific than it
+would be online.
 
 ### Files
 
@@ -122,7 +169,7 @@ Dispatching first would change `selfId`, fire the `lastSelfId` effect
 | `src/state/store.tsx` | `settingsOpen`, `OPEN_SETTINGS`, `CLOSE_SETTINGS`, `SIGN_OUT` |
 | `src/overlays/SettingsOverlay.tsx` | new |
 | `src/App.tsx` | render `SettingsOverlay` when `state.settingsOpen` |
-| `src/screens/MeScreen.tsx` | Settings row; `Reset app data` moves out of `DevControls` |
+| `src/screens/MeScreen.tsx` | Settings row at the foot of the screen. `DevControls` is untouched — `Reset app data` stays there, behind `__DEV__` |
 | `TESTING.md` | Retire the "no settings page" bullet in Known limits; note that recovery is now testable without a reinstall |
 
 ### The overlay
@@ -133,19 +180,18 @@ wrapped in `Overlay` for hardware-back and Escape handling.
 
 | Section | Shown when | Behaviour |
 |---|---|---|
-| Account | always | Read-only: Demo or Live, whether the account can be got back, truncated user id on live |
+| Account | always | Read-only: Demo or Live, whether the account can be got back, truncated user id on live. On Android, one line saying sign-out needs an account that can be got back and Apple sign-in is iOS-only |
 | Your name | live | Inline edit reusing `RENAME_SELF` + `queueProfileName` — the same pair the Me card uses |
 | Notifications | always | State from `hasReminderPermission()`; `askForReminders()` when undetermined, otherwise `Linking.openSettings()` |
 | Secure this account | live, anonymous, iOS | `linkApple()`; failures rendered through `appleTrouble` + `Trouble`, identical to the Me card, which stays |
-| Sign out | live, session ready, not anonymous | Destructive confirm, then the ordering above |
-| Reset app data | always | Moves out of `DevControls`; Fresh start / Reload demo unchanged |
+| Sign out | live, and not (session ready and anonymous) | Disabled with a reason while the session is not `ready`. Enabled otherwise: destructive confirm, then the ordering above |
 
 "Secure this account" appears in both places deliberately: the Me card version is the
 prompt at the point of identity, the Settings version is where someone goes looking.
 Both call the same `linkApple` and share the same copy, so they cannot drift.
 
-`DevControls` keeps only what is genuinely dev-only: Simulate next week, Go live, and
-`DeadLetters`.
+`DevControls` is unchanged: Reset app data, Simulate next week, Go live, and
+`DeadLetters`, all still `__DEV__`.
 
 ## Error handling
 
@@ -154,25 +200,35 @@ Both call the same `linkApple` and share the same copy, so they cannot drift.
 - `signOutEverywhere` already swallows a network failure and completes locally, so a
   sign-out on a plane still clears the device. The push-token row it leaves behind is
   repaired by the next person to register on this device.
-- `flushOutbox` failing is not surfaced. It is best-effort by construction, and the
-  user has already asked to leave.
+- `flushOutbox` failing **is** surfaced, as the refusal above. That is the whole of the
+  offline story: the user is told what is unsent and asked to reconnect, rather than
+  having it discarded on their behalf.
 
 ## Testing
 
 Unit — `src/overlays/__tests__/settings.test.tsx`:
 
-- Row visibility matrix across demo, live-anonymous, live-secured, and expired-session.
+- Row visibility matrix across demo, live-anonymous, live-secured, offline-session and
+  expired-session — including that Sign out renders disabled rather than absent when the
+  session is not `ready`.
+- Android renders no Sign out and no Secure row, and the Account section says why.
 - Confirm-cancel dispatches nothing.
 - `SIGN_OUT` leaves `onboardStep: 'onboarding'`, so Welcome's Apple button is reachable.
-- Sign-out calls `flushOutbox` and `signOutEverywhere` before the dispatch.
+- Sign-out calls `flushOutbox`, then `signOutEverywhere`, then dispatches — in that
+  order.
+- **A non-empty `pending()` after the flush aborts the sign-out**: no
+  `signOutEverywhere`, no dispatch, and the count is named in the message. This is the
+  test that would have caught the silent-loss window.
 
-Mutation testing targets the new guard:
+Mutation testing targets both new guards:
 
 ```
-canSignOut = account === 'live' && session.status === 'ready' && !session.anonymous
+signOutVisible = account === 'live' && !(session.status === 'ready' && session.anonymous)
+signOutEnabled = session.status === 'ready' && !session.anonymous && pendingCount === 0
 ```
 
-Three independent conditions; each must be individually killable.
+Each condition must be individually killable — in particular `pendingCount === 0`,
+which is the one whose absence is invisible until someone loses work.
 
 No new integration test. Nothing here touches RLS or adds a `WireOp`, so the existing
 integration suite stands as the gate rather than growing.
