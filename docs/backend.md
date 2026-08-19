@@ -15,18 +15,24 @@ three account modes (`fresh` and `seeded`) make no network call at all.
 
 ## Status
 
-First applied 2026-08-10 with `supabase db push`. Re-counted against the hosted
-project on 2026-08-19, after seventeen migrations — an eighteenth,
-`20260819194501_avatars.sql`, landed afterwards and is not yet re-counted here.
-It adds no table and no `public`-schema policy (the counts below are
-unaffected), only four policies on `storage.objects`, which this table has
-never tracked and still does not:
+First applied 2026-08-10 with `supabase db push`. Re-counted 2026-08-19 against a
+freshly reset local stack carrying all eighteen migrations, by querying
+`pg_tables`, `pg_policies`, `pg_type` and `pg_proc` directly.
+
+That method matters, because the previous re-count was done by grepping
+`create policy` across the migrations and came out at 28. It is 26. Six policies
+are dropped and recreated by `20260819164832_reports_and_blocks.sql`, so grep
+counts each of them twice — an error that will recur every time a migration
+amends an existing policy. **Count from the database, not from the files.**
+
+`storage.objects` policies are not included here and never have been; the
+`avatars` bucket adds four of them.
 
 | Check | Result |
 |---|---|
 | Tables in `public` | 16 |
 | Tables with RLS enabled | 16 |
-| Policies | 28 |
+| Policies in `public` | 26 |
 | Enums | 5 |
 | `private` helpers | 12, six of them called by policies |
 | `supabase db advisors --type all` | see *What the advisors say* below |
