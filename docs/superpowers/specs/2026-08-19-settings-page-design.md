@@ -92,6 +92,17 @@ Deferred, each needing its own spec:
 The overlay's sections are a plain list, so each of these is a row addition later
 rather than a restructure.
 
+Each now has its own spec:
+
+- `2026-08-19-dark-mode-design.md`
+- `2026-08-19-dynamic-type-design.md`
+- `2026-08-19-reporting-and-blocking-design.md`
+- `2026-08-19-profile-photos-design.md`
+
+Suggested order: reporting → photos (photos need the takedown path), and dark mode →
+Dynamic Type (both sweep the same 30 files, and doing them at once makes review harder).
+Terms & conditions still has no spec because it still has no policy text.
+
 ## Architecture
 
 ### State
