@@ -49,7 +49,11 @@ describe('attemptSignOut', () => {
 
   afterEach(() => jest.restoreAllMocks());
 
-  it('flushes before it signs out, so queued work gets its last chance', async () => {
+  // Not "last chance to send" — `flushOutbox` writes to AsyncStorage, it does
+  // not send. The order matters because `signOutEverywhere` and the wipe that
+  // follows it must not run over the top of a queue still sitting in the
+  // debounce, where a force-quit would take it with nothing on disk.
+  it('persists before it signs out, so the queue is on disk before the wipe', async () => {
     const order: string[] = [];
     flush.mockImplementation(async () => void order.push('flush'));
     out.mockImplementation(async () => void order.push('signOut'));

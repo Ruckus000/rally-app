@@ -20,7 +20,8 @@
  * a sign-out on a train takes unsent work off the device forever while the
  * server never hears about it, and signing back in restores everything except
  * the thing the person did last, with nobody told. They are told instead, and
- * asked to reconnect.
+ * asked to wait a moment and try again — not to reconnect, because nothing here
+ * can see a dead network, and "not sent yet" is by far the likelier cause.
  *
  * Read `flushOutbox` before you trust it to do more than it does: it is a
  * *persistence* flush — it cancels the debounce and writes the queue to
