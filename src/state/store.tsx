@@ -379,6 +379,7 @@ export type Action =
   | { type: 'INVITE'; key: PersonId }
   | { type: 'SET_ACCOUNT'; mode: AccountMode }
   | { type: 'RESET'; mode: AccountMode }
+  | { type: 'SIGN_OUT' }
   | { type: 'ROLLOVER_DETECTED'; to: WeekContext }
   | { type: 'COMMIT_ROLLOVER'; carryIds: string[] }
   | { type: 'SKIP_ONBOARD' }
@@ -1026,6 +1027,28 @@ export function reducer(state: State, action: Action): State {
         // of one list, so there is nothing left to choose between.
         scope: 'feed',
       };
+    }
+
+    /**
+     * Sign out, which is `RESET` with one difference that is the entire point.
+     *
+     * `RESET` sets `onboardStep: null` — it drops you into the app with a fresh
+     * account. This sets it to `'onboarding'`, via `initialState`, because the
+     * Welcome screen is where `recoverWithApple` lives. Without that, signing
+     * out would be a one-way door and this whole feature would be a way to lose
+     * an account rather than a way to leave one.
+     *
+     * The wipe is required, not merely tidy: the restore path refuses to fill
+     * history onto a device that already has some, so anything left behind here
+     * would mean signing back in restores nothing.
+     *
+     * `week` is re-read rather than inherited from `initialState`, which
+     * captured the calendar at module load and may be a week stale in a
+     * long-lived process.
+     */
+    case 'SIGN_OUT': {
+      const week = liveWeek();
+      return { ...initialState, week, day: week.today };
     }
 
     case 'ROLLOVER_DETECTED':
