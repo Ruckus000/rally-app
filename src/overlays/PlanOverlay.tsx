@@ -4,13 +4,22 @@
 import React from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { color, gradientAngle, heroGlow, onDark, planGutter, shadows } from '../theme/tokens';
+import {
+  color,
+  displayLeading,
+  gradientAngle,
+  heroGlow,
+  onDark,
+  planGutter,
+  shadows,
+} from '../theme/tokens';
 import {
   AUDIENCE_LABEL,
   AUDIENCE_WORD,
   AUDIENCES,
   CATEGORIES,
   CATEGORY_HINT,
+  TITLE_MAX,
 } from '../data/fixtures';
 import { DAY_NAMES, DayIndex } from '../data/week';
 import { useStore } from '../state/store';
@@ -130,9 +139,8 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
             size={76}
             weight={800}
             tracking={-3.5}
-            lineHeight={61}
             color={color.lime}
-            style={heroGlow}
+            style={[heroGlow, displayLeading(76, 61)]}
           >
             {staked}
           </Bri>
@@ -172,7 +180,10 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
               ? 'Nothing to beat yet. This is the one that sets the bar.'
               : over
                 ? 'The biggest week you’ve ever put on the line.'
-                : `${best - staked} pts short of Week 31 — your best week ever.`}
+                : // The week the record actually belongs to. This was a
+                  // hardcoded "Week 31" — the demo's best week, named at
+                  // every user whose record was some other week entirely.
+                  `${best - staked} pts short of ${state.profile.bestWeekLabel || 'your best week'} — your best week ever.`}
           </Sans>
           {hasBest ? (
             <Tap
@@ -234,7 +245,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
               // The length the rating function accepts. Without it a longer
               // goal is staked unscreened — the function 400s and the client
               // reads that as "nothing wrong with this one".
-              maxLength={50}
+              maxLength={TITLE_MAX}
               multiline
               style={{
                 marginTop: 9,
@@ -276,7 +287,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                     <Bri size={11.5} weight={800} lineHeight={12} color={on ? color.lime : 'rgba(241,242,236,.58)'}>
                       {name.slice(0, 1)}
                     </Bri>
-                    <Bri size={9} weight={700} lineHeight={10} color={on ? color.lime : 'rgba(241,242,236,.45)'}>
+                    <Bri size={10} weight={700} lineHeight={11} color={on ? color.lime : 'rgba(241,242,236,.45)'}>
                       {count ? String(count) : '·'}
                     </Bri>
                   </Tap>
@@ -373,7 +384,13 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                     }}
                   >
                     <Avatar who={k} size={20} />
-                    <Sans size={12.5} weight={700} color={on ? color.lime : 'rgba(241,242,236,.72)'}>
+                    <Sans
+                      size={12.5}
+                      weight={700}
+                      color={on ? color.lime : 'rgba(241,242,236,.72)'}
+                      numberOfLines={1}
+                      style={{ maxWidth: 160 }}
+                    >
                       {people.first(k)}
                     </Sans>
                   </Tap>
@@ -402,7 +419,10 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                 ...(canStake ? shadows.addCta : null),
               }}
             >
-              <Bri size={15.5} weight={800} color={canStake ? color.ink : 'rgba(241,242,236,.35)'}>
+              {/* The disabled label tells you how to enable the button, so it
+                  gets `.55` rather than the .35 it was drawn at — WCAG does
+                  not exempt text that carries the instruction. */}
+              <Bri size={15.5} weight={800} color={canStake ? color.ink : onDark.secondary}>
                 {!hasDraft
                   ? 'Write it down first'
                   : blocked
@@ -467,7 +487,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
               >
                 <View style={[row, { gap: 6 }]}>
                   {s.pair?.length ? <FaceStack people={s.pair} size={20} ringColor={color.planCard} /> : null}
-                  <Caps size={9} tracking={1.3} color={used ? color.lime : onDark.secondary} numberOfLines={1} style={fill}>
+                  <Caps size={10} tracking={1.3} color={used ? color.lime : onDark.secondary} numberOfLines={1} style={fill}>
                     {s.tag}
                   </Caps>
                 </View>
@@ -543,10 +563,18 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                 </Bri>
                 <Tap
                   onPress={() => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'task', id: t.id } })}
-                  minSize={0}
-                  style={fill}
+                  accessibilityLabel={`Open ${t.title}`}
+                  // The row's own height, not one line of text: this opted out
+                  // of the 44 guarantee and landed at about 18.
+                  style={[fill, { alignSelf: 'stretch', justifyContent: 'center', minHeight: 44 }]}
                 >
-                  <Sans size={14} weight={600} lineHeight={17.5} color={color.paper}>
+                  <Sans
+                    size={14}
+                    weight={600}
+                    lineHeight={17.5}
+                    color={color.paper}
+                    numberOfLines={2}
+                  >
                     {t.title}
                   </Sans>
                 </Tap>

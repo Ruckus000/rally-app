@@ -5,7 +5,7 @@
 import React from 'react';
 import { TextInput, View } from 'react-native';
 import { color, radius, shadows } from '../theme/tokens';
-import { Moment } from '../data/fixtures';
+import { Moment, TITLE_MAX } from '../data/fixtures';
 import { useStore } from '../state/store';
 import {
   allTasksDone,
@@ -144,6 +144,9 @@ function QuickLogInput() {
         }}
         autoFocus
         returnKeyType="done"
+        // The same cap the Plan composer carries. Without it this field was
+        // the one way to mint a title no row in the app can lay out.
+        maxLength={TITLE_MAX}
         placeholder="Log something for today…"
         placeholderTextColor={color.muted}
         accessibilityLabel="Log something for today"

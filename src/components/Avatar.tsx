@@ -73,23 +73,32 @@ export function FaceStack({
   return (
     <View style={{ flexDirection: 'row' }}>
       {people.map((k, i) => {
+        // The ring goes *around* the face, not inside it. RN is always
+        // border-box, so a border on the Avatar itself ate 2px off every side
+        // — a 20px face rendering as a 16px one, initials and all. The
+        // reference draws it content-box, so the wrapper carries the ring
+        // colour as its background and the face keeps its full size.
         const face = (
-          <Avatar
-            who={k}
-            size={size}
+          <View
             style={{
-              borderWidth: ringWidth,
-              borderColor: ringColor,
-              marginLeft: i ? -(size * 0.28) : 0,
+              padding: ringWidth,
+              borderRadius: (size + ringWidth * 2) / 2,
+              backgroundColor: ringColor,
+              marginLeft: i ? -(size * 0.28 + ringWidth) : 0,
             }}
-          />
+          >
+            <Avatar who={k} size={size} />
+          </View>
         );
         return onPressPerson ? (
           <Tap
             key={k}
             onPress={() => onPressPerson(k)}
             accessibilityLabel={`Open ${dir.name(k)}`}
-            minSize={size}
+            // The visual face stays small; the target does not. `minSize`
+            // reads the style below, so the hit area grows to 44 around a
+            // stack that is only 24 tall.
+            style={{ width: size + ringWidth * 2, height: size + ringWidth * 2 }}
           >
             {face}
           </Tap>

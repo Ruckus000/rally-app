@@ -12,6 +12,7 @@
 import React, { useRef, useState } from 'react';
 import { ScrollView, TextInput, View } from 'react-native';
 import { color, heroGlow, onDark } from '../../theme/tokens';
+import { TITLE_MAX } from '../../data/fixtures';
 import { Icon } from '../../components/Icon';
 import { Bri, Caps, GlowBloom, Sans, Tap, row } from '../../components/primitives';
 import { CommitmentRow, PillButton } from './kit';
@@ -99,7 +100,7 @@ export function StakeScreen({
             <Bri size={15} weight={800} lineHeight={15} color={onDark.bodySecondary}>
               pts
             </Bri>
-            <Caps size={9.5} tracking={1.6} color={onDark.secondary} style={{ marginTop: 3 }}>
+            <Caps size={10} tracking={1.6} color={onDark.secondary} style={{ marginTop: 3 }}>
               Staked so far
             </Caps>
           </View>
@@ -118,8 +119,11 @@ export function StakeScreen({
             // one, so the keyboard must not dismiss itself.
             blurOnSubmit={false}
             returnKeyType="done"
+            // The cap every other composer carries — a first-run user could
+            // otherwise mint a title that breaks every row downstream.
+            maxLength={TITLE_MAX}
             placeholder="Add your own…"
-            placeholderTextColor="rgba(241,242,236,.4)"
+            placeholderTextColor={onDark.tertiary}
             selectionColor={color.lime}
             cursorColor={color.lime}
             accessibilityLabel="Add your own commitment"
@@ -168,7 +172,9 @@ export function StakeScreen({
           ))}
         </View>
 
-        <Sans size={11.5} lineHeight={17} color="rgba(241,242,236,.4)" style={{ marginTop: 14 }}>
+        {/* `.45` is the handoff's hard floor for text on dark; this line was
+            authored at .4 and is advice, not decoration. */}
+        <Sans size={11.5} lineHeight={17} color={onDark.tertiary} style={{ marginTop: 14 }}>
           Start small — two or three is a real week. You can add more anytime.
         </Sans>
       </ScrollView>

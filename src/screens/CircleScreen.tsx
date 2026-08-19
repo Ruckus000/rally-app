@@ -250,11 +250,14 @@ function PodiumMember({
         ) : null}
       </View>
 
-      <View style={[row, { marginTop: 9 }]}>
-        <Sans size={12} weight={700} color={color.ink}>
+      {/* Bounded to the ring it sits under: unbounded, one long first name
+          widened its podium column until the centred three-up row ran off
+          both edges of the screen. */}
+      <View style={[row, { marginTop: 9, maxWidth: size + 24 }]}>
+        <Sans size={12} weight={700} color={color.ink} numberOfLines={1} style={{ flexShrink: 1 }}>
           {member.first}
         </Sans>
-        <Sans size={12} color={color.faintInk}>
+        <Sans size={12} color={color.faintInk} numberOfLines={1}>
           {' · '}
           {cheers(member.given)} given
         </Sans>

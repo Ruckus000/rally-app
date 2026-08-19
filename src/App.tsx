@@ -94,7 +94,7 @@ function Shell() {
         <LedgerOverlay topInset={insets.top} bottomInset={insets.bottom} />
       </Presence>
       <Presence open={state.notifOpen} zIndex={58}>
-        <NotificationsOverlay topInset={insets.top} />
+        <NotificationsOverlay topInset={insets.top} bottomInset={insets.bottom} />
       </Presence>
       <Presence open={!!state.onboardStep} zIndex={70}>
         <OnboardOverlay topInset={insets.top} bottomInset={insets.bottom} />
@@ -105,7 +105,7 @@ function Shell() {
         <RolloverOverlay topInset={insets.top} bottomInset={insets.bottom} />
       </Presence>
 
-      <Toast message={state.toast} seq={state.toastSeq} />
+      <Toast message={state.toast} seq={state.toastSeq} bottomInset={insets.bottom} />
     </View>
   );
 }

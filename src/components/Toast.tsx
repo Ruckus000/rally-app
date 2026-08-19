@@ -1,6 +1,6 @@
 /** Single-slot toast, `bPop` in, a short fade out, auto-dismissed by the store. */
 import React, { useEffect, useState } from 'react';
-import { Animated, View } from 'react-native';
+import { AccessibilityInfo, Animated, View } from 'react-native';
 import { color, shadows } from '../theme/tokens';
 import { POP_DURATION, popEasing, useReducedMotion } from '../theme/motion';
 import { Bri } from './primitives';
@@ -10,7 +10,16 @@ const INSTANT_EXIT = typeof process !== 'undefined' && !!process.env?.JEST_WORKE
 
 const EXIT_MS = 150;
 
-export function Toast({ message, seq }: { message: string | null; seq: number }) {
+export function Toast({
+  message,
+  seq,
+  bottomInset = 0,
+}: {
+  message: string | null;
+  seq: number;
+  /** The tab bar grows with the home indicator; the toast has to clear it. */
+  bottomInset?: number;
+}) {
   const reduced = useReducedMotion();
   const [anim] = useState(() => new Animated.Value(1));
   // The store nulls the message to dismiss; keeping the last one lets the
@@ -22,6 +31,10 @@ export function Toast({ message, seq }: { message: string | null; seq: number })
 
   useEffect(() => {
     if (message) {
+      // `accessibilityLiveRegion` is Android-only in React Native, so on iOS
+      // every confirmation this app makes — cheered, staked, unstaked — was
+      // silent to VoiceOver. The imperative call covers both.
+      AccessibilityInfo.announceForAccessibility(message);
       if (reduced) {
         anim.setValue(1);
         return;
@@ -59,8 +72,13 @@ export function Toast({ message, seq }: { message: string | null; seq: number })
         position: 'absolute',
         left: 0,
         right: 0,
-        bottom: 104,
+        // 104 clears the tab bar on a device with no home indicator; every
+        // point the bar grows by, the toast rises with it.
+        bottom: 104 + Math.max(bottomInset - 26, 0),
         zIndex: 95,
+        // A toast can carry a name or a circle name, so it needs room to be a
+        // pill rather than a band touching both edges.
+        paddingHorizontal: 24,
         alignItems: 'center',
       }}
     >
@@ -71,13 +89,14 @@ export function Toast({ message, seq }: { message: string | null; seq: number })
             borderRadius: 999,
             paddingHorizontal: 18,
             paddingVertical: 10,
+            maxWidth: '100%',
             opacity: anim,
             transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.86, 1] }) }],
           },
           shadows.toast,
         ]}
       >
-        <Bri size={13.5} weight={800} color={color.lime}>
+        <Bri size={13.5} weight={800} color={color.lime} style={{ textAlign: 'center' }}>
           {shown}
         </Bri>
       </Animated.View>

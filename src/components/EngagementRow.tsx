@@ -32,6 +32,7 @@ export function EngagementRow({
   dark = false,
   cheerLabel,
   cta,
+  marginTop = 12,
 }: {
   cheered: boolean;
   cheerCount: number;
@@ -42,6 +43,8 @@ export function EngagementRow({
   /** Overrides the count, for cards whose cheer total is always shown. */
   cheerLabel?: string;
   cta?: { label: string; onPress: () => void; style: 'lime' | 'inkOnLime' | 'ghostLime' };
+  /** The dark big card sits its row 14 from the quote; every other card 12. */
+  marginTop?: number;
 }) {
   const cheerStyle = engButton(cheered, dark);
   const commentStyle = engButton(false, dark);
@@ -54,7 +57,7 @@ export function EngagementRow({
   };
 
   return (
-    <View style={[row, { gap: 18, marginTop: 12 }]}>
+    <View style={[row, { gap: 18, marginTop }]}>
       <Tap
         onPress={swallow(onCheer)}
         accessibilityLabel={cheered ? 'Take back your cheer' : 'Cheer'}
@@ -62,8 +65,12 @@ export function EngagementRow({
         style={{ ...row, gap: 6, paddingVertical: 11, paddingHorizontal: 4, minHeight: 44 }}
       >
         <Sans size={13}>🔥</Sans>
+        {/* The check is not decoration: cheered vs not was signalled only by
+            moss-vs-muted, two similar dark greens, and the handoff's rule is
+            that colour is never the only signal. Same glyph the done state
+            and the CTAs already use. */}
         <Sans size={13} weight={700} color={cheerStyle.color}>
-          {cheerLabel ?? (cheerCount ? String(cheerCount) : 'Cheer')}
+          {`${cheerLabel ?? (cheerCount ? String(cheerCount) : 'Cheer')}${cheered ? ' ✓' : ''}`}
         </Sans>
       </Tap>
 

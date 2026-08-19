@@ -3,7 +3,7 @@
  */
 import React from 'react';
 import { Alert, Platform, TextInput, View } from 'react-native';
-import { color, onDark, radius, shadows, yearLevelColor } from '../theme/tokens';
+import { color, displayLeading, onDark, radius, shadows, yearLevelColor } from '../theme/tokens';
 import { CIRCLE_NAME, ME, weekPointsLabel } from '../data/fixtures';
 import { NAME_MAX } from '../data/people';
 import { queueProfileName } from '../sync/engine';
@@ -173,14 +173,24 @@ export function MeScreen() {
               {subtitle}
             </Sans>
             {canSecure ? (
+              // The one action that decides whether this account survives a
+              // reinstall was a 9.5px label in a ~16px target — the smallest
+              // in the app. It gets a real one, and a size to match.
               <Tap
                 onPress={securing ? undefined : () => void secureAccount()}
                 accessibilityLabel="Secure this account with Apple, so you can sign back in"
-                style={{ alignSelf: 'flex-start', marginTop: 6, paddingVertical: 2 }}
+                style={{
+                  alignSelf: 'flex-start',
+                  marginTop: 4,
+                  paddingVertical: 10,
+                  paddingRight: 12,
+                  minHeight: 44,
+                  justifyContent: 'center',
+                }}
               >
-                <Caps size={9.5} tracking={1.2} color={color.lime}>
+                <Sans size={12.5} weight={700} color={color.lime}>
                   {securing ? 'Securing…' : 'Secure this account'}
-                </Caps>
+                </Sans>
               </Tap>
             ) : null}
           </View>
@@ -192,7 +202,7 @@ export function MeScreen() {
             <Bri size={19} weight={800} color={color.lime}>
               {profile.weeksIn}
             </Bri>
-            <Caps size={9.5} tracking={1.2} color={onDark.secondary}>
+            <Caps size={10} tracking={1.2} color={onDark.secondary}>
               Weeks in
             </Caps>
           </Tap>
@@ -205,11 +215,17 @@ export function MeScreen() {
 
         {/* 2 · points */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 11, marginTop: 22 }}>
-          <Bri size={48} weight={800} tracking={-2.2} lineHeight={41} color={color.paper}>
+          <Bri
+            size={48}
+            weight={800}
+            tracking={-2.2}
+            color={color.paper}
+            style={displayLeading(48, 41)}
+          >
             {profile.allTimePoints.toLocaleString()}
           </Bri>
           <View style={{ paddingBottom: 4 }}>
-            <Caps size={9.5} tracking={1.5} color={onDark.secondary} style={{ lineHeight: 13 }}>
+            <Caps size={10} tracking={1.5} color={onDark.secondary} style={{ lineHeight: 13 }}>
               {'Points\nAll time'}
             </Caps>
           </View>
@@ -217,7 +233,7 @@ export function MeScreen() {
             <Bri size={17} weight={800} color={color.lime}>
               {weekPoints(state)}
             </Bri>
-            <Caps size={9.5} tracking={1.2} color={onDark.secondary}>
+            <Caps size={10} tracking={1.2} color={onDark.secondary}>
               {`Week ${week.number} so far`}
             </Caps>
           </View>

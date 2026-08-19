@@ -20,6 +20,18 @@ import { capsLabel, color, font, gradientAngle, hairlineGradient, HIT_TARGET } f
 
 type Weight = 400 | 500 | 600 | 700 | 800;
 
+/**
+ * How far the OS text-size setting may inflate this app's type.
+ *
+ * Scaling is left on — turning it off is the wrong answer to a dense layout —
+ * but this app draws a lot of fixed-height chrome: 44pt pills, a 46pt input,
+ * the 54pt CTA. Past about a third larger, the label stops fitting the control
+ * it names and starts being clipped by it, which is worse for the person who
+ * turned the setting on than a slightly smaller label. Every face here shares
+ * the cap so one number governs the whole scale.
+ */
+export const MAX_FONT_SCALE = 1.35;
+
 type TypeProps = TextProps & {
   size?: number;
   weight?: Weight;
@@ -42,6 +54,7 @@ export function Bri({
   const w = (weight < 500 ? 500 : weight) as 500 | 600 | 700 | 800;
   return (
     <Text
+      maxFontSizeMultiplier={MAX_FONT_SCALE}
       {...rest}
       style={[
         {
@@ -70,6 +83,7 @@ export function Sans({
   const w = (weight > 700 ? 700 : weight) as 400 | 500 | 600 | 700;
   return (
     <Text
+      maxFontSizeMultiplier={MAX_FONT_SCALE}
       {...rest}
       style={[
         {
@@ -93,7 +107,13 @@ export function Caps({
   style,
   ...rest
 }: Omit<TypeProps, 'weight'>) {
-  return <Text {...rest} style={[capsLabel(size, tracking), { color: c }, style]} />;
+  return (
+    <Text
+      maxFontSizeMultiplier={MAX_FONT_SCALE}
+      {...rest}
+      style={[capsLabel(size, tracking), { color: c }, style]}
+    />
+  );
 }
 
 /**

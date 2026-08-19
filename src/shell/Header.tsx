@@ -1,6 +1,6 @@
 import React from 'react';
 import { View } from 'react-native';
-import { color, gutter, shadows } from '../theme/tokens';
+import { color, gutter } from '../theme/tokens';
 import { Bri, Sans, Tap, row } from '../components/primitives';
 import { Icon } from '../components/Icon';
 import { useStore } from '../state/store';
@@ -27,9 +27,14 @@ export function Header({ topInset }: { topInset: number }) {
   const unread = unreadNeedsCount(state);
   const isWeek = state.tab === 'week';
   const members = memberCount(state);
+  const live = state.account === 'live';
 
+  // One per tab, and each is the screen's own name rather than its contents.
+  // "Me" deliberately does not repeat the person's name: the profile card
+  // directly below carries it at 22px, and the header used to render nothing
+  // at all here — leaving the bell floating over a band of empty chrome.
   const title =
-    state.tab === 'week' ? week.label : state.tab === 'circle' ? 'Your Circle' : ME.name;
+    state.tab === 'week' ? week.label : state.tab === 'circle' ? 'Your Circle' : 'Me';
   const sub =
     state.tab === 'week'
       ? `${week.dateRange} · ${week.todayName}`
@@ -39,12 +44,17 @@ export function Header({ topInset }: { topInset: number }) {
           // "1 people" for a circle of two, and would have said it for eight.
           `${members} ${members === 1 ? 'person' : 'people'}, ` +
           (config.showRank ? 'ranked by follow-through' : 'checking in on each other')
-        : `${ME.shortHandle} · ${ME.since}`;
+        : live
+          ? (state.circle?.name ?? 'Your week, on the record')
+          : `${ME.shortHandle} · ${ME.since}`;
 
   return (
     <View
       style={{
-        paddingTop: Math.max(topInset, 20) + 20,
+        // The handoff's header is `60px 18px 10px` on a device whose inset is
+        // 59 — i.e. one point of air above the status bar, not twenty. The
+        // floor keeps it sane on a device with no inset at all.
+        paddingTop: Math.max(topInset + 1, 40),
         paddingHorizontal: gutter,
         paddingBottom: 10,
         backgroundColor: color.paper,
@@ -52,47 +62,45 @@ export function Header({ topInset }: { topInset: number }) {
       }}
     >
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10 }}>
+        {/* Every tab gets its title. The Me tab used to render an empty column
+            here, leaving the bell floating over ~130px of blank chrome. */}
         <View style={{ flex: 1, minWidth: 0 }}>
-          {/* The Me tab is its own profile card — no duplicate name above it. */}
-          {state.tab !== 'me' ? (
-            <>
-              <Bri
-                accessibilityRole="header"
-                size={29}
-                weight={800}
-                tracking={-0.7}
-                lineHeight={32}
-                style={{ marginTop: 6 }}
-              >
-                {title}
-              </Bri>
-              <Sans size={12} color={color.muted} style={{ marginTop: 3 }}>
-                {sub}
-              </Sans>
-            </>
-          ) : null}
+          <Bri
+            accessibilityRole="header"
+            size={29}
+            weight={800}
+            tracking={-0.7}
+            lineHeight={34}
+            numberOfLines={1}
+            style={{ marginTop: 6 }}
+          >
+            {title}
+          </Bri>
+          <Sans size={12} color={color.muted} style={{ marginTop: 3 }} numberOfLines={1}>
+            {sub}
+          </Sans>
         </View>
 
         <Tap
           onPress={() => dispatch({ type: 'OPEN_NOTIF' })}
           accessibilityLabel={unread ? `Notifications, ${unread} needing you` : 'Notifications'}
+          // No white chip and no shadow: the bell sits straight on the paper,
+          // bigger than the chip it used to wear. Ink on paper is ~14:1, so
+          // nothing is lost but the chrome.
           style={{
-            width: 42,
-            height: 42,
-            borderRadius: 21,
-            backgroundColor: color.card,
+            width: 48,
+            height: 48,
             alignItems: 'center',
             justifyContent: 'center',
-            ...shadows.cardStrong,
           }}
         >
-          <Icon name="bell" size={19} color={color.ink} />
+          <Icon name="bell" size={24} color={color.ink} />
           {unread > 0 ? (
             <View
               style={{
                 position: 'absolute',
-                top: -2,
-                right: -2,
+                top: 2,
+                right: 2,
                 backgroundColor: color.ink,
                 borderRadius: 999,
                 minWidth: 18,
@@ -100,7 +108,10 @@ export function Header({ topInset }: { topInset: number }) {
                 paddingHorizontal: 4,
                 alignItems: 'center',
                 justifyContent: 'center',
-                borderWidth: 2,
+                // A hairline of paper, not the chip's 2px ring — enough to
+                // keep the badge off the bell's own strokes now that there is
+                // no white disc between them.
+                borderWidth: 1,
                 borderColor: color.paper,
               }}
             >
@@ -134,7 +145,10 @@ export function Header({ topInset }: { topInset: number }) {
                       {s.label}
                     </Bri>
                   ) : (
-                    <Sans size={14.5} weight={600} color={color.faintInk}>
+                    // `muted`, not `faintInk`: this is an interactive control's
+                    // label, and faintInk on paper is about 2.1:1. The active
+                    // state is still unmistakable — display face plus the rule.
+                    <Sans size={14.5} weight={600} color={color.muted}>
                       {s.label}
                     </Sans>
                   )}

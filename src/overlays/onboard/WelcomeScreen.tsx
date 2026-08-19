@@ -153,7 +153,7 @@ export function WelcomeScreen({
             opacity: UNAVAILABLE_OPACITY,
           }}
         />
-        <Caps size={9.5} tracking={1.6} color={onDark.tertiary} style={{ textAlign: 'center' }}>
+        <Caps size={10} tracking={1.6} color={onDark.tertiary} style={{ textAlign: 'center' }}>
           {appleReal ? 'Already have an account? Continue with Apple' : 'Apple and Google sign-in coming soon'}
         </Caps>
 

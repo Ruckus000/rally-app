@@ -175,3 +175,20 @@ export const heroGlow: TextStyle = Platform.select({
   ios: { textShadowColor: 'rgba(195,245,60,.32)', textShadowRadius: 44 },
   default: {},
 }) as TextStyle;
+
+/**
+ * The tight leading the display numbers are drawn with, without cropping them.
+ *
+ * The reference sets these line boxes *below* the font size on purpose — 48/41
+ * on Me, 76/61 on Plan — because that is what makes a hero number sit tight to
+ * its label. On iOS the glyphs overflow the box and draw in full; on Android
+ * the text is clipped to the line box, so the tops and bottoms of the numerals
+ * are literally sliced off. `includeFontPadding: false` removes Android's own
+ * extra leading, and the line box goes back to the font size — the optical
+ * tightness is then recovered with the negative margin the caller passes.
+ */
+export const displayLeading = (fontSize: number, tight: number): TextStyle =>
+  Platform.select({
+    ios: { lineHeight: tight },
+    default: { lineHeight: fontSize, includeFontPadding: false, marginBottom: tight - fontSize },
+  }) as TextStyle;
