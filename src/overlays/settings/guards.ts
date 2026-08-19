@@ -10,6 +10,7 @@
  * Android case is a real branch with a real consequence, and it should be
  * assertable without a native module.
  */
+import type { Platform } from 'react-native';
 import type { AccountMode } from '../../data/seed';
 import type { SessionState } from '../../sync/session';
 
@@ -44,14 +45,20 @@ export function signOutEnabled(session: SessionState): boolean {
 }
 
 /**
- * Whether to offer Apple linking. Mirrors the rule already applied on the Me
- * profile card; both call the same `linkApple`, so the two cannot drift into
- * offering it in different circumstances.
+ * Whether to offer Apple linking.
+ *
+ * `MeScreen` computes this same predicate inline today, against the same
+ * `state.session` and `Platform.OS`, rather than calling this function — so
+ * there are two copies of one rule and nothing stops them drifting apart.
+ * That's real duplication, not a mirrored guarantee: it exists because this
+ * function didn't, until now. Task 6 folds `MeScreen` onto this one and
+ * retires the inline copy; until then, a change here needs the same change
+ * there.
  */
 export function canSecure(
   account: AccountMode | null,
   session: SessionState,
-  platform: string,
+  platform: typeof Platform.OS,
 ): boolean {
   if (account !== 'live') return false;
   if (platform !== 'ios') return false;
