@@ -31,7 +31,12 @@ export type OutboxOp =
   // A week that closed. Named `add` rather than `upsert` because that is what it
   // is: `week_rollups` grants insert and nothing else, and a replay is absorbed
   // by on-conflict-do-nothing rather than by writing the row a second time.
-  | 'rollup.add';
+  | 'rollup.add'
+  // The row that points at a photo already sitting in the bucket. The file
+  // itself never travels this queue — see `media.ts` for why it has its own —
+  // and this is only ever enqueued once the upload has been acknowledged, so
+  // the row cannot promise an object that is not there.
+  | 'media.attach';
 
 export type OutboxEntry = {
   /** Client-minted, and the idempotency key the transport should send. */
@@ -97,6 +102,7 @@ const OPS: readonly OutboxOp[] = [
   'note.add',
   'profile.update',
   'device.register',
+  'media.attach',
 ];
 
 // ─── module state ─────────────────────────────────────────────────────────

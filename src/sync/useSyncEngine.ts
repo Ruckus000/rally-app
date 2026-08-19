@@ -10,6 +10,7 @@ import React, { useEffect, useRef } from 'react';
 import type { Action, State } from '../state/store';
 import { createEngine, type Engine } from './engine';
 import { flushOutbox, hydrateOutbox } from './outbox';
+import { flushMedia, hydrateMedia } from './media';
 
 /**
  * The mounted engine, for the store's AppState listener. Module-level for the
@@ -46,6 +47,10 @@ export function useSyncEngine(
     // is enqueued today. A tap during hydration is safe: `hydrateOutbox`
     // re-numbers the in-memory entries above the restored ones rather than
     // colliding with them.
+    // Both queues, before the first drain. The media queue is hydrated
+    // alongside rather than inside the outbox's promise: they are independent
+    // lanes, and a photo restored from disk has nothing to wait for.
+    void hydrateMedia();
     void hydrateOutbox().then(() => {
       if (live) created.start();
     });
@@ -57,6 +62,7 @@ export function useSyncEngine(
       engine.current = null;
       // Unmount is as final as a force-quit for anything still in memory.
       void flushOutbox();
+      void flushMedia();
     };
   }, [enabled, dispatch]);
 

@@ -47,6 +47,18 @@ export type WireOp =
   // No `profile_id`, for the reason every other payload here lacks an owner: it
   // is stamped from the session at push time, and a rollup that could name its
   // own owner could write a week into somebody else's history.
+  // No `owner_id`, for the reason nothing else here carries one. The row is
+  // written only after the object it names is in the bucket — see `media.ts`.
+  | {
+      id: string;
+      at: number;
+      op: 'media.attach';
+      mediaId: string;
+      taskId: string;
+      path: string;
+      width: number;
+      height: number;
+    }
   | {
       id: string;
       at: number;
@@ -402,6 +414,87 @@ export async function joinCircleByCode(code: string): Promise<string> {
   return String(data);
 }
 
+/** The bucket photos live in. Private; reads are signed. See the migration. */
+export const MEDIA_BUCKET = 'task-media';
+
+/**
+ * Put a photo in the bucket.
+ *
+ * Kept out of `Transport` on purpose: everything there is JSON on a strictly
+ * ordered queue, and this is bytes on an unordered one — see `media.ts` for
+ * why those cannot share a lane. It reports rather than throws, like `push`,
+ * because the queue behind it can only do two things with the answer.
+ *
+ * The bytes come from `fetch` on the local `file://` URI rather than from a
+ * filesystem module, which keeps this slice free of a native dependency. If
+ * that proves unreliable on a real device, this function is the only place
+ * that has to change.
+ *
+ * `upsert` is what makes a retry after a timeout harmless: the first attempt
+ * may well have landed, and the second must not fail because of it.
+ */
+export async function uploadMedia(entry: {
+  localUri: string;
+  path: string;
+}): Promise<{ ok: true } | { ok: false; permanent: boolean; error: string }> {
+  let body: ArrayBuffer;
+  try {
+    const file = await fetch(entry.localUri);
+    body = await file.arrayBuffer();
+  } catch (err) {
+    // The file is gone — evicted from the cache, or the pick never completed.
+    // No retry can conjure it back, so this is permanent rather than a
+    // network failure that happens to look like one.
+    return { ok: false, permanent: true, error: `unreadable: ${describe(asWireError(err))}` };
+  }
+
+  try {
+    const { error } = await getSupabase()
+      .storage.from(MEDIA_BUCKET)
+      .upload(entry.path, body, { contentType: 'image/jpeg', upsert: true });
+    if (!error) return { ok: true };
+
+    const e = asWireError(error);
+    // A refusal from storage is the same two-way decision push makes, and is
+    // classified by the same rules: a 413 or a 403 will say the same thing
+    // next minute, a dead network will not.
+    if (isNetwork(e) || isTransient(e)) return { ok: false, permanent: false, error: describe(e) };
+    return { ok: false, permanent: true, error: describe(e) };
+  } catch (err) {
+    const e = asWireError(err);
+    return { ok: false, permanent: !isNetwork(e) && !isTransient(e), error: describe(e) };
+  }
+}
+
+/** `<owner>/<task>/<media>.jpg` — the shape both storage policies read. */
+export const mediaPath = (ownerId: string, taskId: string, mediaId: string): string =>
+  `${ownerId}/${taskId}/${mediaId}.jpg`;
+
+/**
+ * A readable URL for a photo, good for a week.
+ *
+ * The bucket is private, so this is the only way to draw one — and signing
+ * requires the select policy to pass, which is what makes the audience rule
+ * reach the file rather than only the row pointing at it. Batched because a
+ * pull can carry a whole feed's worth.
+ */
+export async function signMedia(paths: string[], seconds = 604800): Promise<Record<string, string>> {
+  if (paths.length === 0) return {};
+  const { data, error } = await getSupabase()
+    .storage.from(MEDIA_BUCKET)
+    .createSignedUrls(paths, seconds);
+  // A pull that cannot sign is a pull with no pictures in it, not a failed
+  // pull: the rows are still worth having, and the next cycle tries again.
+  if (error) return {};
+
+  const urls: Record<string, string> = {};
+  for (const row of data ?? []) {
+    const r = row as { path?: string | null; signedUrl?: string | null };
+    if (r.path && r.signedUrl) urls[r.path] = r.signedUrl;
+  }
+  return urls;
+}
+
 export function supabaseTransport(): Transport {
   /**
    * `owner_id` comes from `userId`, which comes from the session. Never from the
@@ -503,6 +596,26 @@ export function supabaseTransport(): Transport {
           streak_held: entry.streakHeld,
         },
         { onConflict: 'profile_id,week_start', ignoreDuplicates: true },
+      );
+      if (error) throw error;
+      return;
+    }
+
+    if (entry.op === 'media.attach') {
+      // `ignoreDuplicates` for the reason `reaction.add` uses it: a replay has
+      // already achieved its intent. The pk is client-minted, so a second
+      // delivery collides with itself rather than attaching the same photo
+      // twice — and `unique (task_id)` would refuse it anyway.
+      const { error } = await supabase.from('task_media').upsert(
+        {
+          id: entry.mediaId,
+          task_id: entry.taskId,
+          owner_id: userId,
+          path: entry.path,
+          width: entry.width,
+          height: entry.height,
+        },
+        { onConflict: 'id', ignoreDuplicates: true },
       );
       if (error) throw error;
       return;

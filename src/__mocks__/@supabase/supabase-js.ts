@@ -256,6 +256,26 @@ const SCHEMA: Record<string, TableSpec> = {
     },
   },
 
+  /**
+   * One photo per task. `unique (task_id)` is modelled because it is the
+   * constraint the media queue's replacement rule exists to respect — a fake
+   * that accepted two would let a second attach look fine here and collide
+   * permanently against the real thing.
+   */
+  task_media: {
+    pk: ['id'],
+    columns: {
+      id: { notNull: true },
+      task_id: { notNull: true, references: 'tasks' },
+      owner_id: { notNull: true, references: 'profiles' },
+      path: { notNull: true },
+      width: {},
+      height: {},
+      created_at: { default: () => now() },
+    },
+    unique: [{ name: 'task_media_task_id_key', cols: ['task_id'] }],
+  },
+
   // The token is the primary key, exactly as in the migration: it names one
   // physical device, and a device belongs to whoever is signed in on it now.
   // Modelled here rather than left out because a fake that is missing a table

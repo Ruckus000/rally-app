@@ -38,6 +38,7 @@ import {
   type OutboxOp,
   type QueueTransport,
 } from './outbox';
+import { dropMediaFor, drainMedia, type MediaTransport } from './media';
 import {
   diffActed,
   parseActedKey,
@@ -52,6 +53,7 @@ import { currentUserId, onSessionChange, reportAuthFailure } from './session';
 import {
   isAuthExpired,
   supabaseTransport,
+  uploadMedia,
   type PulledNote,
   type WireOp as WireEntry,
   type Transport,
@@ -78,6 +80,8 @@ export type Engine = {
 
 export type EngineOptions = {
   transport?: Transport;
+  /** The media lane's uploader. Injected so a test needs no bucket. */
+  upload?: MediaTransport['upload'];
   pushEveryMs?: number;
   pullEveryMs?: number;
 };
@@ -116,6 +120,16 @@ function wireEntry(op: OutboxOp, payload: Record<string, unknown>, entry: QueueE
       return { ...head, op, name: String(payload.name) };
     case 'device.register':
       return { ...head, op, token: String(payload.token), platform: String(payload.platform) };
+    case 'media.attach':
+      return {
+        ...head,
+        op,
+        mediaId: String(payload.mediaId),
+        taskId: String(payload.taskId),
+        path: String(payload.path),
+        width: Number(payload.width),
+        height: Number(payload.height),
+      };
     case 'rollup.add':
       return {
         ...head,
@@ -167,6 +181,15 @@ function queueTransport(wire: Transport): QueueTransport {
       return { ok: false, permanent: !result.retryable, error: result.error };
     },
   };
+}
+
+/**
+ * The media lane's own transport. The same identity question asked the same
+ * way, and an upload that reports rather than throws — the queue behind it can
+ * only retry or retire, exactly as the outbox's can.
+ */
+function mediaTransport(upload: (e: Parameters<MediaTransport['upload']>[0]) => ReturnType<MediaTransport['upload']>): MediaTransport {
+  return { ownerId: () => currentUserId(), upload };
 }
 
 /** The bell shows a list, not a history. */
@@ -571,10 +594,11 @@ function placedNotes(state: State): PlacedNote[] {
 
 export function createEngine(
   dispatch: Dispatch<Action>,
-  { transport, pushEveryMs = PUSH_MS, pullEveryMs = PULL_MS }: EngineOptions = {},
+  { transport, upload, pushEveryMs = PUSH_MS, pullEveryMs = PULL_MS }: EngineOptions = {},
 ): Engine {
   const wire = transport ?? supabaseTransport();
   const queue = queueTransport(wire);
+  const media = mediaTransport(upload ?? uploadMedia);
 
   /**
    * What the last observation saw, by id. `null` until the first one, which is
@@ -641,6 +665,7 @@ export function createEngine(
   /** The feed's ids, joined. See the comparison in `pull` for why not the rows. */
   let lastNotificationIds = '';
   let pullTimer: ReturnType<typeof setInterval> | null = null;
+  let mediaTimer: ReturnType<typeof setInterval> | null = null;
   let pulling = false;
   let unsubscribeSession: (() => void) | null = null;
   /**
@@ -720,7 +745,12 @@ export function createEngine(
         enqueue('task.upsert', `task:${task.id}`, { task, weekStart });
       }
       for (const id of seen.keys()) {
-        if (!next.has(id)) enqueue('task.delete', `task:${id}`, { taskId: id });
+        if (!next.has(id)) {
+          enqueue('task.delete', `task:${id}`, { taskId: id });
+          // The row cascades server-side, but a photo still waiting to upload
+          // would spend the radio on a file nothing will ever point at.
+          dropMediaFor(id);
+        }
       }
 
       seen = next;
@@ -1087,13 +1117,19 @@ export function createEngine(
       // being exactly as live as it was before any of this existed.
       unsubscribeSession = onSessionChange(() => attach());
       pullTimer = setInterval(() => void pull(), pullEveryMs);
+      // The media lane on the push cadence rather than the pull one: a photo
+      // is unsent work, and unsent work belongs to the fast clock.
+      mediaTimer = setInterval(() => void drainMedia(media).catch(() => {}), pushEveryMs);
       void pull();
+      void drainMedia(media).catch(() => {});
     },
 
     stop(): void {
       stopScheduler();
       if (pullTimer) clearInterval(pullTimer);
       pullTimer = null;
+      if (mediaTimer) clearInterval(mediaTimer);
+      mediaTimer = null;
       unsubscribeSession?.();
       unsubscribeSession = null;
       // Unmount, or sync switching off. The channel outliving the engine would
@@ -1105,6 +1141,8 @@ export function createEngine(
       // A rejected drain on a foreground would be an unhandled rejection, which
       // on React Native is a redbox for something the user has no part in.
       void drain(queue).catch(() => {});
+      // Its own lane, kicked at the same moments and blocking none of them.
+      void drainMedia(media).catch(() => {});
       void pull();
     },
   };
