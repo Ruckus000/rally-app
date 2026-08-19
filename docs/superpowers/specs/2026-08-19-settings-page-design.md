@@ -196,13 +196,17 @@ would be online.
 `Overlay` for hardware-back and Escape handling.
 
 The number is load-bearing. The ladder is Plan 45, Sheet 50, Ledger 55, Notifications
-58, **Rollover 60**, Onboard 70. Settings sits at 59: above Notifications, and
-deliberately *below* Rollover, because a week that has already turned has to be
-answered before anything behind it is worth touching — and the two can genuinely be
-open at once (open Settings, background the app, foreground on a new week;
-`ROLLOVER_DETECTED` bails on `pendingRollover || onboardStep` but not on
-`settingsOpen`). Below Onboard 70 for the same reason as ever: signing out lands on
-Welcome, which must cover this.
+58, **Rollover 60**, Onboard 70. Settings sits at 59: above Notifications, and below
+Rollover, because a week that has already turned outranks anything on this page. Below
+Onboard 70 for the same reason as ever: signing out lands on Welcome, which must cover
+this.
+
+**Correction.** An earlier draft justified 59 by claiming Settings and Rollover could be
+open simultaneously — that `ROLLOVER_DETECTED` bails on `pendingRollover || onboardStep`
+but not on `settingsOpen`. That is false: `ROLLOVER_DETECTED` spreads `CLEARED`, and
+`CLEARED` contains `settingsOpen: false`, so the rollover closes this page on its way
+up. The ordering still holds and 59 is still right — it is simply belt-and-braces rather
+than the resolution of a live collision.
 
 | Section | Shown when | Behaviour |
 |---|---|---|

@@ -1240,12 +1240,13 @@ In `src/App.tsx`, beside the other overlays. Place it **after** `NotificationsOv
 and **before** `RolloverOverlay`, matching its zIndex of 59.
 
 **Not 60.** `RolloverOverlay` already holds 60 and must stay above: a week that has
-already turned has to be answered before anything behind it is worth touching, and the
-two can genuinely both be open (open Settings, background the app, foreground on a new
-week — `ROLLOVER_DETECTED` bails on `pendingRollover || onboardStep`, but not on
-`settingsOpen`). The full ladder is Plan 45, Sheet 50, Ledger 55, Notifications 58,
-Settings 59, Rollover 60, Onboard 70. Onboard stays on top because signing out lands on
-Welcome, which must cover this:
+already turned outranks anything on this page. The full ladder is Plan 45, Sheet 50,
+Ledger 55, Notifications 58, Settings 59, Rollover 60, Onboard 70. Onboard stays on top
+because signing out lands on Welcome, which must cover this.
+
+Note the two cannot actually be open together — `ROLLOVER_DETECTED` spreads `CLEARED`,
+which Task 1 gave a `settingsOpen: false`. The ordering is belt-and-braces, not the
+resolution of a live collision. Do not write a comment claiming otherwise:
 
 ```tsx
       {state.settingsOpen ? <SettingsOverlay topInset={insets.top} /> : null}
