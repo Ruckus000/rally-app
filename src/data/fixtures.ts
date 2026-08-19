@@ -211,6 +211,19 @@ export type Moment = {
    * the word "Cheer" rather than to a confident zero.
    */
   cheers?: number;
+  /**
+   * Whether the row behind this moment is closed. Optional because a fixture
+   * has no such row — and because the feed itself never asks: a card is drawn
+   * the same whether or not the person has ticked it. The person sheet does
+   * ask, which is what this is for.
+   */
+  done?: boolean;
+  /**
+   * What the row behind this is about. Carried for the same reason `done` is —
+   * not for the card, which never shows it, but so Plan can offer a friend's
+   * stake back to you at the price its own category sets.
+   */
+  cat?: Category;
   backers?: PersonId[];
   cmts?: Note[];
 };

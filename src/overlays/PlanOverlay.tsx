@@ -25,7 +25,7 @@ import { DAY_NAMES, DayIndex } from '../data/week';
 import { useStore } from '../state/store';
 import { useGoalRating } from '../hooks/useGoalRating';
 import { hasSupabaseConfig } from '../lib/supabase';
-import { circleMembers, stakedPoints } from '../state/selectors';
+import { circleMembers, circleSuggestions, stakedPoints } from '../state/selectors';
 import { Avatar, FaceStack } from '../components/Avatar';
 import { Icon } from '../components/Icon';
 import { Bri, Caps, GlowBloom, GradientHairline, Sans, Tap, fill, row } from '../components/primitives';
@@ -80,6 +80,14 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
         : { type: 'ADD_TASK', aud: effectiveAudience },
     );
   };
+
+  // The demo's written rail, or — for an account with a real circle — what
+  // that circle has staked and you have not. See `circleSuggestions`.
+  const suggestions = React.useMemo(
+    () => (demo.suggestions.length ? demo.suggestions : circleSuggestions(state)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [demo.suggestions, state.moments, state.myTasks, state.usedSugg, state.people, state.selfId],
+  );
 
   const close = () => dispatch({ type: 'CLOSE_PLAN' });
 
@@ -444,7 +452,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
         </GradientHairline>
 
         {/* pick it back up */}
-        {demo.suggestions.length ? (
+        {suggestions.length ? (
           <>
         <View
           style={{
@@ -469,7 +477,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
           style={{ marginHorizontal: -planGutter }}
           contentContainerStyle={{ gap: 10, paddingTop: 11, paddingBottom: 3, paddingHorizontal: planGutter }}
         >
-          {demo.suggestions.map((s) => {
+          {suggestions.map((s) => {
             const used = !!state.usedSugg[s.id];
             return (
               <View

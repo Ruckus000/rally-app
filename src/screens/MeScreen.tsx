@@ -5,19 +5,19 @@ import React from 'react';
 import { Alert, Platform, TextInput, View } from 'react-native';
 import { color, displayLeading, onDark, radius, shadows, yearLevelColor } from '../theme/tokens';
 import { CIRCLE_NAME, ME, weekPointsLabel } from '../data/fixtures';
-import { NAME_MAX } from '../data/people';
+import { NAME_MAX, type PersonId } from '../data/people';
 import { queueProfileName } from '../sync/engine';
 import { linkApple } from '../sync/session';
 import { appleTrouble } from '../lib/appleCopy';
 import { Trouble } from '../components/Trouble';
 import { deadLetters } from '../sync/outbox';
 import { nextWeekAfter, useStore } from '../state/store';
-import { allTasksDone, cheersGiven, circleMembers, weekPoints } from '../state/selectors';
+import { allTasksDone, cheersGiven, circleMembers, myRank, weekPoints } from '../state/selectors';
 import { Avatar } from '../components/Avatar';
 import { Bri, Caps, GlowBloom, Sans, Tap, fill, row } from '../components/primitives';
 
 export function MeScreen() {
-  const { state, dispatch, demo, people } = useStore();
+  const { state, dispatch, demo, people, config } = useStore();
   const { profile, week, history, yearLevels } = state;
   const live = state.account === 'live';
 
@@ -90,11 +90,40 @@ export function MeScreen() {
     }
   };
 
+  // Null unless there is a circle to be ranked in and ranking is switched on.
+  const rank = config.showRank && circleMembers(state).length > 1 ? myRank(state) : 0;
+
   const won = allTasksDone(state);
   const gave = cheersGiven(state);
   const got = profile.cheersReceived;
   const exchangeTotal = gave + got || 1;
-  const owed = demo.owed.filter((o) => !state.replied[o.k]);
+  /**
+   * People waiting on a word from you.
+   *
+   * The demo's is written furniture, and stays that. A live account's is
+   * derived from the one thing on the device that genuinely means somebody is
+   * waiting: a note *they* left on *your* task, with nothing said back. Until
+   * now this section was demo-only, so a live account never saw it however
+   * many notes it had — which made an entire screen section fixture-shaped.
+   *
+   * Deliberately not driven by cheers. A cheer is a gift, not a question, and
+   * the handoff is explicit that the debt framing appears at most once per
+   * screen — putting it behind every cheer would make it the loudest thing on
+   * Me.
+   */
+  const owed = React.useMemo(() => {
+    if (demo.owed.length) return demo.owed.filter((o) => !state.replied[o.k]);
+    const seen = new Map<PersonId, string>();
+    for (const task of state.myTasks) {
+      for (const note of task.cmts) {
+        if (!note.k || note.k === state.selfId || state.replied[note.k]) continue;
+        // The most recent note wins the line, which is the one they are
+        // waiting on an answer to.
+        seen.set(note.k, `said something on “${task.title}”`);
+      }
+    }
+    return [...seen].map(([k, reason]) => ({ k, reason }));
+  }, [demo.owed, state.myTasks, state.replied, state.selfId]);
   // A closed week extends the streak; the bar shows where you'd land.
   const streak = won ? profile.currentStreak + 1 : profile.currentStreak;
   const toHold = Math.max(0, state.myTasks.filter((t) => !t.done).length);
@@ -194,16 +223,22 @@ export function MeScreen() {
               </Tap>
             ) : null}
           </View>
+          {/* The spec's rank chip, which routes to the Circle it names. It
+              only says a rank when there is a circle to be ranked in and
+              `showRank` is on — a "#1" over a circle of one is a standing
+              nobody earned, so that case keeps the weeks-in reading. */}
           <Tap
             onPress={() => dispatch({ type: 'SET_TAB', tab: 'circle' })}
-            accessibilityLabel={`${profile.weeksIn} weeks in. Open your circle.`}
+            accessibilityLabel={
+              rank ? `Ranked ${rank} in your circle. Open it.` : `${profile.weeksIn} weeks in. Open your circle.`
+            }
             style={{ alignItems: 'flex-end', padding: 2 }}
           >
             <Bri size={19} weight={800} color={color.lime}>
-              {profile.weeksIn}
+              {rank ? `#${rank}` : profile.weeksIn}
             </Bri>
             <Caps size={10} tracking={1.2} color={onDark.secondary}>
-              Weeks in
+              {rank ? 'In the circle' : 'Weeks in'}
             </Caps>
           </Tap>
         </View>

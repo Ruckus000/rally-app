@@ -25,6 +25,7 @@ import {
   PERSON_TASKS,
   Task,
 } from '../data/fixtures';
+import { DAY_NAMES } from '../data/week';
 import { CIRCLE_NAME_MAX, useStore } from '../state/store';
 import { myStats } from '../state/selectors';
 import { SHEET_DURATION, sheetEasing, useReducedMotion } from '../theme/motion';
@@ -322,10 +323,45 @@ function JointProgress({ task }: { task: Task }) {
 
 /* ── person ─────────────────────────────────────────────────────────────── */
 
+/** One row of somebody's week, from whichever source could answer for it. */
+type PersonTask = {
+  key: string;
+  title: string;
+  sub: string;
+  done: boolean;
+  /**
+   * The row this came from, when it is a real one. Backing a fixture can only
+   * ever be a local gesture; backing a real moment is a reaction that reaches
+   * the person it is about.
+   */
+  momentId?: string;
+};
+
 function PersonSheet({ who }: { who: PersonId }) {
   const { state, dispatch, people } = useStore();
   const stats = people.isSelf(who) ? myStats(state) : people.stats(who);
-  const tasks = PERSON_TASKS[who] ?? [];
+
+  /**
+   * Their week, from the feed this device has already pulled.
+   *
+   * This used to read `PERSON_TASKS`, a fixture keyed by the demo's person
+   * ids — so every *real* friend's sheet rendered a caps label over nothing,
+   * under a line reading "building back · 0/0 this week". The circle's rows
+   * were on the device the whole time; the feed draws them. The demo's own
+   * fixture is kept, because it is furniture written for those people.
+   */
+  const demoTasks = PERSON_TASKS[who] ?? [];
+  const tasks: PersonTask[] = demoTasks.length
+    ? demoTasks.map((t, i) => ({ key: `${who}${i}`, title: t.t, sub: t.sub, done: t.done }))
+    : state.moments
+        .filter((m) => m.who === who)
+        .map((m) => ({
+          key: m.id,
+          momentId: m.id,
+          title: m.title ?? '',
+          sub: `${DAY_NAMES[m.day]}${m.pts ? ` · +${m.pts}` : ''}`,
+          done: !!m.done,
+        }));
   const notes = [...(PERSON_NOTES[who] ?? []), ...(state.personNotes[who] ?? [])];
 
   return (
@@ -340,9 +376,12 @@ function PersonSheet({ who }: { who: PersonId }) {
           <Bri size={20} weight={800} tracking={-0.4}>
             {people.name(who)}
           </Bri>
+          {/* "0/0 this week" is not a fact about somebody, it is the absence
+              of one — so a person whose week has not synced says nothing
+              rather than claiming they staked nothing. */}
           <Sans size={12.5} color={color.muted}>
-            {stats.streak ? `🔥 ${stats.streak}-week streak` : 'building back'} · {stats.done}/
-            {stats.total} this week
+            {stats.streak ? `🔥 ${stats.streak}-week streak` : 'building back'}
+            {stats.total ? ` · ${stats.done}/${stats.total} this week` : ''}
           </Sans>
         </View>
       </View>
@@ -351,12 +390,19 @@ function PersonSheet({ who }: { who: PersonId }) {
         {people.first(who)}’s week
       </Caps>
       <View style={{ gap: 8 }}>
-        {tasks.map((t, i) => {
-          const actKey = `${who}${i}`;
+        {tasks.length === 0 ? (
+          <Sans size={13} lineHeight={18} color={color.muted} style={{ padding: 16, textAlign: 'center' }}>
+            Nothing of theirs has landed here yet.
+          </Sans>
+        ) : null}
+        {tasks.map((t) => {
+          // A real moment id where there is one, so the nod is a reaction that
+          // syncs; the fixture's synthetic key where there is not.
+          const actKey = t.momentId ?? t.key;
           const acted = !!state.acted[`${actKey}:nod`];
           return (
             <View
-              key={t.t}
+              key={t.key}
               style={{
                 ...row,
                 gap: 10,
@@ -379,7 +425,7 @@ function PersonSheet({ who }: { who: PersonId }) {
               />
               <View style={fill}>
                 <Sans size={14} weight={600} color={t.done ? color.muted : color.ink}>
-                  {t.t}
+                  {t.title}
                 </Sans>
                 <Sans size={11.5} color={color.muted}>
                   {t.sub}
@@ -389,10 +435,10 @@ function PersonSheet({ who }: { who: PersonId }) {
                 onPress={() =>
                   dispatch({
                     type: 'OPEN_PLAN_WITH',
-                    seed: { title: t.t, pair: [who], toast: `Staking it with ${people.first(who)}` },
+                    seed: { title: t.title, pair: [who], toast: `Staking it with ${people.first(who)}` },
                   })
                 }
-                accessibilityLabel={`Stake "${t.t}" with ${people.first(who)}`}
+                accessibilityLabel={`Stake "${t.title}" with ${people.first(who)}`}
                 style={{
                   borderWidth: 1,
                   borderColor: 'rgba(25,30,22,.14)',
@@ -412,7 +458,7 @@ function PersonSheet({ who }: { who: PersonId }) {
                 onPress={() =>
                   dispatch({ type: 'ACT', id: actKey, kind: 'nod', toast: `${people.first(who)} saw it` })
                 }
-                accessibilityLabel={t.done ? `Cheer ${t.t}` : `Back ${t.t}`}
+                accessibilityLabel={t.done ? `Cheer ${t.title}` : `Back ${t.title}`}
                 style={{
                   borderRadius: 999,
                   paddingHorizontal: 11,
