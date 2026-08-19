@@ -179,7 +179,14 @@ enable_signup = true
 # project needs the matching dashboard toggle — this only covers the local stack.
 enable_anonymous_sign_ins = true
 # Allow/disallow testing manual linking of accounts
-enable_manual_linking = false
+# `linkIdentity()` refuses without this, and it is how an anonymous account
+# attaches an Apple identity and so becomes recoverable. It must be enabled on
+# the hosted project too (Authentication → Providers); local-only would mean the
+# integration suite proves a flow production refuses.
+#
+# The cost, recorded rather than hidden: with manual linking on, anyone holding a
+# stolen session can attach *their* identity to that account and keep it.
+enable_manual_linking = true
 # Passwords shorter than this value will be rejected as weak. Minimum 6, recommended 8 or more.
 minimum_password_length = 6
 # Passwords that do not meet the following requirements will be rejected as weak. Supported values
@@ -322,6 +329,19 @@ max_frequency = "5s"
 # `discord`, `facebook`, `github`, `gitlab`, `google`, `keycloak`, `linkedin_oidc`, `notion`, `twitch`,
 # `twitter`, `x`, `slack`, `spotify`, `workos`, `zoom`.
 [auth.external.apple]
+# Off, and staying off, unlike `enable_manual_linking` above — which is set both
+# places precisely so local and production agree. This one cannot be: verifying
+# an Apple id token needs a real Services ID and a signing key, and neither is a
+# thing to commit. So the local stack rejects both Apple paths with
+# "Unsupported provider: provider is not enabled", which `reasonFor` does not
+# recognise and reports as `failed` — the user-facing copy for that is "Couldn't
+# reach Apple just now", which reads as a network blip and is not one.
+#
+# The consequence, so it is not rediscovered from that message: **Apple sign-in
+# cannot be exercised against `npm run db:start`.** The real toggle is the hosted
+# project (Authentication → Providers → Apple), and the flow is only testable
+# against it, on a device, with the paid programme — see TESTING.md. Every test
+# in the suite mocks supabase-js, so nothing here catches this either.
 enabled = false
 client_id = ""
 # DO NOT commit your OAuth provider secret to git. Use environment variable substitution instead:

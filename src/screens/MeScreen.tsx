@@ -2,11 +2,14 @@
  * Me — profile, points, streak, year grid, exchange, owed, bests, past weeks.
  */
 import React from 'react';
-import { Alert, TextInput, View } from 'react-native';
+import { Alert, Platform, TextInput, View } from 'react-native';
 import { color, onDark, radius, shadows, yearLevelColor } from '../theme/tokens';
 import { CIRCLE_NAME, ME, weekPointsLabel } from '../data/fixtures';
 import { NAME_MAX } from '../data/people';
 import { queueProfileName } from '../sync/engine';
+import { linkApple } from '../sync/session';
+import { appleTrouble } from '../lib/appleCopy';
+import { Trouble } from '../components/Trouble';
 import { deadLetters } from '../sync/outbox';
 import { nextWeekAfter, useStore } from '../state/store';
 import { allTasksDone, cheersGiven, circleMembers, weekPoints } from '../state/selectors';
@@ -51,6 +54,42 @@ export function MeScreen() {
     // Same tick as the dispatch — see `queueProfileName`.
     queueProfileName(draftName);
   };
+  /**
+   * Whether this account can be got back, and the one line shown when securing
+   * it did not work.
+   *
+   * `anonymous` is read off the session rather than kept in the store, because
+   * gotrue is the only thing that knows — a copy here would be a second answer
+   * to a question that already has one, and the two would disagree the moment a
+   * link succeeded. iOS only: on Android there is no provider to reach, so the
+   * row would be an offer the app cannot keep.
+   */
+  const canSecure =
+    live &&
+    Platform.OS === 'ios' &&
+    state.session.status === 'ready' &&
+    state.session.anonymous;
+  const [securing, setSecuring] = React.useState(false);
+  const [secureTrouble, setSecureTrouble] = React.useState<string | null>(null);
+
+  const secureAccount = async () => {
+    setSecuring(true);
+    setSecureTrouble(null);
+    try {
+      const result = await linkApple();
+      // A dismissed sheet is not a failure and says nothing. Everything else
+      // gets the one line `appleCopy` owns.
+      if (!result.ok && result.reason !== 'cancelled') {
+        setSecureTrouble(appleTrouble(result.reason));
+      }
+      // Nothing to do on success: `linkApple` re-reads the session, the store
+      // folds it in, and `canSecure` turns false — the row removing itself is
+      // the confirmation.
+    } finally {
+      setSecuring(false);
+    }
+  };
+
   const won = allTasksDone(state);
   const gave = cheersGiven(state);
   const got = profile.cheersReceived;
@@ -133,6 +172,17 @@ export function MeScreen() {
             <Sans size={12} color={onDark.secondary} style={{ marginTop: 2 }}>
               {subtitle}
             </Sans>
+            {canSecure ? (
+              <Tap
+                onPress={securing ? undefined : () => void secureAccount()}
+                accessibilityLabel="Secure this account with Apple, so you can sign back in"
+                style={{ alignSelf: 'flex-start', marginTop: 6, paddingVertical: 2 }}
+              >
+                <Caps size={9.5} tracking={1.2} color={color.lime}>
+                  {securing ? 'Securing…' : 'Secure this account'}
+                </Caps>
+              </Tap>
+            ) : null}
           </View>
           <Tap
             onPress={() => dispatch({ type: 'SET_TAB', tab: 'circle' })}
@@ -147,6 +197,11 @@ export function MeScreen() {
             </Caps>
           </Tap>
         </View>
+
+        {/* Under the control that failed, which is `Trouble`'s whole remit — the
+            light chip reads against the card's ink the same way it reads against
+            paper elsewhere, so this needs no dark variant. */}
+        <Trouble message={secureTrouble} />
 
         {/* 2 · points */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 11, marginTop: 22 }}>

@@ -44,7 +44,7 @@ it('says nothing while the session is fine', () => {
   mount();
   expect(banner()).toBeNull();
 
-  session({ status: 'ready', userId: '00000000-0000-4000-8000-00000000000b' });
+  session({ status: 'ready', userId: '00000000-0000-4000-8000-00000000000b', anonymous: true });
   expect(banner()).toBeNull();
 });
 

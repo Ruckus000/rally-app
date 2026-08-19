@@ -11,17 +11,27 @@
  * modes the offline story and the test suite depend on.
  *
  * So: one primary action that signs in anonymously, keeping the design's paper
- * pill; Apple and Google kept in their designed shapes but inert, under a quiet
- * coming-soon line, because the design wants them on this screen; and one text
- * button in the "Use email instead" treatment that opens the local demo. That
- * last button is the only invention here.
+ * pill; and one text button in the "Use email instead" treatment that opens the
+ * local demo. That last button is the only invention here.
+ *
+ * WAVE D UPDATE. **Apple is real now, on iOS**, and it is the recovery door: an
+ * account that attached an Apple identity is signed back in here, on a device
+ * that has never seen it. That is the only job it does — somebody new should tap
+ * "Get started", because signing in with Apple before an account exists just
+ * creates one with no name and no circle, which is what "Get started" does with a
+ * better flow around it.
+ *
+ * Google is still inert, and on Android so is Apple: `expo-apple-authentication`
+ * is iOS-only, so an Android account still has no way back. The coming-soon line
+ * has to say which of the two it means rather than both.
  */
 import React from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { color, onDark } from '../../theme/tokens';
 import { Bri, Caps, GlowBloom, Sans, row } from '../../components/primitives';
 import { HeroSegments, PillButton } from './kit';
+import { Trouble } from '../../components/Trouble';
 
 /** The auth pills are 52 here, not the 54 the step CTAs use. */
 const AUTH_HEIGHT = 52;
@@ -33,10 +43,20 @@ const noop = () => {};
 export function WelcomeScreen({
   onStart,
   onLookAround,
+  onApple,
+  busy = false,
+  trouble,
 }: {
   onStart: () => void;
   onLookAround: () => void;
+  /** Absent on Android, where there is no provider to reach. */
+  onApple?: () => void;
+  busy?: boolean;
+  trouble?: string | null;
 }) {
+  // Rendering decision, so it is read here rather than threaded through a prop:
+  // which platform's sign-in exists is not something the flow host knows better.
+  const appleReal = Platform.OS === 'ios' && !!onApple;
   return (
     <View
       style={{
@@ -101,14 +121,21 @@ export function WelcomeScreen({
         <PillButton
           label="Continue with Apple"
           variant="paper"
-          disabled
+          disabled={!appleReal || busy}
           icon={<AppleMark />}
-          onPress={noop}
-          accessibilityLabel="Continue with Apple, coming soon"
+          // `disabled` is what stops an Android tap; a second guard here would be
+          // the same rule stated twice, in two places that could disagree.
+          onPress={onApple ?? noop}
+          // "Sign back in" rather than "sign in": this is the recovery door, and
+          // a screen reader should say which door it is. Android keeps the
+          // coming-soon wording, because there it is still true.
+          accessibilityLabel={
+            appleReal ? 'Continue with Apple, to sign back in' : 'Continue with Apple, coming soon'
+          }
           style={{
             height: AUTH_HEIGHT,
             backgroundColor: color.paper,
-            opacity: UNAVAILABLE_OPACITY,
+            ...(appleReal && !busy ? null : { opacity: UNAVAILABLE_OPACITY }),
           }}
         />
         <PillButton
@@ -127,8 +154,13 @@ export function WelcomeScreen({
           }}
         />
         <Caps size={9.5} tracking={1.6} color={onDark.tertiary} style={{ textAlign: 'center' }}>
-          Apple and Google sign-in coming soon
+          {appleReal ? 'Already have an account? Continue with Apple' : 'Apple and Google sign-in coming soon'}
         </Caps>
+
+        {/* The failure line sits with the control that failed, which is the whole
+            distinction between this and `SyncBanner`. A dismissed Apple sheet
+            leaves `trouble` null and so renders nothing at all. */}
+        <Trouble message={trouble} />
 
         <PillButton label="Look around first" variant="text" dark onPress={onLookAround} />
       </View>

@@ -678,7 +678,7 @@ describe('hydration', () => {
   });
 
   it('never restores a session', () => {
-    expect(hydrate({ account: 'live', session: { status: 'ready', userId: 'u1' } }).session).toEqual({
+    expect(hydrate({ account: 'live', session: { status: 'ready', userId: 'u1', anonymous: true } }).session).toEqual({
       status: 'off',
     });
   });
@@ -742,7 +742,7 @@ describe('task ids', () => {
 });
 
 describe('the session', () => {
-  const ready = { status: 'ready', userId: 'u1' } as const;
+  const ready = { status: 'ready', userId: 'u1', anonymous: true } as const;
 
   it('moves state', () => {
     const s = reducer(base, { type: 'SESSION', session: ready });
@@ -759,7 +759,7 @@ describe('the session', () => {
     // ensureSession both resolves and broadcasts, so the same value arrives
     // twice on a cold start — and every dispatch re-renders every screen.
     const s = reducer(base, { type: 'SESSION', session: ready });
-    expect(reducer(s, { type: 'SESSION', session: { status: 'ready', userId: 'u1' } })).toBe(s);
+    expect(reducer(s, { type: 'SESSION', session: { status: 'ready', userId: 'u1', anonymous: true } })).toBe(s);
   });
 
   it('adopts a new user id without deleting the week that is already here', () => {
@@ -771,7 +771,7 @@ describe('the session', () => {
     // This is pinned because the tidy-looking change is to purge, and purging
     // here deletes somebody's week with no undo and no export.
     const live: State = { ...base, account: 'live', selfId: 'u1' };
-    const s = reducer(live, { type: 'SESSION', session: { status: 'ready', userId: 'u2' } });
+    const s = reducer(live, { type: 'SESSION', session: { status: 'ready', userId: 'u2', anonymous: true } });
 
     expect(s.selfId).toBe('u2');
     expect(s.myTasks).toBe(live.myTasks);
@@ -1119,7 +1119,7 @@ describe('who you are comes from the session', () => {
     const live: State = { ...base, account: 'live', selfId: 'you' };
     const s = reducer(live, {
       type: 'SESSION',
-      session: { status: 'ready', userId: uid },
+      session: { status: 'ready', userId: uid, anonymous: true },
     });
     expect(s.selfId).toBe(uid);
   });

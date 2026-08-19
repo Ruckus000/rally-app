@@ -28,7 +28,7 @@ const onboard = (state: State, name: string) =>
 const live = (): State => reducer(freshState, { type: 'SET_ACCOUNT', mode: 'live' });
 const SESSION_ID = '7c1f4a2e-0000-4000-8000-000000000001';
 const ready = (state: State, userId = SESSION_ID) =>
-  reducer(state, { type: 'SESSION', session: { status: 'ready', userId } });
+  reducer(state, { type: 'SESSION', session: { status: 'ready', userId, anonymous: true } });
 
 beforeEach(() => __resetOutboxForTests());
 
