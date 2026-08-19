@@ -62,9 +62,56 @@ function schemeUnder(scheme?: Scheme) {
 
 describe('the default palette', () => {
   it('is value-identical to the exported color', () => {
-    // The test this whole migration rests on. If a later PR changes a token
-    // while claiming to change no pixels, this is what fails.
+    // What this catches: the provider serving anything other than the palette
+    // the 31 unmigrated files are still reading directly. A half-migrated
+    // screen and an unmigrated one sit side by side for four more PRs, and
+    // they have to be drawn from the same values.
+    //
+    // What it does *not* catch, today: an edit to a token. `color` and
+    // `lightColors` are currently the same object, so both sides of this move
+    // together. That is what the recorded palette below is for. Once the dark
+    // palette lands and `color` becomes one of two, this stops being a
+    // tautology and starts carrying its own weight too.
     expect(paletteUnder()).toEqual(color);
+  });
+
+  it('is still the palette that was there before dark mode started', () => {
+    // The one that stands between this migration and a PR that quietly
+    // changes a colour. Recorded rather than hand-copied: a hand-written
+    // second copy drifts silently, whereas this one cannot be changed without
+    // `-u`, and an updated snapshot shows up in the diff saying exactly which
+    // colour moved and by how much. Which is the review signal the whole
+    // "nothing may look different" rule depends on.
+    //
+    // If you are in PR 6 and deliberately changing the light palette, updating
+    // this is correct. If you are in PRs 2-5, it is not.
+    expect(paletteUnder()).toMatchInlineSnapshot(`
+{
+  "askTint": "#F7FBE4",
+  "avatarText": "#3B4630",
+  "card": "#FFFFFF",
+  "chip": "#EAEDE2",
+  "dash": "#C6CDB8",
+  "disabledFill": "rgba(25,30,22,.08)",
+  "divider": "rgba(25,30,22,.12)",
+  "dotDone": "#B9C2A8",
+  "exchangeTrack": "#E3E8D8",
+  "faintInk": "#A6AC9C",
+  "ink": "#191E16",
+  "inputFill": "#F7F8F3",
+  "lime": "#C3F53C",
+  "limeTintChip": "#EDF7D2",
+  "moss": "#4B6A0B",
+  "muted": "#6E7663",
+  "onboardBg": "#101408",
+  "paper": "#F1F2EC",
+  "planBg": "#12170F",
+  "planCard": "#1B2116",
+  "quietText": "#6E7663",
+  "quoteInk": "#5A6350",
+  "tabbar": "rgba(19,24,13,.94)",
+}
+`);
   });
 
   it('has exactly the keys color has, so nothing renders undefined', () => {
