@@ -102,19 +102,41 @@ const DEBOUNCE_MS = 400;
 /** Only ever read by a debug screen, so a bounded tail is all it needs to be. */
 const DEAD_MAX = 50;
 
-const OPS: readonly OutboxOp[] = [
-  'task.upsert',
-  'task.delete',
-  'reaction.add',
-  'reaction.remove',
-  'note.add',
-  'profile.update',
-  'device.register',
-  'media.attach',
-  'report.file',
-  'block.add',
-  'block.remove',
-];
+/**
+ * Every op, as a record keyed by the union — and then the array `entryIsSound`
+ * actually checks, derived from it. Deliberately not a hand-written array, and
+ * do not turn it back into one.
+ *
+ * The array is an allowlist, and `hydrateOutbox` filters every restored entry
+ * through it. An op missing from it is not a lint-level untidiness: the entry
+ * comes back off disk, fails soundness, and is dropped in silence. That is
+ * exactly what happened to `rollup.add`, which was added to `OutboxOp` and to
+ * the transport and not here — so a week that closed while the app was offline
+ * was thrown away on the next launch, with nothing on any screen saying a week
+ * had gone missing. Closed weeks are what account recovery restores onto a new
+ * device, so that week was gone for good.
+ *
+ * `Record<OutboxOp, true>` is total: a new member of the union is a *compile*
+ * error here until it is listed, which is the only version of this that cannot
+ * be forgotten. `report.file`, `block.add` and `block.remove` were hand-synced
+ * before this and only happened to be right.
+ */
+const OPS_BY_NAME: Record<OutboxOp, true> = {
+  'task.upsert': true,
+  'task.delete': true,
+  'reaction.add': true,
+  'reaction.remove': true,
+  'note.add': true,
+  'profile.update': true,
+  'device.register': true,
+  'rollup.add': true,
+  'media.attach': true,
+  'report.file': true,
+  'block.add': true,
+  'block.remove': true,
+};
+
+const OPS: readonly OutboxOp[] = Object.keys(OPS_BY_NAME) as OutboxOp[];
 
 // ─── module state ─────────────────────────────────────────────────────────
 
