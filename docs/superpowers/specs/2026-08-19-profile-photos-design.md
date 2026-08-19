@@ -42,13 +42,67 @@ Follow `verdict.mjs`'s structure — a shared `.mjs` so Deno and the unit suite 
 file — but invert the `unavailable` resolution, and comment that inversion at the point
 it happens.
 
+## Revised after reading `task_media` — read this before the rest
+
+This spec was written before the `app-audit-ux-review` branch landed
+`supabase/migrations/20260819180000_task_media.sql` (photos on goals). That work settles
+the storage conventions this feature must follow rather than reinvent, and it **overturns
+one decision here**.
+
+What it establishes, and this spec now adopts:
+
+- **A private bucket, read through signed URLs minted per read.** Its reasoning, quoted
+  because it is right: a public bucket "would move visibility out of RLS and into *does
+  anyone know the URL*". My earlier draft called for a public bucket with a stored path.
+  That was wrong, and it is worse for avatars than it looks — see below.
+- **Path shaped `<owner_id>/<…>/<media_id>.<ext>`**, with any uuid cast in a storage
+  policy *guarded*, so a malformed object name answers `false` rather than raising 22P02
+  inside a policy and turning one bad upload into an error on somebody else's read. The
+  reporting work hit the identical trap with `payload ->> 'actor_id'`; that is twice now.
+- **Client-minted ids**, so a replayed insert collides with itself instead of attaching
+  the same file twice.
+- **5 MB bucket ceiling, `image/jpeg | png | webp`**, with the client downscaling first.
+- **No update policy** — replacing a photo is a delete plus an insert, which keeps the
+  object and the row in step one operation each.
+
+### Why the public-bucket reversal matters more for avatars
+
+The product decision stands: profile photos are visible **everywhere a person appears,
+including the public feed**. But "everywhere" means every signed-in user, not the open
+internet — and a public bucket means the latter, permanently, to anyone who ever saw the
+URL.
+
+That is incompatible with the reporting work now on `main`. A report upheld against an
+avatar has to actually take the image down. With a public bucket the URL keeps working,
+CDN copies keep serving, and the takedown is cosmetic. With a private bucket the signed
+URL expires and the next one is never minted.
+
+So: same visibility decision, better mechanism.
+
+### What `task_media` did NOT solve, and this spec still owns
+
+**Screening.** There is none in that migration and no client code at all — no upload path,
+no `expo-image-picker`, nothing. So the screening design below is still this spec's job.
+
+And it should be built as a **shared** module rather than an avatar-only one: a photo
+attached to a goal with `aud = 'everyone'` reaches exactly the same strangers an avatar
+does. Whoever builds the `task_media` client half should call the same screener. Flagging
+it here rather than silently building a second one.
+
+### Sequencing
+
+`task_media` is **not merged** as of this writing. Nothing here depends on it at the file
+level — a different bucket, a different table, a different policy — so this can proceed in
+parallel. Two places will conflict textually and should be merged by hand rather than
+resolved blind: `docs/backend.md`, and `integration/support/reset.ts`.
+
 ## Architecture
 
 ### Storage, not a table
 
-A Supabase Storage bucket, `avatars`. Public read; writes only by the owning user to a
-path keyed on their uuid. The object path — not a signed URL — is what gets stored on
-the profile row, so links do not expire.
+A Supabase Storage bucket, `avatars`, **private**, following `task-media`. Reads are
+signed URLs minted per pull. The object path — never a URL — is what gets stored on the
+profile row, because a stored URL is one that expires in the database.
 
 ### The sync layer stays row-shaped
 
