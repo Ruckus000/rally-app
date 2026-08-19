@@ -5,6 +5,7 @@
 import React from 'react';
 import {
   AccessibilityRole,
+  LayoutChangeEvent,
   Pressable,
   PressableProps,
   StyleProp,
@@ -19,6 +20,18 @@ import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { capsLabel, color, font, gradientAngle, hairlineGradient, HIT_TARGET } from '../theme/tokens';
 
 type Weight = 400 | 500 | 600 | 700 | 800;
+
+/**
+ * How far the OS text-size setting may inflate this app's type.
+ *
+ * Scaling is left on — turning it off is the wrong answer to a dense layout —
+ * but this app draws a lot of fixed-height chrome: 44pt pills, a 46pt input,
+ * the 54pt CTA. Past about a third larger, the label stops fitting the control
+ * it names and starts being clipped by it, which is worse for the person who
+ * turned the setting on than a slightly smaller label. Every face here shares
+ * the cap so one number governs the whole scale.
+ */
+export const MAX_FONT_SCALE = 1.35;
 
 type TypeProps = TextProps & {
   size?: number;
@@ -42,6 +55,7 @@ export function Bri({
   const w = (weight < 500 ? 500 : weight) as 500 | 600 | 700 | 800;
   return (
     <Text
+      maxFontSizeMultiplier={MAX_FONT_SCALE}
       {...rest}
       style={[
         {
@@ -70,6 +84,7 @@ export function Sans({
   const w = (weight > 700 ? 700 : weight) as 400 | 500 | 600 | 700;
   return (
     <Text
+      maxFontSizeMultiplier={MAX_FONT_SCALE}
       {...rest}
       style={[
         {
@@ -93,7 +108,13 @@ export function Caps({
   style,
   ...rest
 }: Omit<TypeProps, 'weight'>) {
-  return <Text {...rest} style={[capsLabel(size, tracking), { color: c }, style]} />;
+  return (
+    <Text
+      maxFontSizeMultiplier={MAX_FONT_SCALE}
+      {...rest}
+      style={[capsLabel(size, tracking), { color: c }, style]}
+    />
+  );
 }
 
 /**
@@ -112,10 +133,44 @@ export function Tap({
   accessibilityRole?: AccessibilityRole;
   children?: React.ReactNode;
 }) {
+  const declared = declaredSize(style);
+  /**
+   * What the control turned out to be, for the ones that never said.
+   *
+   * A `Tap` sized by its own text declares no height, so the slop below had
+   * nothing to read and the 44pt "guarantee" quietly wasn't one — several
+   * shipped controls sat near 30pt that way. Measuring closes that hole for
+   * every such control at once, rather than depending on each call site
+   * remembering to declare a `minHeight`.
+   *
+   * Only the controls that need it pay anything: the layout handler is
+   * attached solely where a dimension is missing, and it commits state only
+   * when what it measured is genuinely under the target. Everything with a
+   * declared size — most of the app — renders exactly as before.
+   */
+  const [measured, setMeasured] = React.useState<{ w: number; h: number } | null>(null);
+  const needsMeasure =
+    minSize > 0 && (declared.h === undefined || declared.w === undefined);
+
+  const onLayout = React.useCallback(
+    (e: LayoutChangeEvent) => {
+      const { width, height } = e.nativeEvent.layout;
+      if (width >= minSize && height >= minSize) return;
+      setMeasured((prev) =>
+        prev && prev.w === width && prev.h === height ? prev : { w: width, h: height },
+      );
+    },
+    [minSize],
+  );
+
+  const h = declared.h ?? measured?.h;
+  const w = declared.w ?? measured?.w;
+
   return (
     <Pressable
       accessibilityRole={accessibilityRole}
-      hitSlop={hitSlopFor(style, minSize)}
+      hitSlop={slopFor(h, w, minSize)}
+      onLayout={needsMeasure ? onLayout : undefined}
       style={({ pressed }) => [style, pressed && { opacity: 0.72 }]}
       {...rest}
     >
@@ -124,13 +179,21 @@ export function Tap({
   );
 }
 
-/** Grows the touch area up to `minSize` without changing layout. */
-function hitSlopFor(style: StyleProp<ViewStyle> | undefined, minSize: number) {
+/** What the style says the box is, where it says anything at all. */
+function declaredSize(style: StyleProp<ViewStyle> | undefined): {
+  h: number | undefined;
+  w: number | undefined;
+} {
   const flat = StyleSheet.flatten(style as StyleProp<ViewStyle>) ?? {};
   const h = typeof flat.height === 'number' ? flat.height : (flat.minHeight as number | undefined);
   const w = typeof flat.width === 'number' ? flat.width : undefined;
-  const vertical = h && h < minSize ? Math.ceil((minSize - h) / 2) : 0;
-  const horizontal = w && w < minSize ? Math.ceil((minSize - w) / 2) : 0;
+  return { h: typeof h === 'number' ? h : undefined, w: typeof w === 'number' ? w : undefined };
+}
+
+/** Grows the touch area up to `minSize` without changing layout. */
+function slopFor(h: number | undefined, w: number | undefined, minSize: number) {
+  const vertical = h !== undefined && h < minSize ? Math.ceil((minSize - h) / 2) : 0;
+  const horizontal = w !== undefined && w < minSize ? Math.ceil((minSize - w) / 2) : 0;
   return { top: vertical, bottom: vertical, left: horizontal, right: horizontal };
 }
 

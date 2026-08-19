@@ -26,6 +26,7 @@ import {
   PERSON_TASKS,
   Task,
 } from '../data/fixtures';
+import { DAY_NAMES } from '../data/week';
 import { CIRCLE_NAME_MAX, useStore } from '../state/store';
 import { myStats, visibleNotes } from '../state/selectors';
 import { SHEET_DURATION, sheetEasing, useReducedMotion } from '../theme/motion';
@@ -42,7 +43,13 @@ import type { ReportTarget } from '../state/store';
 
 export function DetailSheet({ bottomInset }: { bottomInset: number }) {
   const { state, dispatch } = useStore();
-  const sheet = state.sheet;
+  // `CLOSE_SHEET` nulls the slice while <Presence> is still fading this out;
+  // holding the last sheet keeps the content on screen through the exit
+  // instead of the sheet blinking empty a frame before the fade. Guarded
+  // setState during render — the sanctioned previous-value pattern.
+  const [lastSheet, setLastSheet] = useState(state.sheet);
+  if (state.sheet && state.sheet !== lastSheet) setLastSheet(state.sheet);
+  const sheet = state.sheet ?? lastSheet;
   const reduced = useReducedMotion();
   const [slide] = useState(() => new Animated.Value(1));
 
@@ -327,10 +334,47 @@ function JointProgress({ task }: { task: Task }) {
 
 /* ── person ─────────────────────────────────────────────────────────────── */
 
+/** One row of somebody's week, from whichever source could answer for it. */
+type PersonTask = {
+  key: string;
+  title: string;
+  sub: string;
+  done: boolean;
+  /**
+   * The row this came from, when it is a real one. Backing a fixture can only
+   * ever be a local gesture; backing a real moment is a reaction that reaches
+   * the person it is about.
+   */
+  momentId?: string;
+};
+
 function PersonSheet({ who }: { who: PersonId }) {
   const { state, dispatch, people } = useStore();
   const stats = people.isSelf(who) ? myStats(state) : people.stats(who);
-  const tasks = PERSON_TASKS[who] ?? [];
+
+  /**
+   * Their week, from the feed this device has already pulled.
+   *
+   * This used to read `PERSON_TASKS`, a fixture keyed by the demo's person
+   * ids — so every *real* friend's sheet rendered a caps label over nothing,
+   * under a line reading "building back · 0/0 this week". The circle's rows
+   * were on the device the whole time; the feed draws them. The demo's own
+   * fixture is kept, because it is furniture written for those people.
+   */
+  const demoTasks = PERSON_TASKS[who] ?? [];
+  const tasks: PersonTask[] = demoTasks.length
+    ? demoTasks.map((t, i) => ({ key: `${who}${i}`, title: t.t, sub: t.sub, done: t.done }))
+    : state.moments
+        .filter((m) => m.who === who)
+        .map((m) => ({
+          key: m.id,
+          momentId: m.id,
+          title: m.title ?? '',
+          sub: `${DAY_NAMES[m.day]}${m.pts ? ` · +${m.pts}` : ''}`,
+          done: !!m.done,
+        }));
+  // `visibleNotes` drops anything from somebody this account has blocked —
+  // main's rule, applied to the same thread this sheet has always shown.
   const notes = visibleNotes([...(PERSON_NOTES[who] ?? []), ...(state.personNotes[who] ?? [])], state);
 
   return (
@@ -345,9 +389,12 @@ function PersonSheet({ who }: { who: PersonId }) {
           <Bri size={20} weight={800} tracking={-0.4}>
             {people.name(who)}
           </Bri>
+          {/* "0/0 this week" is not a fact about somebody, it is the absence
+              of one — so a person whose week has not synced says nothing
+              rather than claiming they staked nothing. */}
           <Sans size={12.5} color={color.muted}>
-            {stats.streak ? `🔥 ${stats.streak}-week streak` : 'building back'} · {stats.done}/
-            {stats.total} this week
+            {stats.streak ? `🔥 ${stats.streak}-week streak` : 'building back'}
+            {stats.total ? ` · ${stats.done}/${stats.total} this week` : ''}
           </Sans>
         </View>
       </View>
@@ -356,12 +403,19 @@ function PersonSheet({ who }: { who: PersonId }) {
         {people.first(who)}’s week
       </Caps>
       <View style={{ gap: 8 }}>
-        {tasks.map((t, i) => {
-          const actKey = `${who}${i}`;
+        {tasks.length === 0 ? (
+          <Sans size={13} lineHeight={18} color={color.muted} style={{ padding: 16, textAlign: 'center' }}>
+            Nothing of theirs has landed here yet.
+          </Sans>
+        ) : null}
+        {tasks.map((t) => {
+          // A real moment id where there is one, so the nod is a reaction that
+          // syncs; the fixture's synthetic key where there is not.
+          const actKey = t.momentId ?? t.key;
           const acted = !!state.acted[`${actKey}:nod`];
           return (
             <View
-              key={t.t}
+              key={t.key}
               style={{
                 ...row,
                 gap: 10,
@@ -384,7 +438,7 @@ function PersonSheet({ who }: { who: PersonId }) {
               />
               <View style={fill}>
                 <Sans size={14} weight={600} color={t.done ? color.muted : color.ink}>
-                  {t.t}
+                  {t.title}
                 </Sans>
                 <Sans size={11.5} color={color.muted}>
                   {t.sub}
@@ -394,10 +448,10 @@ function PersonSheet({ who }: { who: PersonId }) {
                 onPress={() =>
                   dispatch({
                     type: 'OPEN_PLAN_WITH',
-                    seed: { title: t.t, pair: [who], toast: `Staking it with ${people.first(who)}` },
+                    seed: { title: t.title, pair: [who], toast: `Staking it with ${people.first(who)}` },
                   })
                 }
-                accessibilityLabel={`Stake "${t.t}" with ${people.first(who)}`}
+                accessibilityLabel={`Stake "${t.title}" with ${people.first(who)}`}
                 style={{
                   borderWidth: 1,
                   borderColor: 'rgba(25,30,22,.14)',
@@ -417,7 +471,7 @@ function PersonSheet({ who }: { who: PersonId }) {
                 onPress={() =>
                   dispatch({ type: 'ACT', id: actKey, kind: 'nod', toast: `${people.first(who)} saw it` })
                 }
-                accessibilityLabel={t.done ? `Cheer ${t.t}` : `Back ${t.t}`}
+                accessibilityLabel={t.done ? `Cheer ${t.title}` : `Back ${t.title}`}
                 style={{
                   borderRadius: 999,
                   paddingHorizontal: 11,
@@ -553,6 +607,10 @@ function InviteSheet() {
    * The OS share sheet, not a clipboard. `Share` is core React Native, so this
    * needs no native module and no rebuild — and sending a friend a code is the
    * actual task, which a pasteboard only ever half-does.
+   *
+   * Ratified deviation — see design-reference/DEVIATIONS.md. The handoff asks
+   * for a copyable link; the share sheet reaches the clipboard *and* every
+   * app the code might be sent through, in one tap.
    */
   const share = () => {
     void Share.share({
@@ -907,6 +965,22 @@ function NoteBubble({ note }: { note: Note }) {
 function NoteComposer({ bottomInset }: { bottomInset: number }) {
   const { state, dispatch, people } = useStore();
   const sheet = state.sheet;
+  // Buffered locally while typing: a keystroke used to dispatch `SET_NOTE`,
+  // re-rendering the whole app per character. The reducer still owns the send
+  // — the buffer is written back in the same batch as `SEND_NOTE`. The buffer
+  // resets when the sheet underneath changes (render-time adjustment).
+  const [text, setText] = useState('');
+  const sheetKey = sheet ? `${sheet.type}:${sheet.id}` : '';
+  const [seenKey, setSeenKey] = useState(sheetKey);
+  if (sheetKey !== seenKey) {
+    setSeenKey(sheetKey);
+    setText('');
+  }
+  const send = () => {
+    dispatch({ type: 'SET_NOTE', value: text });
+    dispatch({ type: 'SEND_NOTE' });
+    setText('');
+  };
   const placeholder =
     sheet?.type === 'person' && sheet.id ? `Write to ${people.first(sheet.id)}…` : 'Say something…';
 
@@ -925,9 +999,9 @@ function NoteComposer({ bottomInset }: { bottomInset: number }) {
         }}
       >
         <TextInput
-          value={state.note}
-          onChangeText={(value) => dispatch({ type: 'SET_NOTE', value })}
-          onSubmitEditing={() => dispatch({ type: 'SEND_NOTE' })}
+          value={text}
+          onChangeText={setText}
+          onSubmitEditing={send}
           placeholder={placeholder}
           placeholderTextColor={color.muted}
           accessibilityLabel={placeholder}
@@ -944,7 +1018,7 @@ function NoteComposer({ bottomInset }: { bottomInset: number }) {
           }}
         />
         <Tap
-          onPress={() => dispatch({ type: 'SEND_NOTE' })}
+          onPress={send}
           accessibilityLabel="Send note"
           style={{
             width: 46,

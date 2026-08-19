@@ -2,21 +2,30 @@
  * Plan — a full-screen action, not a destination. Stake points on the week.
  */
 import React from 'react';
-import { ScrollView, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { color, gradientAngle, heroGlow, onDark, planGutter, shadows } from '../theme/tokens';
+import {
+  color,
+  displayLeading,
+  gradientAngle,
+  heroGlow,
+  onDark,
+  planGutter,
+  shadows,
+} from '../theme/tokens';
 import {
   AUDIENCE_LABEL,
   AUDIENCE_WORD,
   AUDIENCES,
   CATEGORIES,
   CATEGORY_HINT,
+  TITLE_MAX,
 } from '../data/fixtures';
 import { DAY_NAMES, DayIndex } from '../data/week';
 import { useStore } from '../state/store';
 import { useGoalRating } from '../hooks/useGoalRating';
 import { hasSupabaseConfig } from '../lib/supabase';
-import { circleMembers, stakedPoints } from '../state/selectors';
+import { circleMembers, circleSuggestions, stakedPoints } from '../state/selectors';
 import { Avatar, FaceStack } from '../components/Avatar';
 import { Icon } from '../components/Icon';
 import { Bri, Caps, GlowBloom, GradientHairline, Sans, Tap, fill, row } from '../components/primitives';
@@ -54,12 +63,31 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
   const draftPoints = state.draftPts;
   const blocked = state.draftVerdict === 'blocked';
   const canStake = hasDraft && !blocked;
-  const submitDraft = () =>
+  // The freshest text the input holds, ahead of the debounced `SET_DRAFT`.
+  // Flushed into the reducer in the same batch as the stake, so a fast
+  // type-then-tap never stakes a title the debounce hadn't delivered yet.
+  const liveDraft = React.useRef(state.draft);
+  const onLiveDraft = React.useCallback((value: string) => {
+    liveDraft.current = value;
+  }, []);
+  const submitDraft = () => {
+    if (liveDraft.current !== state.draft) {
+      dispatch({ type: 'SET_DRAFT', value: liveDraft.current });
+    }
     dispatch(
       editing
         ? { type: 'SAVE_EDIT', aud: effectiveAudience }
         : { type: 'ADD_TASK', aud: effectiveAudience },
     );
+  };
+
+  // The demo's written rail, or — for an account with a real circle — what
+  // that circle has staked and you have not. See `circleSuggestions`.
+  const suggestions = React.useMemo(
+    () => (demo.suggestions.length ? demo.suggestions : circleSuggestions(state)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [demo.suggestions, state.moments, state.myTasks, state.usedSugg, state.people, state.selfId],
+  );
 
   const close = () => dispatch({ type: 'CLOSE_PLAN' });
 
@@ -101,6 +129,13 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
         </View>
       </View>
 
+      {/* Without this the iOS keyboard buries the day picker, the chips and
+          the Stake button — the user had to dismiss it to reach the price
+          they were just quoted. */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingTop: 18, paddingHorizontal: planGutter, paddingBottom: 10 }}
@@ -112,9 +147,8 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
             size={76}
             weight={800}
             tracking={-3.5}
-            lineHeight={61}
             color={color.lime}
-            style={heroGlow}
+            style={[heroGlow, displayLeading(76, 61)]}
           >
             {staked}
           </Bri>
@@ -154,7 +188,10 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
               ? 'Nothing to beat yet. This is the one that sets the bar.'
               : over
                 ? 'The biggest week you’ve ever put on the line.'
-                : `${best - staked} pts short of Week 31 — your best week ever.`}
+                : // The week the record actually belongs to. This was a
+                  // hardcoded "Week 31" — the demo's best week, named at
+                  // every user whose record was some other week entirely.
+                  `${best - staked} pts short of ${state.profile.bestWeekLabel || 'your best week'} — your best week ever.`}
           </Sans>
           {hasBest ? (
             <Tap
@@ -203,9 +240,9 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                 </Tap>
               ) : null}
             </View>
-            <TextInput
-              value={state.draft}
-              onChangeText={(value) => dispatch({ type: 'SET_DRAFT', value })}
+            <DraftInput
+              draft={state.draft}
+              onLive={onLiveDraft}
               onSubmitEditing={submitDraft}
               placeholder={CATEGORY_HINT[state.draftCat] ?? 'name it in your own words'}
               placeholderTextColor={onDark.tertiary}
@@ -216,7 +253,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
               // The length the rating function accepts. Without it a longer
               // goal is staked unscreened — the function 400s and the client
               // reads that as "nothing wrong with this one".
-              maxLength={50}
+              maxLength={TITLE_MAX}
               multiline
               style={{
                 marginTop: 9,
@@ -258,7 +295,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                     <Bri size={11.5} weight={800} lineHeight={12} color={on ? color.lime : 'rgba(241,242,236,.58)'}>
                       {name.slice(0, 1)}
                     </Bri>
-                    <Bri size={9} weight={700} lineHeight={10} color={on ? color.lime : 'rgba(241,242,236,.45)'}>
+                    <Bri size={10} weight={700} lineHeight={11} color={on ? color.lime : 'rgba(241,242,236,.45)'}>
                       {count ? String(count) : '·'}
                     </Bri>
                   </Tap>
@@ -355,7 +392,13 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                     }}
                   >
                     <Avatar who={k} size={20} />
-                    <Sans size={12.5} weight={700} color={on ? color.lime : 'rgba(241,242,236,.72)'}>
+                    <Sans
+                      size={12.5}
+                      weight={700}
+                      color={on ? color.lime : 'rgba(241,242,236,.72)'}
+                      numberOfLines={1}
+                      style={{ maxWidth: 160 }}
+                    >
                       {people.first(k)}
                     </Sans>
                   </Tap>
@@ -384,7 +427,10 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                 ...(canStake ? shadows.addCta : null),
               }}
             >
-              <Bri size={15.5} weight={800} color={canStake ? color.ink : 'rgba(241,242,236,.35)'}>
+              {/* The disabled label tells you how to enable the button, so it
+                  gets `.55` rather than the .35 it was drawn at — WCAG does
+                  not exempt text that carries the instruction. */}
+              <Bri size={15.5} weight={800} color={canStake ? color.ink : onDark.secondary}>
                 {!hasDraft
                   ? 'Write it down first'
                   : blocked
@@ -406,7 +452,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
         </GradientHairline>
 
         {/* pick it back up */}
-        {demo.suggestions.length ? (
+        {suggestions.length ? (
           <>
         <View
           style={{
@@ -431,7 +477,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
           style={{ marginHorizontal: -planGutter }}
           contentContainerStyle={{ gap: 10, paddingTop: 11, paddingBottom: 3, paddingHorizontal: planGutter }}
         >
-          {demo.suggestions.map((s) => {
+          {suggestions.map((s) => {
             const used = !!state.usedSugg[s.id];
             return (
               <View
@@ -449,7 +495,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
               >
                 <View style={[row, { gap: 6 }]}>
                   {s.pair?.length ? <FaceStack people={s.pair} size={20} ringColor={color.planCard} /> : null}
-                  <Caps size={9} tracking={1.3} color={used ? color.lime : onDark.secondary} numberOfLines={1} style={fill}>
+                  <Caps size={10} tracking={1.3} color={used ? color.lime : onDark.secondary} numberOfLines={1} style={fill}>
                     {s.tag}
                   </Caps>
                 </View>
@@ -525,10 +571,18 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                 </Bri>
                 <Tap
                   onPress={() => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'task', id: t.id } })}
-                  minSize={0}
-                  style={fill}
+                  accessibilityLabel={`Open ${t.title}`}
+                  // The row's own height, not one line of text: this opted out
+                  // of the 44 guarantee and landed at about 18.
+                  style={[fill, { alignSelf: 'stretch', justifyContent: 'center', minHeight: 44 }]}
                 >
-                  <Sans size={14} weight={600} lineHeight={17.5} color={color.paper}>
+                  <Sans
+                    size={14}
+                    weight={600}
+                    lineHeight={17.5}
+                    color={color.paper}
+                    numberOfLines={2}
+                  >
                     {t.title}
                   </Sans>
                 </Tap>
@@ -626,8 +680,76 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
           </Sans>
         </Tap>
       </LinearGradient>
+      </KeyboardAvoidingView>
     </Overlay>
   );
+}
+
+/**
+ * The stake title, buffered locally while the user types.
+ *
+ * A keystroke used to dispatch `SET_DRAFT`, which re-rendered the whole app —
+ * the overlay, the screen behind it, header and tab bar — per character. Now
+ * the input re-renders alone and the store hears about the text on a short
+ * trailing debounce (which also spaces out the rating calls `useGoalRating`
+ * makes). `liveDraft` always carries the freshest text so the parent can flush
+ * it into the reducer ahead of a stake; an external write to `state.draft`
+ * (START_EDIT loading a task, ADD_TASK clearing the composer) resets the
+ * buffer to match.
+ */
+const DRAFT_DEBOUNCE_MS = 200;
+
+function DraftInput({
+  draft,
+  onLive,
+  ...inputProps
+}: {
+  draft: string;
+  /** Reports the freshest text on every change, ahead of the debounce. */
+  onLive: (value: string) => void;
+} & React.ComponentProps<typeof TextInput>) {
+  const { dispatch } = useStore();
+  const [text, setText] = React.useState(draft);
+
+  // An external write to `state.draft` (START_EDIT loading a stake, ADD_TASK
+  // clearing the composer) is adopted; an echo of our own debounced dispatch
+  // (draft === text) is not a change at all. Guarded setState during render.
+  const [prevDraft, setPrevDraft] = React.useState(draft);
+  if (draft !== prevDraft) {
+    setPrevDraft(draft);
+    if (draft !== text) setText(draft);
+  }
+
+  React.useEffect(() => {
+    onLive(text);
+    if (text === draft) return;
+    // Crossing between empty and non-empty flips the Stake button's whole
+    // state ("Write it down first" ↔ a price), so that edge goes through
+    // immediately; only same-state keystrokes ride the debounce.
+    if ((text.trim() === '') !== (draft.trim() === '')) {
+      dispatch({ type: 'SET_DRAFT', value: text });
+      return;
+    }
+    const timer = setTimeout(() => dispatch({ type: 'SET_DRAFT', value: text }), DRAFT_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [text, draft, dispatch, onLive]);
+
+  // Unmounting mid-debounce (closing the overlay) must not eat the tail of
+  // what was typed: flush it so the draft survives a reopen.
+  const latest = React.useRef({ text, draft });
+  React.useEffect(() => {
+    latest.current = { text, draft };
+  });
+  React.useEffect(
+    () => () => {
+      if (latest.current.text !== latest.current.draft) {
+        dispatch({ type: 'SET_DRAFT', value: latest.current.text });
+      }
+    },
+    [dispatch],
+  );
+
+  return <TextInput value={text} onChangeText={setText} {...inputProps} />;
 }
 
 function SectionRule({ label, children }: { label: string; children?: React.ReactNode }) {

@@ -27,7 +27,13 @@ const TIER_ICON: Partial<Record<Notification['kind'], IconName>> = {
   wrap: 'wrap',
 };
 
-export function NotificationsOverlay({ topInset }: { topInset: number }) {
+export function NotificationsOverlay({
+  topInset,
+  bottomInset = 0,
+}: {
+  topInset: number;
+  bottomInset?: number;
+}) {
   const { state, dispatch } = useStore();
   // One slice, every account. The demo's feed is seeded into it and a live
   // account's arrives from the server, so there is no world to read by mistake
@@ -102,7 +108,9 @@ export function NotificationsOverlay({ topInset }: { topInset: number }) {
               <Sans size={12.5} weight={700} color={on ? color.paper : color.avatarText}>
                 {f.label}
               </Sans>
-              {f.k !== 'all' ? (
+              {/* Same rule as the tiers: a filter with nothing behind it wears
+                  no count rather than a pill reading 0. */}
+              {f.k !== 'all' && count > 0 ? (
                 <View
                   style={{
                     backgroundColor: on ? 'rgba(241,242,236,.18)' : color.limeTintChip,
@@ -123,11 +131,20 @@ export function NotificationsOverlay({ topInset }: { topInset: number }) {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingTop: 4, paddingHorizontal: gutter, paddingBottom: 20 }}
+        // The last row and the footer line used to rest under the home
+        // indicator — the sibling overlays already clear it this way.
+        contentContainerStyle={{
+          paddingTop: 4,
+          paddingHorizontal: gutter,
+          paddingBottom: Math.max(bottomInset, 20) + 20,
+        }}
       >
         {NOTIF_TIERS.filter((t) => state.notifFilter === 'all' || state.notifFilter === t.key).map(
           (tier) => {
             const items = all.filter((n) => n.tier === tier.key);
+            // "Never show a bare zero." A tier nobody has anything in is not a
+            // heading over a count of nothing — it is a tier that says nothing.
+            if (items.length === 0) return null;
             return (
               <View key={tier.key} style={{ marginBottom: 22 }}>
                 <View style={[row, { gap: 8, marginHorizontal: 2, marginBottom: 4 }]}>

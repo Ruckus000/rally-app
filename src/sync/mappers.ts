@@ -231,6 +231,11 @@ export function taskRowToMoment(
     title: task.title,
     pts: task.pts,
     cheers,
+    // Carried so a person's own sheet can show which of their week is closed,
+    // and so Plan can offer the same goal back at its own price. The feed card
+    // reads neither — a moment is drawn the same either way.
+    done: task.done,
+    cat: task.cat,
     // Notes on someone else's task are not pulled — `pullNotes` answers for
     // your own rows and your own inbox. What is here is what this device wrote.
     cmts: [],

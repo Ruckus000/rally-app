@@ -26,6 +26,7 @@ const getPool = (): Pool => {
 const DOMAIN_TABLES = [
   'public.tasks',
   'public.task_pairs',
+  'public.task_media',
   'public.reactions',
   'public.notes',
   'public.week_rollups',

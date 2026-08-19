@@ -25,7 +25,14 @@ export const color = {
   limeTintChip: '#EDF7D2',
   dash: '#C6CDB8',
   exchangeTrack: '#E3E8D8',
-  quietText: '#9AA28D',
+  /**
+   * The quiet-comeback line. Was `#9AA28D` — about 2.4:1 on paper, which is
+   * under the 4.5:1 floor for 13px body copy: the row meant to be gentle was
+   * actually the one some people could not read. `muted` clears the floor,
+   * and the de-emphasis was never the colour's job anyway — the row has no
+   * card, no avatar and a smaller size, which is what makes it recede.
+   */
+  quietText: '#6E7663',
 
   /**
    * Onboarding. `onboardBg` is a shade above `planBg` — the first and last
@@ -175,3 +182,20 @@ export const heroGlow: TextStyle = Platform.select({
   ios: { textShadowColor: 'rgba(195,245,60,.32)', textShadowRadius: 44 },
   default: {},
 }) as TextStyle;
+
+/**
+ * The tight leading the display numbers are drawn with, without cropping them.
+ *
+ * The reference sets these line boxes *below* the font size on purpose — 48/41
+ * on Me, 76/61 on Plan — because that is what makes a hero number sit tight to
+ * its label. On iOS the glyphs overflow the box and draw in full; on Android
+ * the text is clipped to the line box, so the tops and bottoms of the numerals
+ * are literally sliced off. `includeFontPadding: false` removes Android's own
+ * extra leading, and the line box goes back to the font size — the optical
+ * tightness is then recovered with the negative margin the caller passes.
+ */
+export const displayLeading = (fontSize: number, tight: number): TextStyle =>
+  Platform.select({
+    ios: { lineHeight: tight },
+    default: { lineHeight: fontSize, includeFontPadding: false, marginBottom: tight - fontSize },
+  }) as TextStyle;

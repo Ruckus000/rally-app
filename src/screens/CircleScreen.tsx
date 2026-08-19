@@ -11,11 +11,18 @@ import { Avatar, ProgressRing } from '../components/Avatar';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
 import { Icon } from '../components/Icon';
 import { useStore, usePeople } from '../state/store';
-import { RankedMember, ranking, totalCheersExchanged } from '../state/selectors';
+import { RankedMember, ranking } from '../state/selectors';
 import { EmptyState } from '../components/FeedCards';
 
 const TREND_GLYPH = { up: '▲', down: '▼', same: '–' } as const;
-const TREND_COLOR = { up: color.moss, down: color.faintInk, same: color.dash } as const;
+/**
+ * `down` and `same` were drawn at faintInk and dash — around 2:1 on white, so
+ * the two states that are not "up" were the ones you could not see. The glyph
+ * still carries the meaning; the colour only has to be legible.
+ */
+const TREND_COLOR = { up: color.moss, down: color.muted, same: color.muted } as const;
+/** The same fact in words, for a screen reader that cannot read a triangle. */
+const TREND_SAID = { up: 'trending up', down: 'trending down', same: 'holding steady' } as const;
 
 /**
  * A member whose week has not been pulled has no cheer count, and a 0 in that
@@ -26,7 +33,14 @@ const cheers = (given: number | null) => (given === null ? '–' : String(given)
 
 export function CircleScreen() {
   const { state, dispatch, config, people } = useStore();
-  const ranked = ranking(state);
+  // The ranking sorts the whole circle and walks every cheer against every
+  // moment — too much to redo on renders where none of its inputs moved.
+  // Keyed on the slices `ranking` actually reads (via `myStats`).
+  const ranked = React.useMemo(
+    () => ranking(state),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.myTasks, state.acted, state.moments, state.people, state.selfId, state.account, state.profile],
+  );
   const top3 = ranked.slice(0, 3);
   const rest = ranked.slice(3);
   // Centre the winner: 2nd · 1st · 3rd.
@@ -82,7 +96,7 @@ export function CircleScreen() {
           <Tap
             key={r.k}
             onPress={() => openMember(r.k)}
-            accessibilityLabel={`${r.name}, rank ${r.rank}, ${r.sub}`}
+            accessibilityLabel={`${r.name}, rank ${r.rank}, ${r.sub}, ${TREND_SAID[people.trend(r.k)]}`}
             style={{
               ...row,
               gap: 10,
@@ -150,7 +164,9 @@ export function CircleScreen() {
         <Sans size={16}>🔥</Sans>
         <Sans size={13} lineHeight={18} color={color.paper} style={fill}>
           <Bri size={13} weight={800} color={color.paper}>
-            {totalCheersExchanged(state)}
+            {/* Derived from the ranking already in hand — `totalCheersExchanged`
+                re-runs the entire ranking to compute exactly this reduce. */}
+            {ranked.reduce((a, r) => a + (r.given ?? 0), 0)}
           </Bri>
           {' cheers exchanged in the circle this week'}
         </Sans>
@@ -241,11 +257,14 @@ function PodiumMember({
         ) : null}
       </View>
 
-      <View style={[row, { marginTop: 9 }]}>
-        <Sans size={12} weight={700} color={color.ink}>
+      {/* Bounded to the ring it sits under: unbounded, one long first name
+          widened its podium column until the centred three-up row ran off
+          both edges of the screen. */}
+      <View style={[row, { marginTop: 9, maxWidth: size + 24 }]}>
+        <Sans size={12} weight={700} color={color.ink} numberOfLines={1} style={{ flexShrink: 1 }}>
           {member.first}
         </Sans>
-        <Sans size={12} color={color.faintInk}>
+        <Sans size={12} color={color.faintInk} numberOfLines={1}>
           {' · '}
           {cheers(member.given)} given
         </Sans>

@@ -1652,6 +1652,14 @@ type Store = {
 
 const StoreContext = createContext<Store | null>(null);
 
+/**
+ * The people resolver on its own channel. `StoreContext`'s value changes on
+ * every dispatch; this one changes only when the directory or the self id
+ * does. Components that need nothing but names and tints (Avatar, memoized
+ * feed cards) subscribe here so a keystroke elsewhere cannot re-render them.
+ */
+const PeopleContext = createContext<People | null>(null);
+
 export function StoreProvider({
   children,
   config = DEFAULT_CONFIG,
@@ -1839,19 +1847,30 @@ export function StoreProvider({
     dispatch({ type: 'ROLLOVER_DETECTED', to: liveWeek() });
   }, []);
 
+  // Memoized on the slices they actually read, not on `state`. The reducer
+  // works hard to keep `state.people` referentially stable across unrelated
+  // actions; minting a fresh resolver per dispatch would throw that away at
+  // the context boundary and defeat every React.memo downstream.
+  const people = useMemo(() => makePeople(state.people, state.selfId), [state.people, state.selfId]);
+  const demo = useMemo(() => demoContent(state.account), [state.account]);
+
   const value = useMemo<Store>(
     () => ({
       state,
       dispatch,
       config,
-      demo: demoContent(state.account),
-      people: makePeople(state.people, state.selfId),
+      demo,
+      people,
       effectiveAudience: state.draftAud ?? config.defaultAudience,
     }),
-    [state, config],
+    [state, config, demo, people],
   );
 
-  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+  return (
+    <StoreContext.Provider value={value}>
+      <PeopleContext.Provider value={people}>{children}</PeopleContext.Provider>
+    </StoreContext.Provider>
+  );
 }
 
 /** Load persisted state before the first render. Used by the root entry point. */
@@ -1869,7 +1888,9 @@ export function useStore() {
 }
 
 export function usePeople() {
-  return useStore().people;
+  const people = useContext(PeopleContext);
+  if (!people) throw new Error('usePeople must be used inside <StoreProvider>');
+  return people;
 }
 
 export { ME };

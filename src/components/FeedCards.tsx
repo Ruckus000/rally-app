@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { View } from 'react-native';
-import { color, onDark } from '../theme/tokens';
+import { color, onDark, shadows } from '../theme/tokens';
 import {
   AUDIENCE_LABEL,
   BIG_CARD_BASE_CHEERS,
@@ -19,6 +19,28 @@ import { Icon } from './Icon';
 import { EngagementRow } from './EngagementRow';
 import { Bri, Caps, GlowBloom, GradientHairline, Sans, Tap, fill, row, rowTop } from './primitives';
 
+/**
+ * The gap between stacked cards, and the one place it is decided.
+ *
+ * Raised from the reference's 12 as part of the density pass: the design was
+ * drawn dense at 402pt and reads cramped on a real device, so padding, the
+ * checkbox and the two title sizes moved up one step of the spec's own
+ * rhythm (4/6/8/10/12/14/16/18/22/26) together — scaling the composition
+ * rather than any one card.
+ */
+const CARD_GAP = 14;
+
+/**
+ * Text in a flex row does not shrink on its own.
+ *
+ * React Native's default is `flexShrink: 0` where CSS's is 1, so every title
+ * and name that sits beside something else — points, a face stack, a badge —
+ * took its full intrinsic width and painted straight past the card instead of
+ * wrapping. That is the "cut off information" this app actually had: the web
+ * prototype these cards were drawn from wrapped for free.
+ */
+const shrink = { flexShrink: 1 } as const;
+
 /* ── label ──────────────────────────────────────────────────────────────── */
 
 export function FeedLabel({ children }: { children: string }) {
@@ -31,37 +53,44 @@ export function FeedLabel({ children }: { children: string }) {
 
 /* ── mine ───────────────────────────────────────────────────────────────── */
 
-export function MineRow({
+/**
+ * Memoized, like every card below: each one is a LinearGradient hairline (the
+ * dark ones an SVG bloom too), so re-painting all of them because an unrelated
+ * slice of state moved is exactly the per-keystroke cost this app had. The
+ * handlers take the task id so the caller can pass one stable function to
+ * every row instead of a fresh closure per row per render.
+ */
+export const MineRow = React.memo(function MineRow({
   task,
   onToggle,
   onOpen,
 }: {
   task: Task;
-  onToggle: () => void;
-  onOpen: () => void;
+  onToggle: (id: string) => void;
+  onOpen: (id: string) => void;
 }) {
   const showAud = task.aud !== 'friends';
   return (
-    <GradientHairline radius={21} style={{ marginBottom: 12 }}>
+    <GradientHairline radius={21} style={{ marginBottom: CARD_GAP, ...shadows.card }}>
       <View
         style={{
           ...rowTop,
           gap: 10,
           backgroundColor: color.card,
           borderRadius: 19,
-          paddingVertical: 12,
-          paddingHorizontal: 13,
+          paddingVertical: 14,
+          paddingHorizontal: 16,
         }}
       >
         <Tap
-          onPress={onToggle}
+          onPress={() => onToggle(task.id)}
           accessibilityRole="checkbox"
           accessibilityState={{ checked: task.done }}
           accessibilityLabel={task.title}
           style={{
-            width: 34,
-            height: 34,
-            borderRadius: 17,
+            width: 36,
+            height: 36,
+            borderRadius: 18,
             alignItems: 'center',
             justifyContent: 'center',
             backgroundColor: task.done ? color.lime : '#FAFBF7',
@@ -74,9 +103,16 @@ export function MineRow({
           {task.done ? <Icon name="check" size={16} color={color.ink} strokeWidth={3} /> : null}
         </Tap>
 
-        <Tap onPress={onOpen} accessibilityLabel={`Open ${task.title}`} style={fill} minSize={0}>
+        <Tap onPress={() => onOpen(task.id)} accessibilityLabel={`Open ${task.title}`} style={fill} minSize={0}>
           <View style={[row, { gap: 8 }]}>
-            <Sans size={14.5} weight={600} color={task.done ? color.muted : color.ink}>
+            <Sans
+              size={15.5}
+              weight={600}
+              lineHeight={20}
+              color={task.done ? color.muted : color.ink}
+              style={shrink}
+              numberOfLines={2}
+            >
               {task.title}
             </Sans>
             {task.pair.length ? <FaceStack people={task.pair} size={20} /> : null}
@@ -112,11 +148,11 @@ export function MineRow({
       </View>
     </GradientHairline>
   );
-}
+});
 
 /* ── big (someone else's perfect week) ──────────────────────────────────── */
 
-export function BigCard({
+export const BigCard = React.memo(function BigCard({
   moment,
   badge,
   cheered,
@@ -138,15 +174,21 @@ export function BigCard({
   // a moment carries an id, and the feed has no display string to pass down.
   const people = usePeople();
   return (
-    <GradientHairline radius={25} variant="dark" style={{ marginBottom: 12 }}>
-      <View style={{ backgroundColor: color.ink, borderRadius: 23, padding: 17, overflow: 'hidden' }}>
+    <GradientHairline radius={25} variant="dark" style={{ marginBottom: CARD_GAP }}>
+      <View style={{ backgroundColor: color.ink, borderRadius: 23, padding: 20, overflow: 'hidden' }}>
         <GlowBloom size={190} top={-70} right={-60} opacity={0.22} />
 
         <View style={[row, { gap: 10 }]}>
           <Avatar who={moment.who} size={36} />
           <View style={fill}>
             <View style={[row, { gap: 7 }]}>
-              <Sans size={13.5} weight={600} color={color.paper}>
+              <Sans
+                size={13.5}
+                weight={600}
+                color={color.paper}
+                style={shrink}
+                numberOfLines={1}
+              >
                 {people.name(moment.who)}
               </Sans>
               {badge ? <SourceBadge label={badge} dark /> : null}
@@ -180,6 +222,7 @@ export function BigCard({
 
         <EngagementRow
           dark
+          marginTop={14}
           cheered={cheered}
           cheerCount={BIG_CARD_BASE_CHEERS + (cheered ? 1 : 0)}
           cheerLabel={String(BIG_CARD_BASE_CHEERS + (cheered ? 1 : 0))}
@@ -195,7 +238,7 @@ export function BigCard({
       </View>
     </GradientHairline>
   );
-}
+});
 
 function Stat({ value, label, accent }: { value: string; label: string; accent?: boolean }) {
   return (
@@ -230,7 +273,10 @@ function SourceBadge({ label, dark }: { label: string; dark?: boolean }) {
         paddingVertical: 2,
       }}
     >
-      <Caps size={9.5} tracking={0.9} color={dark ? onDark.secondary : color.muted}>
+      {/* 10px at the spec's floor: "Minimum readable size is 10px and only
+          for uppercase tracked labels at ≥.45 alpha. Do not shrink further."
+          This badge was authored at 9.5 and appears on nearly every card. */}
+      <Caps size={10} tracking={1} color={dark ? onDark.secondary : color.muted}>
         {label}
       </Caps>
     </View>
@@ -239,7 +285,7 @@ function SourceBadge({ label, dark }: { label: string; dark?: boolean }) {
 
 /* ── social (friend moment or global post) ──────────────────────────────── */
 
-export function SocialCard({
+export const SocialCard = React.memo(function SocialCard({
   who,
   initials,
   tint,
@@ -280,7 +326,12 @@ export function SocialCard({
   const quoteRule = tint ?? (who ? undefined : color.chip);
 
   return (
-    <GradientHairline radius={23} style={{ marginBottom: 12 }}>
+    <GradientHairline
+      radius={23}
+      // The ask variant carries a lime border instead, as the reference does —
+      // a shadow under it would read as two outlines.
+      style={{ marginBottom: CARD_GAP, ...(isAsk ? null : shadows.card) }}
+    >
       <Tap
         onPress={onOpen}
         // The badge is in here too. Whose feed a card came from is not
@@ -292,7 +343,7 @@ export function SocialCard({
           borderWidth: 1.5,
           borderColor: isAsk ? color.lime : 'transparent',
           borderRadius: 21,
-          padding: 15,
+          padding: 18,
         }}
       >
         {isAsk ? (
@@ -305,7 +356,7 @@ export function SocialCard({
           <Avatar who={who} initials={initials} tint={tint} label={name} size={34} />
           <View style={fill}>
             <View style={[row, { gap: 7 }]}>
-              <Sans size={13.5} weight={600}>
+              <Sans size={13.5} weight={600} style={shrink} numberOfLines={1}>
                 {name}
               </Sans>
               {badge ? <SourceBadge label={badge} /> : null}
@@ -321,7 +372,7 @@ export function SocialCard({
           ) : null}
         </View>
 
-        <Bri size={17} weight={700} tracking={-0.2} lineHeight={20} style={{ marginTop: 9 }}>
+        <Bri size={18} weight={700} tracking={-0.2} lineHeight={22} style={{ marginTop: 9 }}>
           {title}
         </Bri>
 
@@ -351,11 +402,11 @@ export function SocialCard({
       </Tap>
     </GradientHairline>
   );
-}
+});
 
 /* ── quiet ──────────────────────────────────────────────────────────────── */
 
-export function QuietRow({
+export const QuietRow = React.memo(function QuietRow({
   text,
   acted,
   onAct,
@@ -365,7 +416,7 @@ export function QuietRow({
   onAct: () => void;
 }) {
   return (
-    <View style={[row, { gap: 9, paddingVertical: 2, paddingHorizontal: 4, marginBottom: 12 }]}>
+    <View style={[row, { gap: 9, paddingVertical: 2, paddingHorizontal: 4, marginBottom: CARD_GAP }]}>
       <Sans size={13} color={color.quietText} style={fill}>
         {text}
       </Sans>
@@ -379,11 +430,11 @@ export function QuietRow({
       </Tap>
     </View>
   );
-}
+});
 
 /* ── mineWin (your own perfect week) ────────────────────────────────────── */
 
-export function MineWinCard({
+export const MineWinCard = React.memo(function MineWinCard({
   taskCount,
   points,
   streak,
@@ -400,13 +451,13 @@ export function MineWinCard({
   onShare: () => void;
 }) {
   return (
-    <GradientHairline radius={25} variant="dark" style={{ marginBottom: 12 }}>
+    <GradientHairline radius={25} variant="dark" style={{ marginBottom: CARD_GAP }}>
       <View
         style={{
           backgroundColor: color.ink,
           borderRadius: 23,
-          paddingVertical: 18,
-          paddingHorizontal: 17,
+          paddingVertical: 20,
+          paddingHorizontal: 20,
           overflow: 'hidden',
         }}
       >
@@ -418,7 +469,7 @@ export function MineWinCard({
               PERFECT WEEK
             </Bri>
           </View>
-          <Sans size={11.5} color={onDark.bodySecondary}>
+          <Sans size={11.5} color={onDark.bodySecondary} style={shrink} numberOfLines={2}>
             {weekLabel} — every stake closed.
           </Sans>
         </View>
@@ -454,7 +505,7 @@ export function MineWinCard({
       </View>
     </GradientHairline>
   );
-}
+});
 
 /* ── empty ──────────────────────────────────────────────────────────────── */
 

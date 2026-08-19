@@ -5,7 +5,16 @@
  * must be the metric the ranking uses — showing points there would imply a
  * different sort.
  */
-import { HistoryWeek, Moment, Note, Task, parseHours, weekHeldStreak } from '../data/fixtures';
+import {
+  CATEGORY_POINTS,
+  HistoryWeek,
+  Moment,
+  Note,
+  Suggestion,
+  Task,
+  parseHours,
+  weekHeldStreak,
+} from '../data/fixtures';
 import type { Profile } from '../data/seed';
 import { MemberStats, PersonId, makePeople } from '../data/people';
 import { seedCircle } from '../data/seed';
@@ -446,3 +455,64 @@ export function helpedThisWeek(state: State) {
 }
 
 export const pluralTimes = (n: number) => `${n} time${n > 1 ? 's' : ''}`;
+
+/**
+ * "Pick it back up", for an account with a real circle.
+ *
+ * The rail was demo furniture: `DEMO_CONTENT.live` is deliberately empty, so
+ * a live account never saw the section at all — a named part of the Plan
+ * screen that only existed for the fixtures. Of the three sources the handoff
+ * names, exactly one can be answered from what the device actually holds:
+ * **what your circle has staked that you have not**. The other two cannot be,
+ * honestly — `history` keeps only what was *closed*, so last week's unfinished
+ * titles are already gone by the time this could ask for them, and a
+ * streak-at-risk card has no goal to name.
+ *
+ * Titles are matched case-insensitively against your own week so the rail
+ * never offers you something you are already doing, and one card per title so
+ * three friends running the same 5k is one offer, not three.
+ */
+export function circleSuggestions(state: State, limit = 6): Suggestion[] {
+  const mine = new Set(state.myTasks.map((t) => t.title.trim().toLowerCase()));
+  const used = state.usedSugg;
+  const byTitle = new Map<string, { m: Moment; who: PersonId[] }>();
+
+  for (const m of state.moments) {
+    const title = (m.title ?? '').trim();
+    if (!title || mine.has(title.toLowerCase())) continue;
+    const key = title.toLowerCase();
+    const hit = byTitle.get(key);
+    if (hit) {
+      if (!hit.who.includes(m.who)) hit.who.push(m.who);
+    } else {
+      byTitle.set(key, { m, who: [m.who] });
+    }
+  }
+
+  const p = makePeople(state.people, state.selfId);
+  const out: Suggestion[] = [];
+  for (const { m, who } of byTitle.values()) {
+    const id = `circle:${m.id}`;
+    if (used[id]) continue;
+    const names = who.map((k) => p.first(k));
+    const cat = m.cat ?? 'Fitness';
+    out.push({
+      id,
+      tag: 'Already in',
+      title: m.title ?? '',
+      sub: `${joinFirstNames(names)} staked this one.`,
+      pts: m.pts ?? CATEGORY_POINTS[cat] ?? 30,
+      cat,
+      pair: who,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/** "Maya", "Maya and Dre", "Maya, Dre and 2 others" — the card has one line. */
+const joinFirstNames = (names: string[]): string => {
+  if (names.length <= 1) return names[0] ?? 'Someone';
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names[0]}, ${names[1]} and ${names.length - 2} more`;
+};

@@ -214,13 +214,16 @@ describe('the cheer exchange line', () => {
     expect(screen.getByText(/^1 cheer behind\./)).toBeTruthy();
   });
 
-  it('does not promise a cheer reaches someone’s phone', () => {
-    // There is no push. A cheer arrives in the app, carrying your name — the
-    // trigger puts it in the payload — and that is what the line may claim.
+  it('promises a cheer reaches someone’s phone, which it now does', () => {
+    // This test used to assert the opposite, and was right to: there was no
+    // push, so the handoff's line was a promise the build could not keep and
+    // the copy was softened to match. `push_notification()` fires on the
+    // notification row, the `push` function delivers it, and the device
+    // registers its token through the outbox — so the promise is the app's
+    // again, and the line went back to what was written.
     exchange(1);
 
-    expect(screen.queryByText(/on their phone/i)).toBeNull();
-    expect(screen.getByText(/shows up in their week, with your name on it/)).toBeTruthy();
+    expect(screen.getByText(/lands on their phone, with your name on it/)).toBeTruthy();
   });
 
   it('says "cheers" for more than one — the control', () => {

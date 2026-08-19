@@ -176,6 +176,21 @@ mutation that the server ultimately rejects. It is the larger half of the work.
   batch into one" are a server concern. `notifications.payload` carries the
   rendering data so the client stays a renderer.
 
+## The pull is one round trip
+
+`public.pull_world(p_week_start, p_notif_limit)` answers a whole pull cycle —
+circle, members, bots, notifications, the week's tasks (own and feed), own
+reactions, notes, rollups, and server-counted cheers — as one JSON payload.
+The client's per-table pulls remain in `transport.ts` as the floor: a server
+without the function answers `PGRST202`, the engine remembers that per session
+and falls back to the old three-wave waterfall, so client and migration can
+ship in either order.
+
+The function is **SECURITY INVOKER**, and that is the load-bearing part: every
+subquery runs as the caller under the same RLS as the client's own queries, so
+it restates no visibility rule and cannot drift from the policies below.
+`integration/rls/pull_world.test.ts` holds it to that.
+
 ## RLS is where the audience model lives
 
 The handoff's audience rule — friends / everyone / private — is expressed once,

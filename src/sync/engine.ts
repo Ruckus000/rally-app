@@ -38,6 +38,7 @@ import {
   type OutboxOp,
   type QueueTransport,
 } from './outbox';
+import { dropMediaFor, drainMedia, type MediaTransport } from './media';
 import {
   diffActed,
   parseActedKey,
@@ -52,6 +53,7 @@ import { currentUserId, onSessionChange, reportAuthFailure } from './session';
 import {
   isAuthExpired,
   supabaseTransport,
+  uploadMedia,
   type PulledNote,
   type ReportReason,
   type ReportSubject,
@@ -80,6 +82,8 @@ export type Engine = {
 
 export type EngineOptions = {
   transport?: Transport;
+  /** The media lane's uploader. Injected so a test needs no bucket. */
+  upload?: MediaTransport['upload'];
   pushEveryMs?: number;
   pullEveryMs?: number;
 };
@@ -118,6 +122,16 @@ function wireEntry(op: OutboxOp, payload: Record<string, unknown>, entry: QueueE
       return { ...head, op, name: String(payload.name) };
     case 'device.register':
       return { ...head, op, token: String(payload.token), platform: String(payload.platform) };
+    case 'media.attach':
+      return {
+        ...head,
+        op,
+        mediaId: String(payload.mediaId),
+        taskId: String(payload.taskId),
+        path: String(payload.path),
+        width: Number(payload.width),
+        height: Number(payload.height),
+      };
     case 'rollup.add':
       return {
         ...head,
@@ -180,6 +194,15 @@ function queueTransport(wire: Transport): QueueTransport {
       return { ok: false, permanent: !result.retryable, error: result.error };
     },
   };
+}
+
+/**
+ * The media lane's own transport. The same identity question asked the same
+ * way, and an upload that reports rather than throws — the queue behind it can
+ * only retry or retire, exactly as the outbox's can.
+ */
+function mediaTransport(upload: (e: Parameters<MediaTransport['upload']>[0]) => ReturnType<MediaTransport['upload']>): MediaTransport {
+  return { ownerId: () => currentUserId(), upload };
 }
 
 /** The bell shows a list, not a history. */
@@ -666,10 +689,11 @@ function placedNotes(state: State): PlacedNote[] {
 
 export function createEngine(
   dispatch: Dispatch<Action>,
-  { transport, pushEveryMs = PUSH_MS, pullEveryMs = PULL_MS }: EngineOptions = {},
+  { transport, upload, pushEveryMs = PUSH_MS, pullEveryMs = PULL_MS }: EngineOptions = {},
 ): Engine {
   const wire = transport ?? supabaseTransport();
   const queue = queueTransport(wire);
+  const media = mediaTransport(upload ?? uploadMedia);
 
   /**
    * What the last observation saw, by id. `null` until the first one, which is
@@ -736,8 +760,17 @@ export function createEngine(
   /** The feed's ids, joined. See the comparison in `pull` for why not the rows. */
   let lastNotificationIds = '';
   let pullTimer: ReturnType<typeof setInterval> | null = null;
+  let mediaTimer: ReturnType<typeof setInterval> | null = null;
   let pulling = false;
   let unsubscribeSession: (() => void) | null = null;
+  /**
+   * Whether the server has `pull_world`. Assumed until it answers that it
+   * does not — a fact about the deployment, not the request, so it is asked
+   * once rather than paying a doomed round trip at the head of every pull.
+   * Per engine, not per process: a restart (or an account move to a different
+   * backend) starts a new engine and asks again.
+   */
+  let worldSupported = true;
 
   function observe(state: State): void {
     const tasks = state.myTasks;
@@ -807,7 +840,12 @@ export function createEngine(
         enqueue('task.upsert', `task:${task.id}`, { task, weekStart });
       }
       for (const id of seen.keys()) {
-        if (!next.has(id)) enqueue('task.delete', `task:${id}`, { taskId: id });
+        if (!next.has(id)) {
+          enqueue('task.delete', `task:${id}`, { taskId: id });
+          // The row cascades server-side, but a photo still waiting to upload
+          // would spend the radio on a file nothing will ever point at.
+          dropMediaFor(id);
+        }
       }
 
       seen = next;
@@ -897,56 +935,81 @@ export function createEngine(
       // The week is whatever the last observation saw. Without one there is no
       // week to ask for, and guessing is worse than waiting a cycle.
       const week = lastWeek;
-      const [people, bots, myCircle, notifications, rows, reactions, notes, rollups] =
-        await Promise.all([
-          wire.pullCircle(userId),
-          wire.pullBots(),
-          wire.pullMyCircle(userId),
-          wire.pullNotifications(userId, NOTIFICATION_MAX),
-          week ? wire.pullTasks(userId, mondayOf(week)) : Promise.resolve(null),
-          wire.pullReactions(userId),
-          wire.pullNotes(userId),
-          // Unconditional, unlike `pullTasks` above: closed weeks do not depend
-          // on which week is on screen, and the one moment this answer matters —
-          // the first pull after a reinstall — is a moment when `lastWeek` may
-          // not have been observed yet.
-          wire.pullRollups(userId),
-        ]);
-
-      // The feed is a second wave rather than a fifth entry in the one above:
-      // it can only ask about people `pullCircle` has just named, and asking
-      // the membership question twice in parallel would cost the same round
-      // trip while making the two answers able to disagree.
       const weekStart = week ? mondayOf(week) : null;
-      // Deduped, because the two reads overlap by design: `pullCircle` answers
-      // for everyone in your circles and `pullBots` for every bot, and a bot
-      // you share a circle with is legitimately in both. Left as-is the same id
-      // goes into the owners query twice and into the directory twice — the
-      // second of which is the only reason a caller downstream would ever have
-      // to think about duplicates at all.
-      const memberIds = uniqueIds(people.map((p) => p.id).filter((id) => id !== userId));
+
+      // One round trip when the server has `pull_world`; the per-table
+      // waterfall when it does not. Same keys, same rows, same visibility —
+      // the function is SECURITY INVOKER, so both paths run under the same
+      // RLS and must not be able to disagree.
+      const world = worldSupported ? await wire.pullWorld(weekStart, NOTIFICATION_MAX) : null;
+      if (worldSupported && !world) worldSupported = false;
+
+      const gathered = world ?? {
+        // The old shape, kept as the floor: three serial waves, because a
+        // client cannot ask a dependent question before hearing the answer to
+        // the previous one — which is exactly what `pull_world` moves into
+        // one statement on the server.
+        ...(await (async () => {
+          const [people, bots, myCircle, notifications, myTasks, reactions, notes, rollups] =
+            await Promise.all([
+              wire.pullCircle(userId),
+              wire.pullBots(),
+              wire.pullMyCircle(userId),
+              wire.pullNotifications(userId, NOTIFICATION_MAX),
+              weekStart ? wire.pullTasks(userId, weekStart) : Promise.resolve(null),
+              wire.pullReactions(userId),
+              wire.pullNotes(userId),
+              // Unconditional, unlike `pullTasks` above: closed weeks do not
+              // depend on which week is on screen, and the one moment this
+              // answer matters — the first pull after a reinstall — is a
+              // moment when `lastWeek` may not have been observed yet.
+              wire.pullRollups(userId),
+            ]);
+
+          // The feed is a second wave rather than a ninth entry in the one
+          // above: it can only ask about people `pullCircle` has just named.
+          // Deduped, because the two reads overlap by design — a bot you share
+          // a circle with is legitimately in both lists.
+          const memberIds = uniqueIds(people.map((p) => p.id).filter((id) => id !== userId));
+          const botIds = uniqueIds(bots.map((b) => b.id));
+          const ownerTasks = weekStart
+            ? await wire.pullTasksByOwners(uniqueIds([...memberIds, ...botIds]), weekStart)
+            : [];
+
+          // A third wave, for the same reason the second is one: it can only
+          // ask about rows the first two have just named. One call for both
+          // feeds' worth of ids — the tasks you can see, and your own.
+          const cheerCounts = await wire.pullCheerCounts(
+            [...ownerTasks.map((row) => String(row.id)), ...(myTasks ?? []).map((t) => t.id)],
+            userId,
+          );
+
+          return { people, bots, circle: myCircle, notifications, myTasks, ownerTasks, reactions, notes, rollups, cheerCounts };
+        })()),
+      };
+
+      const {
+        people,
+        bots,
+        circle: myCircle,
+        notifications,
+        myTasks: rows,
+        ownerTasks: ownerRows,
+        reactions,
+        notes,
+        rollups,
+        cheerCounts: cheers,
+      } = gathered;
+
       const botIds = uniqueIds(bots.map((b) => b.id));
-      // Two feeds, one query, one round trip: `pullTasksByOwners` does not care
-      // whose ids these are, and splitting them again afterwards is cheaper
-      // than asking the same question twice.
-      const ownerRows = weekStart
-        ? await wire.pullTasksByOwners(uniqueIds([...memberIds, ...botIds]), weekStart)
-        : [];
       const isBot = new Set(botIds);
       const friendRows = ownerRows.filter((row) => !isBot.has(String(row.owner_id)));
       const botRows = ownerRows.filter((row) => isBot.has(String(row.owner_id)));
-      // A third wave, for the same reason the second is one: it can only ask
-      // about rows the first two have just named.
-      //
-      // One call for both feeds' worth of ids — the tasks you can see, and your
-      // own. `pullCheerCounts` excludes you either way, which is exactly right
-      // in both directions: not your own cheer on a friend's row, and not your
-      // own cheer on your own row, which is not a cheer you received.
+      // `pullCheerCounts` — and `pull_world`'s counting — exclude you, which
+      // is exactly right in both directions: not your own cheer on a friend's
+      // row, and not your own cheer on your own row, which is not a cheer you
+      // received.
       const myIds = (rows ?? []).map((t) => t.id);
-      const cheers = await wire.pullCheerCounts(
-        [...ownerRows.map((row) => String(row.id)), ...myIds],
-        userId,
-      );
 
       const merge: ServerMerge = {};
       // No rows is the common answer for most of these keys, and a dispatch that
@@ -1149,13 +1212,19 @@ export function createEngine(
       // being exactly as live as it was before any of this existed.
       unsubscribeSession = onSessionChange(() => attach());
       pullTimer = setInterval(() => void pull(), pullEveryMs);
+      // The media lane on the push cadence rather than the pull one: a photo
+      // is unsent work, and unsent work belongs to the fast clock.
+      mediaTimer = setInterval(() => void drainMedia(media).catch(() => {}), pushEveryMs);
       void pull();
+      void drainMedia(media).catch(() => {});
     },
 
     stop(): void {
       stopScheduler();
       if (pullTimer) clearInterval(pullTimer);
       pullTimer = null;
+      if (mediaTimer) clearInterval(mediaTimer);
+      mediaTimer = null;
       unsubscribeSession?.();
       unsubscribeSession = null;
       // Unmount, or sync switching off. The channel outliving the engine would
@@ -1167,6 +1236,8 @@ export function createEngine(
       // A rejected drain on a foreground would be an unhandled rejection, which
       // on React Native is a redbox for something the user has no part in.
       void drain(queue).catch(() => {});
+      // Its own lane, kicked at the same moments and blocking none of them.
+      void drainMedia(media).catch(() => {});
       void pull();
     },
   };

@@ -64,6 +64,18 @@ export const AUDIENCE_WORD: Record<Audience, string> = {
 export const QUICK_LOG_POINTS = 20;
 
 /**
+ * The longest a task title may be, everywhere one can be written.
+ *
+ * It was only ever enforced on the Plan composer, where it exists because the
+ * rating function 400s past this length — and a 400 reads to the client as
+ * "nothing wrong with this one". The quick-log and onboarding fields had no
+ * cap at all, which let a title in that no row in this app can lay out: the
+ * feed row, the staked list and the ledger all draw a title beside something
+ * else, so an unbounded one pushes its neighbour off the card.
+ */
+export const TITLE_MAX = 50;
+
+/**
  * `id` is the row's primary key in `notes`, minted where the note is written.
  *
  * Optional, and deliberately so: every fixture note, every note already on disk
@@ -199,6 +211,19 @@ export type Moment = {
    * the word "Cheer" rather than to a confident zero.
    */
   cheers?: number;
+  /**
+   * Whether the row behind this moment is closed. Optional because a fixture
+   * has no such row — and because the feed itself never asks: a card is drawn
+   * the same whether or not the person has ticked it. The person sheet does
+   * ask, which is what this is for.
+   */
+  done?: boolean;
+  /**
+   * What the row behind this is about. Carried for the same reason `done` is —
+   * not for the card, which never shows it, but so Plan can offer a friend's
+   * stake back to you at the price its own category sets.
+   */
+  cat?: Category;
   backers?: PersonId[];
   cmts?: Note[];
 };
@@ -647,6 +672,15 @@ export const NOTIFICATIONS: Notification[] = [
   },
 ];
 
+/**
+ * Ratified deviation — see design-reference/DEVIATIONS.md.
+ *
+ * The handoff names these "Needs you / Worth a look / Batched". These split
+ * by *who a row is about* rather than by urgency and then by format: batching
+ * is something that happens to cheers inside a tier — `batchCheers` groups
+ * them wherever they land — so a tier named after it would be a rendering
+ * detail sitting alongside two real categories.
+ */
 export const NOTIF_TIERS: { key: NotifTier; title: string; accent: string; blurb: string }[] = [
   {
     key: 'needs',

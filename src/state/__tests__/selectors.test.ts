@@ -9,6 +9,7 @@ import {
   cheersGiven,
   circleCheersGiven,
   circleMembers,
+  circleSuggestions,
   helpedByThisWeek,
   helpedThisWeek,
   mergedFeed,
@@ -269,5 +270,63 @@ describe('ledger rollup', () => {
       acted: { [`${base.moments.find((m) => m.who === 'maya')!.id}:cheer`]: true as const },
     };
     expect(helpedThisWeek(acted).maya).toBeUndefined();
+  });
+});
+
+describe('pick it back up', () => {
+  /** A live account whose circle has staked things, with a week of its own. */
+  const withCircle = (moments: typeof base.moments, myTitles: string[] = []) => ({
+    ...base,
+    account: 'live' as const,
+    usedSugg: {},
+    myTasks: myTitles.map((title, i) => ({ ...base.myTasks[0]!, id: `mine-${i}`, title })),
+    moments,
+  });
+
+  const stake = (id: string, who: PersonId, title: string, over = {}) => ({
+    ...base.moments[0]!,
+    id,
+    who,
+    kind: 'normal' as const,
+    title,
+    pts: 40,
+    cat: 'Fitness' as const,
+    ...over,
+  });
+
+  it('offers what the circle has staked', () => {
+    const out = circleSuggestions(withCircle([stake('m1', 'maya', 'Swim 2k')]));
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ title: 'Swim 2k', pts: 40, cat: 'Fitness', pair: ['maya'] });
+    // The card names who is already in it — that is the whole pitch.
+    expect(out[0]!.sub).toContain('Maya');
+  });
+
+  it('never offers something already on your own week', () => {
+    // Case and surrounding space are not a different goal.
+    const out = circleSuggestions(withCircle([stake('m1', 'maya', 'Swim 2k')], ['  swim 2K ']));
+    expect(out).toEqual([]);
+  });
+
+  it('draws one card for a goal several people share, naming them together', () => {
+    const out = circleSuggestions(
+      withCircle([
+        stake('m1', 'maya', 'Run 3x this week'),
+        stake('m2', 'dre', 'Run 3x this week'),
+      ]),
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]!.pair).toEqual(['maya', 'dre']);
+    expect(out[0]!.sub).toContain('and');
+  });
+
+  it('drops a card once it has been staked, so it cannot be taken twice', () => {
+    const state = withCircle([stake('m1', 'maya', 'Swim 2k')]);
+    const [offer] = circleSuggestions(state);
+    expect(circleSuggestions({ ...state, usedSugg: { [offer!.id]: true } })).toEqual([]);
+  });
+
+  it('says nothing when the circle has staked nothing', () => {
+    expect(circleSuggestions(withCircle([]))).toEqual([]);
   });
 });

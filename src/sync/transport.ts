@@ -47,6 +47,18 @@ export type WireOp =
   // No `profile_id`, for the reason every other payload here lacks an owner: it
   // is stamped from the session at push time, and a rollup that could name its
   // own owner could write a week into somebody else's history.
+  // No `owner_id`, for the reason nothing else here carries one. The row is
+  // written only after the object it names is in the bucket — see `media.ts`.
+  | {
+      id: string;
+      at: number;
+      op: 'media.attach';
+      mediaId: string;
+      taskId: string;
+      path: string;
+      width: number;
+      height: number;
+    }
   | {
       id: string;
       at: number;
@@ -85,8 +97,38 @@ export type PushResult =
   | { ok: false; retryable: true; error: string }
   | { ok: false; retryable: false; code: string; error: string };
 
+/**
+ * Everything one pull cycle reads, in one payload — the answer `pull_world`
+ * gives. The keys mirror the per-table pulls one-for-one, because the engine
+ * has to be able to take either answer: a server older than the function
+ * cannot give this one, and the per-table pulls are the fallback.
+ *
+ * `myTasks` is null when no week was asked for — "no week on screen yet" and
+ * "a week with nothing staked" are different answers, exactly as `pullTasks`'s
+ * absence vs its empty array has always distinguished them.
+ */
+export type World = {
+  people: Person[];
+  bots: Person[];
+  circle: CircleRef | null;
+  notifications: Record<string, unknown>[];
+  myTasks: Task[] | null;
+  ownerTasks: Record<string, unknown>[];
+  reactions: ReactionRef[];
+  notes: PulledNote[];
+  rollups: PulledRollup[];
+  cheerCounts: Record<string, number>;
+};
+
 export type Transport = {
   push(entry: WireOp, userId: string): Promise<PushResult>;
+  /**
+   * The whole pull in one round trip, or `null` from a server that does not
+   * have the function yet — the caller falls back to the per-table pulls
+   * below, which remain the contract's floor. Null is a fact about the
+   * *server*, so the caller may remember it rather than asking every cycle.
+   */
+  pullWorld(weekStart: string | null, notifLimit: number): Promise<World | null>;
   pullTasks(userId: string, weekStart: string): Promise<Task[]>;
   pullCircle(userId: string): Promise<Person[]>;
   pullMyCircle(userId: string): Promise<CircleRef | null>;
@@ -221,6 +263,53 @@ const writes = (op: WireOp['op']): boolean => op !== 'task.delete' && op !== 're
 const isKind = (v: string): v is ReactionKind => (REACTION_KINDS as readonly string[]).includes(v);
 
 /**
+ * A `reactions` row into a ref, or nothing for a kind a newer build invented —
+ * dropping it beats rendering it as whichever kind this build would fall back
+ * to. Shared by `pullReactions` and `pullWorld`, whose rows must read the same.
+ */
+const rowToReactionRef = (r: unknown): ReactionRef[] => {
+  const row = r as { target_id: unknown; kind: unknown };
+  const kind = String(row.kind);
+  return isKind(kind) ? [{ targetId: String(row.target_id), kind }] : [];
+};
+
+/**
+ * A `notes` row into the shape the client can place, or nothing for a row that
+ * somehow names no target: the CHECK guarantees exactly one, but a row is
+ * untrusted input like any other, and one naming neither must not be given a
+ * target the client invents for it. Shared by `pullNotes` and `pullWorld`.
+ */
+const rowToPulledNote = (r: unknown): PulledNote[] => {
+  const row = r as Record<string, unknown>;
+  const target: NoteTarget | null =
+    typeof row.task_id === 'string'
+      ? { taskId: row.task_id }
+      : typeof row.recipient_id === 'string'
+        ? { recipientId: row.recipient_id }
+        : null;
+  if (!target) return [];
+  return [
+    {
+      id: String(row.id),
+      authorId: String(row.author_id),
+      body: String(row.body ?? ''),
+      target,
+      at: String(row.created_at ?? ''),
+    },
+  ];
+};
+
+/** A `week_rollups` row into the pulled shape. Shared by `pullRollups` and `pullWorld`. */
+const rowToPulledRollup = (row: Record<string, unknown>): PulledRollup => ({
+  weekStart: String(row.week_start),
+  points: Number(row.points ?? 0),
+  done: Number(row.done ?? 0),
+  total: Number(row.total ?? 0),
+  perfect: !!row.perfect,
+  streakHeld: !!row.streak_held,
+});
+
+/**
  * `notes_exactly_one_target` is a CHECK over both columns, so the one that is
  * not the target is written as an explicit null rather than omitted: an upsert
  * that leaves a column out leaves whatever was there before, which on a replay
@@ -344,6 +433,87 @@ export async function joinCircleByCode(code: string): Promise<string> {
   }
   if (!data) throw new UnknownInviteCode();
   return String(data);
+}
+
+/** The bucket photos live in. Private; reads are signed. See the migration. */
+export const MEDIA_BUCKET = 'task-media';
+
+/**
+ * Put a photo in the bucket.
+ *
+ * Kept out of `Transport` on purpose: everything there is JSON on a strictly
+ * ordered queue, and this is bytes on an unordered one — see `media.ts` for
+ * why those cannot share a lane. It reports rather than throws, like `push`,
+ * because the queue behind it can only do two things with the answer.
+ *
+ * The bytes come from `fetch` on the local `file://` URI rather than from a
+ * filesystem module, which keeps this slice free of a native dependency. If
+ * that proves unreliable on a real device, this function is the only place
+ * that has to change.
+ *
+ * `upsert` is what makes a retry after a timeout harmless: the first attempt
+ * may well have landed, and the second must not fail because of it.
+ */
+export async function uploadMedia(entry: {
+  localUri: string;
+  path: string;
+}): Promise<{ ok: true } | { ok: false; permanent: boolean; error: string }> {
+  let body: ArrayBuffer;
+  try {
+    const file = await fetch(entry.localUri);
+    body = await file.arrayBuffer();
+  } catch (err) {
+    // The file is gone — evicted from the cache, or the pick never completed.
+    // No retry can conjure it back, so this is permanent rather than a
+    // network failure that happens to look like one.
+    return { ok: false, permanent: true, error: `unreadable: ${describe(asWireError(err))}` };
+  }
+
+  try {
+    const { error } = await getSupabase()
+      .storage.from(MEDIA_BUCKET)
+      .upload(entry.path, body, { contentType: 'image/jpeg', upsert: true });
+    if (!error) return { ok: true };
+
+    const e = asWireError(error);
+    // A refusal from storage is the same two-way decision push makes, and is
+    // classified by the same rules: a 413 or a 403 will say the same thing
+    // next minute, a dead network will not.
+    if (isNetwork(e) || isTransient(e)) return { ok: false, permanent: false, error: describe(e) };
+    return { ok: false, permanent: true, error: describe(e) };
+  } catch (err) {
+    const e = asWireError(err);
+    return { ok: false, permanent: !isNetwork(e) && !isTransient(e), error: describe(e) };
+  }
+}
+
+/** `<owner>/<task>/<media>.jpg` — the shape both storage policies read. */
+export const mediaPath = (ownerId: string, taskId: string, mediaId: string): string =>
+  `${ownerId}/${taskId}/${mediaId}.jpg`;
+
+/**
+ * A readable URL for a photo, good for a week.
+ *
+ * The bucket is private, so this is the only way to draw one — and signing
+ * requires the select policy to pass, which is what makes the audience rule
+ * reach the file rather than only the row pointing at it. Batched because a
+ * pull can carry a whole feed's worth.
+ */
+export async function signMedia(paths: string[], seconds = 604800): Promise<Record<string, string>> {
+  if (paths.length === 0) return {};
+  const { data, error } = await getSupabase()
+    .storage.from(MEDIA_BUCKET)
+    .createSignedUrls(paths, seconds);
+  // A pull that cannot sign is a pull with no pictures in it, not a failed
+  // pull: the rows are still worth having, and the next cycle tries again.
+  if (error) return {};
+
+  const urls: Record<string, string> = {};
+  for (const row of data ?? []) {
+    const r = row as { path?: string | null; signedUrl?: string | null };
+    if (r.path && r.signedUrl) urls[r.path] = r.signedUrl;
+  }
+  return urls;
 }
 
 export function supabaseTransport(): Transport {
@@ -485,6 +655,26 @@ export function supabaseTransport(): Transport {
           streak_held: entry.streakHeld,
         },
         { onConflict: 'profile_id,week_start', ignoreDuplicates: true },
+      );
+      if (error) throw error;
+      return;
+    }
+
+    if (entry.op === 'media.attach') {
+      // `ignoreDuplicates` for the reason `reaction.add` uses it: a replay has
+      // already achieved its intent. The pk is client-minted, so a second
+      // delivery collides with itself rather than attaching the same photo
+      // twice — and `unique (task_id)` would refuse it anyway.
+      const { error } = await supabase.from('task_media').upsert(
+        {
+          id: entry.mediaId,
+          task_id: entry.taskId,
+          owner_id: userId,
+          path: entry.path,
+          width: entry.width,
+          height: entry.height,
+        },
+        { onConflict: 'id', ignoreDuplicates: true },
       );
       if (error) throw error;
       return;
@@ -702,14 +892,7 @@ export function supabaseTransport(): Transport {
       .order('week_start', { ascending: true });
     if (error) fail(error);
 
-    return (data ?? []).map((row) => ({
-      weekStart: String(row.week_start),
-      points: Number(row.points ?? 0),
-      done: Number(row.done ?? 0),
-      total: Number(row.total ?? 0),
-      perfect: !!row.perfect,
-      streakHeld: !!row.streak_held,
-    }));
+    return (data ?? []).map((row) => rowToPulledRollup(row as Record<string, unknown>));
   };
 
   /**
@@ -767,13 +950,7 @@ export function supabaseTransport(): Transport {
       .eq('target_type', TARGET_TYPE);
     if (error) fail(error);
 
-    return (data ?? []).flatMap((r) => {
-      const row = r as { target_id: unknown; kind: unknown };
-      const kind = String(row.kind);
-      // A kind a newer build invented. Dropping it beats rendering it as
-      // whichever kind this build would fall back to.
-      return isKind(kind) ? [{ targetId: String(row.target_id), kind }] : [];
-    });
+    return (data ?? []).flatMap(rowToReactionRef);
   };
 
   /**
@@ -803,32 +980,76 @@ export function supabaseTransport(): Transport {
       onMine = res.data ?? [];
     }
 
-    return [...(toMe.data ?? []), ...onMine].flatMap((r) => {
-      const row = r as Record<string, unknown>;
-      // The CHECK guarantees exactly one target, but a row is untrusted input
-      // like any other: one that somehow names neither is dropped rather than
-      // given a target the client invents for it.
-      const target: NoteTarget | null =
-        typeof row.task_id === 'string'
-          ? { taskId: row.task_id }
-          : typeof row.recipient_id === 'string'
-            ? { recipientId: row.recipient_id }
-            : null;
-      if (!target) return [];
-      return [
-        {
-          id: String(row.id),
-          authorId: String(row.author_id),
-          body: String(row.body ?? ''),
-          target,
-          at: String(row.created_at ?? ''),
-        },
-      ];
+    return [...(toMe.data ?? []), ...onMine].flatMap(rowToPulledNote);
+  };
+
+  /**
+   * The whole pull in one round trip — `pull_world` on the server, which runs
+   * the same queries the per-table pulls make, as the caller, under the same
+   * RLS, inside one statement. See the migration for why SECURITY INVOKER is
+   * the load-bearing part.
+   *
+   * `null` means the server does not have the function: `PGRST202` is
+   * PostgREST's "not in my schema cache", `42883` is Postgres's "no such
+   * function" — both are facts about the deployment, not about this request,
+   * so the caller is right to remember the answer and stop asking. Every other
+   * failure throws, exactly as the per-table pulls do.
+   */
+  const pullWorld = async (
+    weekStart: string | null,
+    notifLimit: number,
+  ): Promise<World | null> => {
+    const { data, error } = await getSupabase().rpc('pull_world', {
+      p_week_start: weekStart,
+      p_notif_limit: notifLimit,
     });
+    if (error) {
+      const code = (error as WireError).code ?? '';
+      if (code === 'PGRST202' || code === '42883') return null;
+      fail(error as WireError);
+    }
+
+    const w = (data ?? {}) as Record<string, unknown>;
+    const rows = (v: unknown): Record<string, unknown>[] =>
+      Array.isArray(v) ? (v as Record<string, unknown>[]) : [];
+
+    const circleRow = (w.circle ?? null) as Record<string, unknown> | null;
+    const circle: CircleRef | null = circleRow?.id
+      ? {
+          id: String(circleRow.id),
+          name: String(circleRow.name ?? ''),
+          inviteCode: String(circleRow.invite_code ?? ''),
+        }
+      : null;
+
+    // Counted server-side, but still narrowed here: a count is untrusted input
+    // like any row, and NaN in a cheer chip is worse than no chip.
+    const cheerCounts: Record<string, number> = {};
+    if (w.cheer_counts && typeof w.cheer_counts === 'object' && !Array.isArray(w.cheer_counts)) {
+      for (const [id, n] of Object.entries(w.cheer_counts as Record<string, unknown>)) {
+        const count = Number(n);
+        if (Number.isFinite(count)) cheerCounts[id] = count;
+      }
+    }
+
+    return {
+      people: rows(w.people).map(rowToPerson),
+      bots: rows(w.bots).map(rowToPerson),
+      circle,
+      notifications: rows(w.notifications),
+      // Null and empty stay distinct across the wire — see `World.myTasks`.
+      myTasks: w.my_tasks == null ? null : rows(w.my_tasks).map(rowToTask),
+      ownerTasks: rows(w.owner_tasks),
+      reactions: rows(w.reactions).flatMap(rowToReactionRef),
+      notes: rows(w.notes).flatMap(rowToPulledNote),
+      rollups: rows(w.rollups).map(rowToPulledRollup),
+      cheerCounts,
+    };
   };
 
   return {
     push,
+    pullWorld,
     pullTasks,
     pullCircle,
     pullMyCircle,

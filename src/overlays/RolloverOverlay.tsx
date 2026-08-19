@@ -25,18 +25,49 @@ export function RolloverOverlay({
   bottomInset: number;
 }) {
   const { state, dispatch } = useStore();
-  const to = state.pendingRollover?.to;
   const [carry, setCarry] = useState<string[]>([]);
+  // `COMMIT_ROLLOVER` rewrites the week while <Presence> is still fading this
+  // out. Rendering from a snapshot of the closing week's slices keeps it on
+  // screen through the exit instead of flashing the new, empty one. Guarded
+  // setState during render — the sanctioned previous-value pattern.
+  const live = !!state.pendingRollover;
+  const [snap, setSnap] = useState(() =>
+    state.pendingRollover
+      ? { rollover: state.pendingRollover, tasks: state.myTasks, week: state.week }
+      : null,
+  );
+  if (
+    state.pendingRollover &&
+    (snap?.rollover !== state.pendingRollover ||
+      snap.tasks !== state.myTasks ||
+      snap.week !== state.week)
+  ) {
+    setSnap({ rollover: state.pendingRollover, tasks: state.myTasks, week: state.week });
+  }
 
-  if (!to) return null;
-
-  const done = state.myTasks.filter((t) => t.done);
-  const open = state.myTasks.filter((t) => !t.done);
+  if (!snap) return null;
+  const to = snap.rollover.to;
+  const weekLabel = snap.week.label;
+  const total = snap.tasks.length;
+  const done = snap.tasks.filter((t) => t.done);
+  const open = snap.tasks.filter((t) => !t.done);
   const points = done.reduce((a, t) => a + t.pts, 0);
-  const perfect = state.myTasks.length > 0 && open.length === 0;
+  const perfect = total > 0 && open.length === 0;
 
   const toggle = (id: string) =>
     setCarry((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
+
+  const commit = () => {
+    // Only while the rollover is still pending: a second tap during the exit
+    // fade must not queue a second rollup or re-commit.
+    if (!live) return;
+    // Queued in the same tick as the dispatch, the way a rename is —
+    // see `queueRollup` for why this is not derived from state. The
+    // numbers come from the same function the reducer uses, so the week
+    // on the server and the week in `history` cannot disagree.
+    queueRollup({ weekStart: mondayOf(state.week), ...closingWeek(state.myTasks) });
+    dispatch({ type: 'COMMIT_ROLLOVER', carryIds: carry });
+  };
 
   return (
     <Overlay
@@ -54,13 +85,13 @@ export function RolloverOverlay({
         }}
       >
         <Caps size={10} tracking={1.9}>
-          {state.week.label} is over
+          {weekLabel} is over
         </Caps>
         <Bri size={26} weight={800} tracking={-0.6} style={{ marginTop: 4 }}>
           {perfect
             ? 'You closed the whole thing.'
             : done.length
-              ? `You closed ${done.length} of ${state.myTasks.length}.`
+              ? `You closed ${done.length} of ${total}.`
               : 'That week didn’t land.'}
         </Bri>
         <Sans size={13} lineHeight={18} color={color.muted} style={{ marginTop: 6 }}>
@@ -136,7 +167,7 @@ export function RolloverOverlay({
           </>
         ) : (
           <Sans size={13} lineHeight={18} color={color.muted} style={{ textAlign: 'center', padding: 16 }}>
-            {state.myTasks.length
+            {total
               ? 'Nothing left open. Clean slate either way.'
               : 'You didn’t stake anything. A clean slate then.'}
           </Sans>
@@ -181,14 +212,7 @@ export function RolloverOverlay({
         }}
       >
         <Tap
-          onPress={() => {
-            // Queued in the same tick as the dispatch, the way a rename is —
-            // see `queueRollup` for why this is not derived from state. The
-            // numbers come from the same function the reducer uses, so the week
-            // on the server and the week in `history` cannot disagree.
-            queueRollup({ weekStart: mondayOf(state.week), ...closingWeek(state.myTasks) });
-            dispatch({ type: 'COMMIT_ROLLOVER', carryIds: carry });
-          }}
+          onPress={commit}
           accessibilityLabel={`Start ${to.label}`}
           style={{
             minHeight: 54,

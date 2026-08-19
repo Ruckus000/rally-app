@@ -5,7 +5,7 @@
 import React from 'react';
 import { TextInput, View } from 'react-native';
 import { color, radius, shadows } from '../theme/tokens';
-import { Moment } from '../data/fixtures';
+import { Moment, TITLE_MAX } from '../data/fixtures';
 import { useStore } from '../state/store';
 import {
   allTasksDone,
@@ -45,7 +45,14 @@ export function WeekScreen() {
       {scope === 'feed' && state.moments.length ? (
         <Tap
           onPress={() => dispatch({ type: 'OPEN_WRAP', week: null })}
-          style={{ paddingTop: 16, paddingBottom: 6, paddingHorizontal: 12, alignItems: 'center' }}
+          style={{
+            paddingTop: 16,
+            paddingBottom: 6,
+            paddingHorizontal: 12,
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: 44,
+          }}
         >
           <Sans size={12.5} weight={700} color={color.moss}>
             That’s the week. See how it went, together →
@@ -68,46 +75,7 @@ function PersonalHeader() {
       <View style={[row, { gap: 11, marginBottom: 14 }]}>
         <Avatar who={people.selfId} size={38} />
         {state.composerOpen ? (
-          <>
-            <TextInput
-              value={state.composerVal}
-              onChangeText={(value) => dispatch({ type: 'SET_COMPOSER_VAL', value })}
-              onSubmitEditing={() => dispatch({ type: 'SUBMIT_COMPOSER' })}
-              onKeyPress={(e) => {
-                if (e.nativeEvent.key === 'Escape') dispatch({ type: 'SET_COMPOSER', open: false });
-              }}
-              autoFocus
-              returnKeyType="done"
-              placeholder="Log something for today…"
-              placeholderTextColor={color.muted}
-              accessibilityLabel="Log something for today"
-              style={{
-                flex: 1,
-                height: 44,
-                backgroundColor: color.card,
-                borderRadius: 999,
-                paddingHorizontal: 16,
-                fontFamily: 'InstrumentSans_400Regular',
-                fontSize: 14,
-                color: color.ink,
-                ...shadows.card,
-              }}
-            />
-            <Tap
-              onPress={() => dispatch({ type: 'SUBMIT_COMPOSER' })}
-              accessibilityLabel="Log it"
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                backgroundColor: color.lime,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Icon name="check" size={16} color={color.ink} />
-            </Tap>
-          </>
+          <QuickLogInput />
         ) : (
           <Tap
             onPress={() => dispatch({ type: 'SET_COMPOSER', open: true })}
@@ -145,6 +113,11 @@ function PersonalHeader() {
           {pts} pts
         </Bri>
         <View style={{ width: 3, height: 3, borderRadius: 2, backgroundColor: 'rgba(241,242,236,.3)' }} />
+        {/* Ratified deviation — see design-reference/DEVIATIONS.md. The
+            handoff reads "{n} this week"; this reports progress instead,
+            because how many you staked is already the length of the list
+            directly below, and how many you closed is not said anywhere else
+            on this screen. */}
         <Sans size={12.5} color="rgba(241,242,236,.6)">
           {doneCount} of {state.myTasks.length} done
         </Sans>
@@ -156,10 +129,91 @@ function PersonalHeader() {
   );
 }
 
+/**
+ * The quick-log field keeps its text locally while the user types. A keystroke
+ * used to dispatch `SET_COMPOSER_VAL`, which re-rendered every consumer of the
+ * store — header, tab bar, every feed card — per character. The reducer still
+ * owns the submit: the buffered text is written back in the same batch as
+ * `SUBMIT_COMPOSER`, so the reducer contract is unchanged.
+ */
+function QuickLogInput() {
+  const { dispatch } = useStore();
+  const [text, setText] = React.useState('');
+
+  const submit = () => {
+    dispatch({ type: 'SET_COMPOSER_VAL', value: text });
+    dispatch({ type: 'SUBMIT_COMPOSER' });
+  };
+
+  return (
+    <>
+      <TextInput
+        value={text}
+        onChangeText={setText}
+        onSubmitEditing={submit}
+        onKeyPress={(e) => {
+          if (e.nativeEvent.key === 'Escape') dispatch({ type: 'SET_COMPOSER', open: false });
+        }}
+        // Escape is the only way out on a keyboard, and a phone has no Escape:
+        // tapping away from an empty field closes it, which is what every
+        // other dismissable field on a phone does. Text typed is never
+        // discarded this way — a non-empty field stays open, waiting.
+        onBlur={() => {
+          if (!text.trim()) dispatch({ type: 'SET_COMPOSER', open: false });
+        }}
+        autoFocus
+        returnKeyType="done"
+        // The same cap the Plan composer carries. Without it this field was
+        // the one way to mint a title no row in the app can lay out.
+        maxLength={TITLE_MAX}
+        placeholder="Log something for today…"
+        placeholderTextColor={color.muted}
+        accessibilityLabel="Log something for today"
+        style={{
+          flex: 1,
+          height: 44,
+          backgroundColor: color.card,
+          borderRadius: 999,
+          paddingHorizontal: 16,
+          fontFamily: 'InstrumentSans_400Regular',
+          fontSize: 14,
+          color: color.ink,
+          ...shadows.card,
+        }}
+      />
+      <Tap
+        onPress={submit}
+        accessibilityLabel="Log it"
+        style={{
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          backgroundColor: color.lime,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Icon name="check" size={16} color={color.ink} />
+      </Tap>
+    </>
+  );
+}
+
 function PersonalFeed() {
   const { state, dispatch } = useStore();
-  const { done, open } = personalFeed(state);
+  const { done, open } = React.useMemo(() => personalFeed(state), [state.myTasks]); // eslint-disable-line react-hooks/exhaustive-deps
   const won = allTasksDone(state);
+
+  // Stable across renders (dispatch is), so the memoized rows below skip
+  // re-rendering when an unrelated slice of state moves.
+  const onToggle = React.useCallback(
+    (id: string) => dispatch({ type: 'TOGGLE_TASK', id }),
+    [dispatch],
+  );
+  const onOpen = React.useCallback(
+    (id: string) => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'task', id } }),
+    [dispatch],
+  );
 
   return (
     <>
@@ -181,22 +235,12 @@ function PersonalFeed() {
       ) : null}
 
       {done.map((t) => (
-        <MineRow
-          key={t.id}
-          task={t}
-          onToggle={() => dispatch({ type: 'TOGGLE_TASK', id: t.id })}
-          onOpen={() => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'task', id: t.id } })}
-        />
+        <MineRow key={t.id} task={t} onToggle={onToggle} onOpen={onOpen} />
       ))}
 
       {open.length ? <FeedLabel>Still open</FeedLabel> : null}
       {open.map((t) => (
-        <MineRow
-          key={t.id}
-          task={t}
-          onToggle={() => dispatch({ type: 'TOGGLE_TASK', id: t.id })}
-          onOpen={() => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'task', id: t.id } })}
-        />
+        <MineRow key={t.id} task={t} onToggle={onToggle} onOpen={onOpen} />
       ))}
     </>
   );
@@ -216,7 +260,13 @@ function PersonalFeed() {
  */
 function Feed() {
   const { state, config, dispatch } = useStore();
-  const entries = mergedFeed(state, config.quietComebacks);
+  // Filter + merge + sort, keyed on the two slices it reads. It used to
+  // re-sort the whole feed on every render of this screen.
+  const entries = React.useMemo(
+    () => mergedFeed(state, config.quietComebacks),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.moments, state.globalPosts, config.quietComebacks],
+  );
   const alone = circleMembers(state).length < 2;
 
   // Only reachable before the first pull lands, or on an account with no bots
@@ -271,8 +321,40 @@ function MomentItem({ moment: m, from }: { moment: Moment; from: FeedSource }) {
   const first = people.first(m.who);
   const cheered = !!state.acted[`${m.id}:cheer`];
 
-  const openSheet = () => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'task', id: m.id } });
-  const cheer = () => dispatch({ type: 'ACT', id: m.id, kind: 'cheer', toast: `${first} heard that` });
+  // Stable identities so the memoized cards below skip re-rendering when an
+  // unrelated dispatch lands (dispatch itself never changes).
+  const openSheet = React.useCallback(
+    () => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'task', id: m.id } }),
+    [dispatch, m.id],
+  );
+  const cheer = React.useCallback(
+    () => dispatch({ type: 'ACT', id: m.id, kind: 'cheer', toast: `${first} heard that` }),
+    [dispatch, m.id, first],
+  );
+
+  const onCosign = React.useCallback(
+    () => dispatch({ type: 'ACT', id: m.id, kind: 'cosign', toast: `You’re in with ${first}` }),
+    [dispatch, m.id, first],
+  );
+  const onNod = React.useCallback(
+    () => dispatch({ type: 'ACT', id: m.id, kind: 'nod', toast: `${first} saw that` }),
+    [dispatch, m.id, first],
+  );
+
+  const isAsk = m.kind === 'ask';
+  const isIn = !!state.acted[`${m.id}:in`];
+  const cta = React.useMemo(
+    () =>
+      isAsk
+        ? {
+            label: isIn ? 'You’re in ✓' : 'Sit with him',
+            onPress: () =>
+              dispatch({ type: 'ACT', id: m.id, kind: 'in', toast: `${first} knows you’re coming` }),
+            style: isIn ? ('inkOnLime' as const) : ('lime' as const),
+          }
+        : undefined,
+    [isAsk, isIn, dispatch, m.id, first],
+  );
 
   if (m.kind === 'big') {
     return (
@@ -283,25 +365,16 @@ function MomentItem({ moment: m, from }: { moment: Moment; from: FeedSource }) {
         cosigned={!!state.acted[`${m.id}:cosign`]}
         onCheer={cheer}
         onComment={openSheet}
-        onCosign={() =>
-          dispatch({ type: 'ACT', id: m.id, kind: 'cosign', toast: `You’re in with ${first}` })
-        }
+        onCosign={onCosign}
       />
     );
   }
 
   if (m.kind === 'quiet') {
     return (
-      <QuietRow
-        text={m.text ?? ''}
-        acted={!!state.acted[`${m.id}:nod`]}
-        onAct={() => dispatch({ type: 'ACT', id: m.id, kind: 'nod', toast: `${first} saw that` })}
-      />
+      <QuietRow text={m.text ?? ''} acted={!!state.acted[`${m.id}:nod`]} onAct={onNod} />
     );
   }
-
-  const isAsk = m.kind === 'ask';
-  const isIn = !!state.acted[`${m.id}:in`];
 
   return (
     <SocialCard
@@ -322,16 +395,7 @@ function MomentItem({ moment: m, from }: { moment: Moment; from: FeedSource }) {
       onOpen={openSheet}
       onCheer={cheer}
       onComment={openSheet}
-      cta={
-        isAsk
-          ? {
-              label: isIn ? 'You’re in ✓' : 'Sit with him',
-              onPress: () =>
-                dispatch({ type: 'ACT', id: m.id, kind: 'in', toast: `${first} knows you’re coming` }),
-              style: isIn ? 'inkOnLime' : 'lime',
-            }
-          : undefined
-      }
+      cta={cta}
     />
   );
 }
