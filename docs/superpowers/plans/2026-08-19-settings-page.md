@@ -63,7 +63,7 @@ first, then sign out, then dispatch.
 | `src/overlays/settings/__tests__/guards.test.ts` (create) | The visibility matrix |
 | `src/overlays/settings/__tests__/signOut.test.ts` (create) | The sequence, and the abort that prevents silent data loss |
 | `src/overlays/__tests__/SettingsOverlay.test.tsx` (create) | Rendering, routing, and the disabled state |
-| `TESTING.md` (modify) | Retire the "no settings page" bullet |
+| `TESTING.md` (modify) | Add a Known-limits bullet for sign-out; amend the iOS-recovery bullet. There is **no** "no settings page" bullet to retire — earlier drafts claimed one existed |
 
 Three small files rather than one overlay, because the two things most likely to be
 wrong — who sees the sign-out button, and what happens when the queue is not empty —

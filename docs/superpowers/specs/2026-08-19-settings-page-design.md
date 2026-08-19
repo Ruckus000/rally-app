@@ -16,8 +16,13 @@ Account controls are scattered across four surfaces, and one of them is unreacha
 
 The consequence: a signed-in account cannot sign out, switch accounts, or reach the
 recovery path without deleting the app. That also makes recovery hard to test, since
-a reinstall is the only route back to the Apple button. Recorded as the "no settings
-page" bullet in `TESTING.md` Known limits.
+a reinstall is the only route back to the Apple button.
+
+**Correction.** Earlier drafts of this spec said the problem was "recorded as the
+'no settings page' bullet in `TESTING.md` Known limits". No such bullet exists — the
+nearest one ("On iOS an account can now be got back…") was written for a different
+change and only mentions reinstall in passing. The limitation was real but undocumented,
+so this work *adds* a Known-limits bullet rather than retiring one.
 
 ## Decisions
 
@@ -188,7 +193,7 @@ would be online.
 | `src/overlays/SettingsOverlay.tsx` | new |
 | `src/App.tsx` | render `SettingsOverlay` when `state.settingsOpen` |
 | `src/screens/MeScreen.tsx` | Settings row at the foot of the screen. `DevControls` is untouched — `Reset app data` stays there, behind `__DEV__` |
-| `TESTING.md` | Retire the "no settings page" bullet in Known limits; note that recovery is now testable without a reinstall |
+| `TESTING.md` | Add a Known-limits bullet for what sign-out does and does not do; amend the iOS-recovery bullet's reinstall clause |
 
 ### The overlay
 
