@@ -25,7 +25,7 @@ import React from 'react';
 import { Alert } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { StoreProvider, useStore } from '../../state/store';
-import { SettingsOverlay } from '../SettingsOverlay';
+import { accountLine, SettingsOverlay } from '../SettingsOverlay';
 import * as signOutModule from '../settings/signOut';
 import type { SessionState } from '../../sync/session';
 
@@ -111,6 +111,55 @@ describe('closing', () => {
   it('has a close control', async () => {
     await mount({ account: 'seeded' });
     expect(screen.getByLabelText('Close settings')).toBeTruthy();
+  });
+});
+
+/**
+ * The one sentence that says what this account is.
+ *
+ * Pinned per branch rather than through the page, because four of the five are
+ * ordinary copy and the fifth is a requirement. On Android nothing can be
+ * secured, so by `signOutVisible` nothing can sign out either — the Leaving
+ * section is absent for every Android account, and an absence with no reason
+ * given reads as a feature that got dropped rather than one that cannot exist.
+ * This line is the only place the app says why, and it is the only line in the
+ * app that whoever wrote it cannot see on the phone they wrote it on.
+ */
+describe('what the page says this account is', () => {
+  const READY = { status: 'ready', userId: ME, anonymous: false } as const;
+  const ANON = { status: 'ready', userId: ME, anonymous: true } as const;
+
+  it('tells the demo that none of it is real', () => {
+    expect(accountLine('seeded', { status: 'off' }, 'ios')).toMatch(/reaches a server/i);
+  });
+
+  it('does not guess while the session is still resolving', () => {
+    expect(accountLine('live', { status: 'offline' }, 'ios')).toBe(
+      'Signed in. Checking this account\u2026',
+    );
+  });
+
+  it('tells a secured account it can be got back', () => {
+    expect(accountLine('live', READY, 'ios')).toBe(
+      'Signed in, and this account can be got back with Apple.',
+    );
+  });
+
+  it('points an anonymous iOS account at the row that fixes it', () => {
+    const line = accountLine('live', ANON, 'ios');
+    expect(line).toMatch(/can\u2019t be got back yet/);
+    expect(line).toMatch(/Secure it below/);
+  });
+
+  it('tells an anonymous Android account why there is no sign-out either', () => {
+    const line = accountLine('live', ANON, 'android');
+    // Both halves, and the second is the load-bearing one: without it the page
+    // silently offers an Android account neither a way to secure itself nor a
+    // way to leave, and says nothing about either.
+    expect(line).toMatch(/iOS-only/);
+    expect(line).toMatch(/no sign-out here/);
+    // And it must not be the iOS line, which promises a row that is not there.
+    expect(line).not.toMatch(/Secure it below/);
   });
 });
 
