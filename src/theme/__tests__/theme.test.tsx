@@ -14,9 +14,11 @@
  * everything.
  */
 import React from 'react';
-import { Text } from 'react-native';
-import { render } from '@testing-library/react-native';
+import { StyleSheet, Text } from 'react-native';
+import { render, screen } from '@testing-library/react-native';
 
+import { App } from '../../App';
+import { StoreProvider } from '../../state/store';
 import { color } from '../tokens';
 import { Scheme, ThemeProvider, useColors, useTheme } from '../ThemeProvider';
 
@@ -94,5 +96,27 @@ describe('outside a provider', () => {
     // edit — which is the blast radius this sequence of PRs exists to avoid.
     expect(() => paletteUnder(null)).not.toThrow();
     expect(paletteUnder(null)).toEqual(color);
+  });
+});
+
+describe('the real root', () => {
+  it('mounts the provider, and mounts it above the store', () => {
+    // Above the store rather than inside it because the palette is a device
+    // fact, not account state. Asserting the nesting rather than trusting the
+    // JSX: if somebody later moves it inside `StoreProvider` to reach state,
+    // that is a design change and should have to argue with a test.
+    render(<App persist={false} sync={false} />);
+    const provider = screen.UNSAFE_getByType(ThemeProvider);
+    expect(provider.findByType(StoreProvider)).toBeTruthy();
+  });
+
+  it('still paints the real chrome in the real palette', () => {
+    // One end-to-end colour assertion through the actual root, because every
+    // other test here reads the palette rather than something drawn with it.
+    // The FAB is the app's single loudest surface; if the wiring ever hands a
+    // screen a different palette, this is where it shows up first.
+    render(<App persist={false} sync={false} />);
+    const fab = StyleSheet.flatten(screen.getByLabelText('Plan your week').props.style);
+    expect(fab.backgroundColor).toBe(color.lime);
   });
 });
