@@ -25,6 +25,7 @@ import {
   QUICK_LOG_POINTS,
   Suggestion,
   Task,
+  TaskMedia,
 } from '../data/fixtures';
 import { DayIndex, WeekContext, liveWeek, weekAfter } from '../data/week';
 import {
@@ -409,6 +410,8 @@ export type Action =
   | { type: 'CANCEL_EDIT' }
   | { type: 'ADD_SUGGESTION'; suggestion: Suggestion }
   | { type: 'REMOVE_TASK'; id: string }
+  | { type: 'ATTACH_MEDIA'; id: string; media: TaskMedia }
+  | { type: 'REMOVE_MEDIA'; id: string }
   | { type: 'CYCLE_TASK_AUD'; id: string }
   | { type: 'SET_COMPOSER'; open: boolean }
   | { type: 'SET_COMPOSER_VAL'; value: string }
@@ -897,6 +900,34 @@ export function reducer(state: State, action: Action): State {
         },
         `+${s.pts} on the line`,
       );
+    }
+
+    /**
+     * The photo is on the task the moment it is picked, before a byte of it
+     * has been uploaded — `localUri` is a file this device already holds, so
+     * there is nothing to wait for and nothing to show a spinner about. The
+     * upload is `media.ts`'s problem, and the row it earns is the outbox's.
+     */
+    case 'ATTACH_MEDIA':
+      return {
+        ...state,
+        myTasks: state.myTasks.map((t) => (t.id === action.id ? { ...t, media: action.media } : t)),
+      };
+
+    /**
+     * Taking one back. The object and the row are cleaned up by the queue and
+     * the server respectively; what this owns is the screen, which must stop
+     * showing a photo the moment the user says so.
+     */
+    case 'REMOVE_MEDIA': {
+      const task = state.myTasks.find((t) => t.id === action.id);
+      if (!task?.media) return state;
+      return {
+        ...state,
+        myTasks: state.myTasks.map((t) =>
+          t.id === action.id ? { ...t, media: undefined } : t,
+        ),
+      };
     }
 
     case 'REMOVE_TASK': {

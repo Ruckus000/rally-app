@@ -102,6 +102,32 @@ export type Task = {
   source: 'staked' | 'quicklog';
   /** Set when the task came from a "pick it back up" card, so unstaking can offer it again. */
   fromSuggestion?: string;
+  /** The photo on it, if there is one. See `TaskMedia`. */
+  media?: TaskMedia;
+};
+
+/**
+ * A photo attached to a goal.
+ *
+ * `localUri` is what the device that took it can draw immediately, and it is
+ * the only field that is not shared: another device gets the same photo
+ * through `url`, signed against the private bucket by the pull. Both are
+ * optional and for opposite reasons — the owner has a local file before there
+ * is any URL to sign, and a friend has a URL and no file — so a renderer
+ * takes whichever it is given, preferring the local one because it is free.
+ *
+ * `w` and `h` are carried so a card can reserve the right space before the
+ * image loads, rather than reflowing the feed when it arrives.
+ */
+export type TaskMedia = {
+  /** Client-minted; the primary key of the `task_media` row it becomes. */
+  id: string;
+  localUri?: string;
+  /** The storage object name. Never a URL — a signed one would expire here. */
+  path: string;
+  url?: string;
+  w: number;
+  h: number;
 };
 
 export const MY_TASKS: Task[] = [

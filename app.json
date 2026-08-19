@@ -46,6 +46,13 @@
           "backgroundColor": "#F1F2EC",
           "resizeMode": "contain"
         }
+      ],
+      "expo-image",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Rally uses your photos so you can put one on a goal you closed. Only the people who can already see that goal can see the photo."
+        }
       ]
     ],
     "extra": {
