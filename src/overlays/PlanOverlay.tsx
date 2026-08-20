@@ -5,7 +5,6 @@ import React from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  color,
   gradientAngle,
   heroGlow,
   onDark,
@@ -13,6 +12,7 @@ import {
   shadows,
   useDisplayLeading,
 } from '../theme/tokens';
+import { useColors } from '../theme/ThemeProvider';
 import {
   AUDIENCE_LABEL,
   AUDIENCE_WORD,
@@ -32,6 +32,7 @@ import { Bri, Caps, GlowBloom, GradientHairline, Sans, Tap, fill, row } from '..
 import { Overlay } from './Overlay';
 
 export function PlanOverlay({ topInset, bottomInset }: { topInset: number; bottomInset: number }) {
+  const color = useColors();
   const { state, dispatch, effectiveAudience, demo, people } = useStore();
   // Up here rather than inline on the `<Bri>` below because it is a hook, and
   // hooks are read in the same order every render.
