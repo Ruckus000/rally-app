@@ -151,7 +151,7 @@ export function WelcomeScreen({
             height: AUTH_HEIGHT,
             backgroundColor: onDark.fill,
             borderWidth: 1,
-            borderColor: 'rgba(241,242,236,.22)',
+            borderColor: onDark.hairlineBold,
             opacity: UNAVAILABLE_OPACITY,
           }}
         />
@@ -186,19 +186,32 @@ function AppleMark() {
   );
 }
 
+/*
+ * The four hexes below stay hexes. Quoting the rule that flags them, in
+ * `eslint.config.js`: they "are a brand lockup, not theme values — they must
+ * not follow the palette, in either scheme. They want an
+ * `eslint-disable-next-line` with that as the reason, not a token."
+ */
 function GoogleMark() {
   return (
     <Svg width={17} height={17} viewBox="0 0 24 24">
       <Path
+        // eslint-disable-next-line no-restricted-syntax -- brand lockup, not a theme value
         fill="#4285F4"
         d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.9h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.4z"
       />
       <Path
+        // eslint-disable-next-line no-restricted-syntax -- brand lockup, not a theme value
         fill="#34A853"
         d="M12 22c2.7 0 5-.9 6.6-2.4l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22z"
       />
-      <Path fill="#FBBC05" d="M6.4 14a6 6 0 0 1 0-3.8V7.6H3.1a10 10 0 0 0 0 9l3.3-2.6z" />
       <Path
+        // eslint-disable-next-line no-restricted-syntax -- brand lockup, not a theme value
+        fill="#FBBC05"
+        d="M6.4 14a6 6 0 0 1 0-3.8V7.6H3.1a10 10 0 0 0 0 9l3.3-2.6z"
+      />
+      <Path
+        // eslint-disable-next-line no-restricted-syntax -- brand lockup, not a theme value
         fill="#EA4335"
         d="M12 6c1.5 0 2.8.5 3.8 1.5L18.7 4.7A10 10 0 0 0 3.1 7.6L6.4 10.2C7.2 7.9 9.4 6 12 6z"
       />
