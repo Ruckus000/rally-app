@@ -1,6 +1,7 @@
 import React from 'react';
 import { View } from 'react-native';
-import { color, gutter } from '../theme/tokens';
+import { gutter } from '../theme/tokens';
+import { useColors } from '../theme/ThemeProvider';
 import { Bri, Sans, Tap, row } from '../components/primitives';
 import { Icon } from '../components/Icon';
 import { useStore } from '../state/store';
@@ -22,6 +23,7 @@ const SCOPES: { key: Scope; label: string }[] = [
 ];
 
 export function Header({ topInset }: { topInset: number }) {
+  const color = useColors();
   const { state, dispatch, config } = useStore();
   const { week } = state;
   const unread = unreadNeedsCount(state);

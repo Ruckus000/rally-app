@@ -6,7 +6,8 @@
  */
 import React from 'react';
 import { View } from 'react-native';
-import { color, radius, shadows } from '../theme/tokens';
+import { radius, shadows } from '../theme/tokens';
+import { useColors, type Palette } from '../theme/ThemeProvider';
 import { Avatar, ProgressRing } from '../components/Avatar';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
 import { Icon } from '../components/Icon';
@@ -20,7 +21,8 @@ const TREND_GLYPH = { up: '▲', down: '▼', same: '–' } as const;
  * the two states that are not "up" were the ones you could not see. The glyph
  * still carries the meaning; the colour only has to be legible.
  */
-const TREND_COLOR = { up: color.moss, down: color.muted, same: color.muted } as const;
+const TREND_COLOR = (color: Palette) =>
+  ({ up: color.moss, down: color.muted, same: color.muted }) as const;
 /** The same fact in words, for a screen reader that cannot read a triangle. */
 const TREND_SAID = { up: 'trending up', down: 'trending down', same: 'holding steady' } as const;
 
@@ -32,6 +34,7 @@ const TREND_SAID = { up: 'trending up', down: 'trending down', same: 'holding st
 const cheers = (given: number | null) => (given === null ? '–' : String(given));
 
 export function CircleScreen() {
+  const color = useColors();
   const { state, dispatch, config, people } = useStore();
   // The ranking sorts the whole circle and walks every cheer against every
   // moment — too much to redo on renders where none of its inputs moved.
@@ -127,7 +130,7 @@ export function CircleScreen() {
               </Sans>
             </View>
 
-            <Sans size={11} color={TREND_COLOR[people.trend(r.k)]} style={{ marginRight: 2 }}>
+            <Sans size={11} color={TREND_COLOR(color)[people.trend(r.k)]} style={{ marginRight: 2 }}>
               {TREND_GLYPH[people.trend(r.k)]}
             </Sans>
 
@@ -200,6 +203,7 @@ function PodiumMember({
   showRank: boolean;
   onPress: () => void;
 }) {
+  const color = useColors();
   const people = usePeople();
   const isFirst = member.rank === 1;
   const size = isFirst ? 92 : 74;
