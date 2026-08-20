@@ -2,7 +2,7 @@
  * Design tokens, read directly from the design reference.
  * Nothing in the app hardcodes a colour or a type size — it comes from here.
  */
-import { PixelRatio, Platform, TextStyle, ViewStyle } from 'react-native';
+import { Platform, TextStyle, useWindowDimensions, ViewStyle } from 'react-native';
 
 /**
  * How far the OS text-size setting may inflate this app's type.
@@ -252,17 +252,40 @@ export const heroGlow: TextStyle = Platform.select({
  * the reference asked for would drift as the setting goes up. Multiplying the
  * difference restores it: the line occupies `tight * scale` at every size.
  *
- * The multiplier is the same one the text gets, so it is clamped the same way:
- * `Bri` caps its faces at `MAX_FONT_SCALE`, and past that point the glyphs stop
- * growing while an unclamped margin would keep pulling. Clamped below at 1 as
- * well, because `getFontScale()` falls back to the *pixel* density when the
- * font scale is missing, and a margin multiplied by 3 is not a tightening.
+ * The multiplier is clamped the way the text that uses it is clamped: `Bri`
+ * caps its faces at `MAX_FONT_SCALE`, and past that point the glyphs stop
+ * growing while an unclamped margin would keep pulling. Clamped below at 1 too,
+ * so a missing or zero scale falls back to the designed numbers rather than
+ * collapsing the margin to nothing.
+ *
+ * Takes the scale rather than reading it, so that it stays a pure function of
+ * its arguments and the reading — which has to be a *subscription* — happens in
+ * one place, `useDisplayLeading`. Prefer that; this is exported for the test.
  */
-export const displayLeading = (fontSize: number, tight: number): TextStyle => {
-  const scale = Math.min(Math.max(PixelRatio.getFontScale(), 1), MAX_FONT_SCALE);
+export const displayLeading = (fontSize: number, tight: number, fontScale: number): TextStyle => {
+  const scale = Math.min(Math.max(fontScale || 1, 1), MAX_FONT_SCALE);
   return {
     lineHeight: fontSize,
     marginBottom: (tight - fontSize) * scale,
     ...Platform.select({ android: { includeFontPadding: false }, default: null }),
   };
 };
+
+/**
+ * `displayLeading`, subscribed to the OS text-size setting.
+ *
+ * Reading the scale once during render is not enough. When the setting changes
+ * — Control Center, or Settings and back — iOS posts a notification that
+ * `RCTTextViewManager` acts on directly, so the *text* re-lays out at the new
+ * multiplier with no JavaScript involved. The margin is ordinary style data and
+ * only changes when React renders again, which nothing here would otherwise
+ * ask for: the change reaches JS as a `Dimensions` event, and an event nobody
+ * subscribes to re-renders nothing. The hero would keep a margin cut for the
+ * old scale against a line box drawn at the new one until the screen happened
+ * to be remounted.
+ *
+ * `useWindowDimensions` is that subscription, which is the whole reason this is
+ * a hook and not a second argument the caller is trusted to remember.
+ */
+export const useDisplayLeading = (fontSize: number, tight: number): TextStyle =>
+  displayLeading(fontSize, tight, useWindowDimensions().fontScale);

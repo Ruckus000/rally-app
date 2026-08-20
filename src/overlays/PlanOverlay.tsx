@@ -6,12 +6,12 @@ import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'rea
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   color,
-  displayLeading,
   gradientAngle,
   heroGlow,
   onDark,
   planGutter,
   shadows,
+  useDisplayLeading,
 } from '../theme/tokens';
 import {
   AUDIENCE_LABEL,
@@ -33,6 +33,9 @@ import { Overlay } from './Overlay';
 
 export function PlanOverlay({ topInset, bottomInset }: { topInset: number; bottomInset: number }) {
   const { state, dispatch, effectiveAudience, demo, people } = useStore();
+  // Up here rather than inline on the `<Bri>` below because it is a hook, and
+  // hooks are read in the same order every render.
+  const heroLeading = useDisplayLeading(76, 61);
 
   const staked = stakedPoints(state);
   const best = state.profile.bestWeekPoints;
@@ -148,7 +151,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
             weight={800}
             tracking={-3.5}
             color={color.lime}
-            style={[heroGlow, displayLeading(76, 61)]}
+            style={[heroGlow, heroLeading]}
           >
             {staked}
           </Bri>
