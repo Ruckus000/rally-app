@@ -20,6 +20,7 @@ import type { CircleRef } from '../state/store';
 import { getSupabase } from '../lib/supabase';
 import { avatarStateOf } from '../data/people';
 import { rowToPerson, rowToTask, taskToRow } from './mappers';
+import type { ScreenOutcome } from './media';
 import type { NoteTarget, SyncableNote } from './notes';
 import { REACTION_KINDS, type ReactionKind, type ReactionRef } from './reactions';
 
@@ -512,6 +513,48 @@ export async function uploadMedia(entry: {
   } catch (err) {
     const e = asWireError(err);
     return { ok: false, permanent: !isNetwork(e) && !isTransient(e), error: describe(e) };
+  }
+}
+
+/**
+ * Ask the screener for a verdict on a photo already in the bucket.
+ *
+ * The other half of `uploadMedia`, and out of `Transport` for the same reason.
+ * Until this answers `ready` the row is `pending`, which the storage policy
+ * and the table policy both refuse to everyone but the owner — so this call
+ * is what makes a photo visible at all, not an afterthought to it.
+ *
+ * ─── everything unclear is a retry ────────────────────────────────────────
+ *
+ * Only the literal string `refused` deletes somebody's photo, and only the
+ * literal string `ready` publishes it. A network failure, a 500, a body that
+ * did not parse, the server's own `waiting`, and any answer this client does
+ * not recognise all come back `retry`.
+ *
+ * That is the opposite polarity to the *server's* fail-closed rule, and the
+ * two are not in tension: the server refuses when it cannot judge an image,
+ * because the cost there is publishing something unlooked-at. Here the image
+ * has already been withheld by the policy, so the cost of guessing is
+ * throwing away a photo that nothing was ever wrong with. Each side fails
+ * towards the thing it can still take back.
+ */
+export async function screenMedia(entry: {
+  id: string;
+  taskId: string;
+}): Promise<ScreenOutcome> {
+  try {
+    const { data, error } = await getSupabase().functions.invoke('screen-task-media', {
+      body: { mediaId: entry.id, taskId: entry.taskId },
+    });
+    if (error) return { state: 'retry', error: describe(asWireError(error)) };
+
+    const state = (data as { state?: unknown } | null)?.state;
+    if (state === 'ready') return { state: 'ready' };
+    if (state === 'refused') return { state: 'refused' };
+    // `waiting` — the outbox has not written the row yet — and anything else.
+    return { state: 'retry', error: typeof state === 'string' ? state : 'unreadable reply' };
+  } catch (err) {
+    return { state: 'retry', error: describe(asWireError(err)) };
   }
 }
 

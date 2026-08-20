@@ -215,6 +215,64 @@ state and spends no model call), a call after the owner cleared the photo
 (returns `none`, no model call), and an `avatar_path` with no object behind it
 (`refused`).
 
+## `screen-task-media` — the same gate, on a photo hung off a goal
+
+`POST { mediaId, taskId } -> { state }`, behind `verify_jwt`. `screen-image`'s
+sibling, and everything above about failing closed, about `unavailable`
+blocking, and about never returning the model's `reason` is true here too.
+Three things differ, and each has a reason.
+
+**It takes an argument, which its sibling refuses to.** A person has one avatar
+and many goals, so "the subject is always the caller" is not available. The
+property is kept another way: the row is selected by `id` **and**
+`owner_id = caller`, so a `mediaId` naming somebody else's photo matches
+nothing. `taskId` only ever builds a storage prefix whose owner segment comes
+from the token, so lying about it reaches one of the caller's own empty
+folders.
+
+**There are three answers, not two.** The client uploads the object first and
+writes the row second, through the outbox — so "no row" is an ordinary,
+temporary state rather than an error, and it has to be told apart from
+"refused" or the client would delete a photo that was merely early. The object
+is what tells them apart:
+
+| Row | Object | Answer |
+| --- | --- | --- |
+| `pending` | — | screen it now |
+| `ready` | — | `ready`, no second model call |
+| none | present | `waiting` — the outbox has not caught up |
+| none | gone | `refused` — this function already blocked it |
+
+**A refusal deletes the row as well as the object.** `screen-image` keeps the
+row and marks it `refused`, because there the row is the profile and cannot be
+deleted. Here the row *is* the photo, and `unique (task_id)` would let a kept
+refusal occupy the goal's only photo slot forever — so a blocked attempt
+leaves the task exactly as it found it. That is also why there is no `refused`
+state: `task_media.state` is `pending | ready` and nothing else.
+
+The prompt is `GOAL_IMAGE_SCREENING`, not `IMAGE_SCREENING`. Same three things
+looked for, same closed yes-list; what changes is the description of what the
+image *is*, because a prompt expecting a portrait would find a photo of a trail
+or a plate of food surprising, and surprise is one step from flagging it.
+
+### Deploying
+
+```bash
+npx supabase functions deploy screen-task-media
+```
+
+Same `GEMINI_API_KEY` and same model as the other two.
+
+### Running it locally
+
+`npx supabase functions serve --env-file supabase/functions/.env.local`, then
+sign in, upload to `task-media/<your id>/<task id>/<media id>.jpg`, insert the
+`task_media` row, and POST `{ mediaId, taskId }`. The same `LLM_BASE_URL` stub
+table as `screen-image` drives the verdicts; the two extra paths worth driving
+are a `mediaId` with no row (`waiting` while the object is there, `refused`
+once it is not) and a `mediaId` belonging to another account (`waiting`, and
+no model call).
+
 ## What cannot be tested without hardware
 
 The last hop. Expo hands the message to APNs, and APNs delivers to a real

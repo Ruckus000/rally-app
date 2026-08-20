@@ -47,8 +47,32 @@ beforeEach(async () => {
   };
 });
 
-const attach = async (aud: Aud, as: SeedHandle = 'maya', id = uuid(1)) =>
-  asUser(as)
+/**
+ * Put a photo through the screener, without one.
+ *
+ * `mark_task_media_ready` is revoked from `authenticated` and granted only to
+ * `service_role`, so there is no client that can do this — which is the point
+ * of it. Going in over `pg` is the honest way to stand in for the edge
+ * function: it exercises the same function the real screener calls, rather
+ * than a test-only door in the schema.
+ */
+const markReady = (id: string) => sql('select public.mark_task_media_ready($1)', [id]);
+
+/**
+ * Attach a photo and, unless a test is about the gate, put it through.
+ *
+ * Every test here that predates screening is about the audience model, and
+ * `state` is not what any of them is asking about. Leaving them all `pending`
+ * would turn this file into thirty assertions that an unscreened photo is
+ * invisible — true, worth one test, and not what these are for.
+ */
+const attach = async (
+  aud: Aud,
+  as: SeedHandle = 'maya',
+  id = uuid(1),
+  { screened = true }: { screened?: boolean } = {},
+) => {
+  const result = await asUser(as)
     .from('task_media')
     .insert({
       id,
@@ -58,6 +82,43 @@ const attach = async (aud: Aud, as: SeedHandle = 'maya', id = uuid(1)) =>
       width: 1600,
       height: 1200,
     });
+  if (screened && !result.error) await markReady(id);
+  return result;
+};
+
+const BUCKET = 'task-media';
+/** A one-pixel JPEG is enough: what is under test is the policy, not the codec. */
+const pixel = () => new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: 'image/jpeg' });
+
+/**
+ * Put both halves of a photo on the server: the object, and the screened row
+ * the storage policy now insists on.
+ *
+ * Before screening, an object alone was readable by whoever could see its
+ * task — `can_see_media` read the task out of the name and asked nothing
+ * else. It now also asks whether a `ready` row claims that exact path, so a
+ * test that uploads bytes and stops is testing a photo no reader can reach.
+ * That is the correct answer, and it is one test rather than the premise of
+ * every other one.
+ */
+const publishObject = async (aud: Aud, id: string, as: SeedHandle = 'maya') => {
+  const name = pathFor(idOf(as), taskOf[aud], id);
+  const up = await asUser(as)
+    .storage.from(BUCKET)
+    .upload(name, pixel(), { contentType: 'image/jpeg', upsert: true });
+  expect(up.error).toBeNull();
+  const row = await asUser(as).from('task_media').insert({
+    id,
+    task_id: taskOf[aud],
+    owner_id: idOf(as),
+    path: name,
+    width: 1,
+    height: 1,
+  });
+  expect(row.error).toBeNull();
+  await markReady(id);
+  return name;
+};
 
 const canSee = async (viewer: SeedHandle, aud: Aud): Promise<boolean> => {
   const { data, error } = await asUser(viewer)
@@ -179,6 +240,87 @@ describe('who can see it — the audience model, not a copy of it', () => {
   });
 });
 
+/**
+ * The screening gate.
+ *
+ * The claim is that a photo reaches nobody else until a model has looked at
+ * it, and that no client can say it has. Both halves matter: a gate a client
+ * can open is decoration.
+ */
+describe('until a model has looked at it', () => {
+  it('hides a photo from the circle while it is pending', async () => {
+    expect((await attach('friends', 'maya', uuid(30), { screened: false })).error).toBeNull();
+    expect(await canSee('dre', 'friends')).toBe(false);
+  });
+
+  it('shows it to them once it is screened', async () => {
+    expect((await attach('friends', 'maya', uuid(31), { screened: false })).error).toBeNull();
+    expect(await canSee('dre', 'friends')).toBe(false);
+
+    await markReady(uuid(31));
+
+    expect(await canSee('dre', 'friends')).toBe(true);
+  });
+
+  it('leaves the owner their own photo while it waits', async () => {
+    // The one place this deliberately differs from the avatar gate. The owner
+    // chose the picture and saw it in the picker; refusing it back to them
+    // protects nobody, and their own screen draws it off local disk anyway.
+    expect((await attach('friends', 'maya', uuid(32), { screened: false })).error).toBeNull();
+    expect(await canSee('maya', 'friends')).toBe(true);
+  });
+
+  it('refuses a client that tries to insert itself as ready', async () => {
+    // `state` is outside the INSERT column grant, so this is refused before
+    // any policy is consulted.
+    const id = uuid(33);
+    const { error } = await asUser('maya')
+      .from('task_media')
+      .insert({
+        id,
+        task_id: taskOf.friends,
+        owner_id: idOf('maya'),
+        path: pathFor(idOf('maya'), taskOf.friends, id),
+        width: 1,
+        height: 1,
+        state: 'ready',
+      });
+    expect(error).not.toBeNull();
+  });
+
+  it('refuses a client that tries to promote its own photo afterwards', async () => {
+    expect((await attach('friends', 'maya', uuid(34), { screened: false })).error).toBeNull();
+
+    // No UPDATE grant on the table at all, so there is no second route.
+    const { error } = await asUser('maya')
+      .from('task_media')
+      .update({ state: 'ready' })
+      .eq('id', uuid(34));
+    expect(error).not.toBeNull();
+    expect(await canSee('dre', 'friends')).toBe(false);
+  });
+
+  it('refuses a client that calls the publishing function directly', async () => {
+    expect((await attach('friends', 'maya', uuid(35), { screened: false })).error).toBeNull();
+
+    const { error } = await asUser('maya').rpc('mark_task_media_ready', { p_media: uuid(35) });
+    expect(error).not.toBeNull();
+    expect(await canSee('dre', 'friends')).toBe(false);
+  });
+
+  it('will not republish a photo whose owner has taken it down', async () => {
+    // The screener can arrive late. `mark_task_media_ready` moves rows that
+    // are `pending` and no others, so a verdict for a deleted photo lands on
+    // nothing rather than resurrecting it.
+    expect((await attach('friends', 'maya', uuid(36), { screened: false })).error).toBeNull();
+    expect((await asUser('maya').from('task_media').delete().eq('id', uuid(36))).error).toBeNull();
+
+    await markReady(uuid(36));
+
+    expect(await canSee('dre', 'friends')).toBe(false);
+  });
+});
+
 describe('a block reaches the photo too', () => {
   /**
    * The gap this suite exists to keep closed. `reports_and_blocks` taught
@@ -221,24 +363,16 @@ describe('a block reaches the photo too', () => {
     // Checked separately on purpose: a signed URL is minted against
     // storage.objects, not against task_media, so a guard on only the row
     // would leave the file readable to somebody who cannot read its row.
-    const name = pathFor(idOf('maya'), taskOf.friends, uuid(20));
-    const pixel = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: 'image/jpeg' });
-    expect(
-      (await asUser('maya').storage.from('task-media').upload(name, pixel, { upsert: true })).error,
-    ).toBeNull();
-    expect((await asUser('dre').storage.from('task-media').createSignedUrl(name, 60)).error).toBeNull();
+    const name = await publishObject('friends', uuid(20));
+    expect((await asUser('dre').storage.from(BUCKET).createSignedUrl(name, 60)).error).toBeNull();
 
     await block('dre', 'maya');
 
-    expect((await asUser('dre').storage.from('task-media').createSignedUrl(name, 60)).error).not.toBeNull();
+    expect((await asUser('dre').storage.from(BUCKET).createSignedUrl(name, 60)).error).not.toBeNull();
   });
 });
 
 describe('the file itself', () => {
-  const BUCKET = 'task-media';
-  /** A one-pixel JPEG is enough: what is under test is the policy, not the codec. */
-  const pixel = () => new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: 'image/jpeg' });
-
   it('lets the owner upload into their own folder', async () => {
     const name = pathFor(idOf('maya'), taskOf.friends, uuid(4));
     const { error } = await asUser('maya')
@@ -270,10 +404,7 @@ describe('the file itself', () => {
   });
 
   it('signs a URL for a circle-mate on a friends task', async () => {
-    const name = pathFor(idOf('maya'), taskOf.friends, uuid(7));
-    expect(
-      (await asUser('maya').storage.from(BUCKET).upload(name, pixel(), { upsert: true })).error,
-    ).toBeNull();
+    const name = await publishObject('friends', uuid(7));
 
     const { data, error } = await asUser('dre').storage.from(BUCKET).createSignedUrl(name, 60);
     expect(error).toBeNull();
@@ -281,10 +412,7 @@ describe('the file itself', () => {
   });
 
   it('refuses to sign a private task’s object for the circle', async () => {
-    const name = pathFor(idOf('maya'), taskOf.private, uuid(8));
-    expect(
-      (await asUser('maya').storage.from(BUCKET).upload(name, pixel(), { upsert: true })).error,
-    ).toBeNull();
+    const name = await publishObject('private', uuid(8));
 
     // Signing requires select on the object, so the audience rule reaches the
     // file and not only the row that points at it.
@@ -302,6 +430,21 @@ describe('the file itself', () => {
       [`${idOf('maya')}/not-a-uuid/x.jpg`],
     );
     expect(rows[0]!.ok).toBe(false);
+  });
+
+  it('will not sign an object no screened row claims', async () => {
+    // The upload half of the pipeline runs before the row exists, so bytes in
+    // the bucket with nothing pointing at them is an ordinary intermediate
+    // state — and it must not be a readable one for anybody else.
+    const name = pathFor(idOf('maya'), taskOf.friends, uuid(9));
+    expect(
+      (await asUser('maya').storage.from(BUCKET).upload(name, pixel(), { upsert: true })).error,
+    ).toBeNull();
+
+    expect((await asUser('dre').storage.from(BUCKET).createSignedUrl(name, 60)).error).not.toBeNull();
+    // The owner is the exception, which is what lets the upload itself succeed
+    // — `upload` returns the created row, so the select policy runs on it.
+    expect((await asUser('maya').storage.from(BUCKET).createSignedUrl(name, 60)).error).toBeNull();
   });
 
   it('will not take an upload whose name names no task', async () => {
