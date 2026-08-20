@@ -26,9 +26,32 @@ export const MAX_FONT_SCALE = 1.35;
  * the dark palette lands, every scheme resolves to exactly these values.
  */
 export const lightColors = {
+  /**
+   * A surface, and only a surface: the dark card fill, the tab bar, a primary
+   * button on light. The handoff has this token doing text as well, which the
+   * light scheme lets it get away with because the two jobs happen to share a
+   * value — but the dark card stays dark in both schemes while text on the
+   * ground has to invert, so they are separate tokens now. `ink` is the half
+   * that does not move in the dark palette; `textPrimary` is the half that does.
+   */
   ink: '#191E16',
   lime: '#C3F53C',
+  /**
+   * The ground that flips: the app background and the sheets drawn on it. Not
+   * "text on dark" — that is `onDark.primary`, and not the light fill of a pill
+   * sitting on a dark screen, which is also `onDark.primary`. Anything that
+   * followed `paper` for one of those two reasons would go dark-on-dark the
+   * moment this value inverts.
+   */
   paper: '#F1F2EC',
+  /**
+   * Primary text, icons and borders drawn on a surface that flips — the ground,
+   * `card`, `chip`, `askTint`, `inputFill`, `limeTintChip`. Identical to `ink`
+   * today and light in the dark palette. The question that sorts a read into
+   * this token rather than `ink`: if the ground went dark, would this have to
+   * change colour to stay visible?
+   */
+  textPrimary: '#191E16',
   muted: '#6E7663',
   moss: '#4B6A0B',
   card: '#FFFFFF',
@@ -126,7 +149,15 @@ export const color = lightColors;
  * heavier than another before, it still is.
  */
 export const onDark = {
-  primary: color.paper,
+  /**
+   * Written out rather than `color.paper`, which is what it used to be. The two
+   * agree today and mean opposite things: `paper` is a ground that inverts,
+   * this is the brightest ink you can put *on* a ground that never does. Left
+   * as a reference it would follow `paper` down in the dark palette and quietly
+   * become dark-on-dark. It has no consumers yet, which is the only reason that
+   * was not already a bug.
+   */
+  primary: '#F1F2EC',
   /** Body copy that has to hold its own against `primary` beside it. */
   bodyStrong: 'rgba(241,242,236,.85)',
   bodySecondary: 'rgba(241,242,236,.62)',
@@ -170,6 +201,26 @@ export const onDark = {
    */
   limeDeep: '#6E9418',
 } as const;
+
+/**
+ * `onDark`'s mirror: everything drawn on a ground that is *light* in both
+ * schemes.
+ *
+ * There are only two of those, and neither is the app background. `lime` is a
+ * brand colour, not a surface that belongs to a scheme — a lime CTA is the same
+ * green whichever palette is in force, so its label is the same near-black. The
+ * other is the paper pill on the onboarding welcome screen, a light chip
+ * deliberately sitting on a dark ground, whose own fill is `onDark.primary`.
+ *
+ * So this is a plain module export for the same reason `onDark` is: there is no
+ * second value for a scheme to choose between. One rung is enough — nothing
+ * light-on-light in this app is quieter than primary.
+ *
+ * The distinction that matters is against `textPrimary`, which looks identical
+ * today. That one is text on a surface that flips and has to invert with it;
+ * this one is text on a surface that stays put and must not.
+ */
+export const onLight = '#191E16';
 
 /**
  * The same colour at zero alpha — the stop a scrim has to start from.
