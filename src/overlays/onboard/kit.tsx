@@ -5,7 +5,8 @@
  */
 import React, { useEffect, useState } from 'react';
 import { Animated, View, ViewStyle } from 'react-native';
-import { color, onDark, shadows } from '../../theme/tokens';
+import { onDark, shadows } from '../../theme/tokens';
+import { useColors } from '../../theme/ThemeProvider';
 import { SHEET_DURATION, sheetEasing, useReducedMotion } from '../../theme/motion';
 import { Icon } from '../../components/Icon';
 import { Bri, Sans, Tap, fill, row, rowTop } from '../../components/primitives';
@@ -35,6 +36,8 @@ export function PillButton({
   accessibilityLabel?: string;
   style?: ViewStyle;
 }) {
+  const color = useColors();
+
   if (variant === 'text') {
     return (
       <Tap
@@ -113,6 +116,8 @@ export function SelectChip({
   selected: boolean;
   onPress: () => void;
 }) {
+  const color = useColors();
+
   return (
     <Tap
       onPress={onPress}
@@ -154,6 +159,8 @@ export function CommitmentRow({
   selected: boolean;
   onPress: () => void;
 }) {
+  const color = useColors();
+
   return (
     <Tap
       onPress={onPress}
@@ -219,6 +226,8 @@ export function ExpandingCard({
   onPress: () => void;
   children?: React.ReactNode;
 }) {
+  const color = useColors();
+
   return (
     <Tap
       onPress={onPress}
@@ -277,6 +286,7 @@ export function NotificationPreview({
   time: string;
   children: React.ReactNode;
 }) {
+  const color = useColors();
   const dark = variant === 'dark';
   return (
     <View
@@ -348,6 +358,7 @@ export function ProgressDots({
 }
 
 function Dot({ on, done, dark }: { on: boolean; done: boolean; dark: boolean }) {
+  const color = useColors();
   const reduced = useReducedMotion();
   const [width] = useState(() => new Animated.Value(on ? DOT_ACTIVE_WIDTH : DOT_WIDTH));
 
@@ -403,6 +414,8 @@ export function OnboardHeader({
   onBack: () => void;
   onSkip?: () => void;
 }) {
+  const color = useColors();
+
   if (step < 1 || step > total) return null;
 
   return (
@@ -460,7 +473,7 @@ const PULSE_OUT = 1300;
 export function PulseRing({
   size,
   ringWidth = 2.5,
-  ringColor = color.lime,
+  ringColor,
   style,
   children,
 }: {
@@ -470,6 +483,10 @@ export function PulseRing({
   style?: ViewStyle;
   children?: React.ReactNode;
 }) {
+  const color = useColors();
+  // A parameter default cannot call a hook, so `ringColor`'s falls back here
+  // instead. `??` and not `||`: the default only ever fired on `undefined`.
+  const ring = ringColor ?? color.lime;
   const reduced = useReducedMotion();
   const [t] = useState(() => new Animated.Value(0));
 
@@ -508,7 +525,7 @@ export function PulseRing({
             height: size,
             borderRadius: size / 2,
             borderWidth: ringWidth,
-            borderColor: ringColor,
+            borderColor: ring,
             opacity: t.interpolate({ inputRange: [0, 1], outputRange: [PULSE_PEAK, 0] }),
             transform: [{ scale: t.interpolate({ inputRange: [0, 1], outputRange: [1, halo] }) }],
           }}
@@ -520,7 +537,7 @@ export function PulseRing({
           height: size,
           borderRadius: size / 2,
           borderWidth: ringWidth,
-          borderColor: ringColor,
+          borderColor: ring,
         }}
       />
       {children ? (
@@ -561,6 +578,7 @@ export function HeroSegments({
 }
 
 function Segment({ on, index, height }: { on: boolean; index: number; height: number }) {
+  const color = useColors();
   const reduced = useReducedMotion();
   const [t] = useState(() => new Animated.Value(on ? 0 : 1));
 
