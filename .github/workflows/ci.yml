@@ -10,17 +10,22 @@ on:
     # unstarted and the PR could never go green.
     types: [opened, synchronize, reopened, ready_for_review]
 
-# A second push to the same PR branch makes the first run's answer irrelevant,
-# and the integration job holds a Docker-heavy runner for minutes. Cancel it.
+# On a PR branch: one group per ref. A second push makes the first run's answer
+# irrelevant, and the integration job holds a Docker-heavy runner for minutes,
+# so cancelling it is the right trade.
 #
-# Not on `main`, though, and the difference matters. On a branch the two runs
-# are two answers about the same work in progress; on `main` they are two
-# different commits, each of which is something someone can check out. Killing
-# the older one leaves a merge commit that nothing ever verified — which is
-# exactly what happened three times in one evening, when each merge cancelled
-# the run belonging to the merge before it.
+# On `main`: one group *per commit*, which is the same as no grouping at all,
+# and it has to be. `cancel-in-progress: false` alone was not enough, which is
+# worth spelling out because it looked like it was. It stops an in-progress run
+# being killed — but GitHub keeps at most one *pending* run per group and
+# cancels the older one when a newer arrives. Three merges inside three minutes
+# is enough to trigger that, and it did: #84's merge commit was queued behind
+# #83's run, a third merge arrived, and it was cancelled having never started a
+# single job. Every commit on `main` is something somebody can check out, so
+# every commit gets its own verdict rather than a place in a queue it can be
+# evicted from.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'branch' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
@@ -74,6 +79,26 @@ jobs:
         with:
           node-version: 20
           cache: npm
+
+      # Before `npm ci`, and that ordering is the whole point.
+      #
+      # The ports in `supabase/config.toml` are 55320-55329, and Linux's default
+      # ephemeral range is 32768-60999 — the range the kernel hands out as the
+      # *source* port for outbound connections. So a registry fetch during
+      # `npm ci` can be given 55322, and `supabase start` three minutes later
+      # then fails with "address already in use" on a runner where nothing is
+      # listening on it. That is exactly what happened, and the stop-and-retry
+      # below could not help: whatever holds the port goes on holding it.
+      #
+      # `ip_local_reserved_ports` is the knob for this. It tells the kernel to
+      # never hand these out as ephemeral ports, without shrinking the range for
+      # everything else. Set here rather than before `supabase start`, because by
+      # then the port is already gone.
+      #
+      # Not a quirk of these particular numbers: Supabase's own defaults (54321
+      # upwards) sit in the same range, so any pinned local stack has this.
+      - name: Reserve the Supabase ports
+        run: sudo sysctl -w net.ipv4.ip_local_reserved_ports="55320-55329"
 
       # Deliberately NO supabase/setup-cli action. `@supabase/cli-linux-x64` is
       # an optionalDependency in package-lock.json, so `npm ci` already installs
