@@ -23,7 +23,7 @@
 -- path here, and that path is known garbage the moment it is written — no
 -- guessing, no waiting.
 --
--- `private.orphaned_media` is the inexact one, and it is what catches
+-- `public.orphaned_media` is the inexact one, and it is what catches
 -- everything the trigger was not there for: the objects already orphaned
 -- before this migration existed, and the ones whose row was never written at
 -- all. It has to guess, because "no row names this object" is also true of an
