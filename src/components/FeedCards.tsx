@@ -5,7 +5,7 @@
 import React from 'react';
 import { View } from 'react-native';
 import { Image } from 'expo-image';
-import { onDark, shadows } from '../theme/tokens';
+import { onDark, onLight, shadows } from '../theme/tokens';
 import { useColors } from '../theme/ThemeProvider';
 import {
   AUDIENCE_LABEL,
@@ -102,7 +102,7 @@ export const MineRow = React.memo(function MineRow({
           }}
         >
           {/* Done carries a check glyph, not just a colour. */}
-          {task.done ? <Icon name="check" size={16} color={color.ink} strokeWidth={3} /> : null}
+          {task.done ? <Icon name="check" size={16} color={onLight} strokeWidth={3} /> : null}
         </Tap>
 
         <Tap onPress={() => onOpen(task.id)} accessibilityLabel={`Open ${task.title}`} style={fill} minSize={0}>
@@ -111,7 +111,7 @@ export const MineRow = React.memo(function MineRow({
               size={15.5}
               weight={600}
               lineHeight={20}
-              color={task.done ? color.muted : color.ink}
+              color={task.done ? color.muted : color.textPrimary}
               style={shrink}
               numberOfLines={2}
             >
@@ -144,7 +144,7 @@ export const MineRow = React.memo(function MineRow({
           </View>
         </Tap>
 
-        <Bri size={13.5} weight={700} color={task.done ? color.moss : color.ink}>
+        <Bri size={13.5} weight={700} color={task.done ? color.moss : color.textPrimary}>
           +{task.pts}
         </Bri>
       </View>
@@ -214,7 +214,7 @@ export const BigCard = React.memo(function BigCard({
               <Sans
                 size={13.5}
                 weight={600}
-                color={color.paper}
+                color={onDark.primary}
                 style={shrink}
                 numberOfLines={1}
               >
@@ -227,13 +227,13 @@ export const BigCard = React.memo(function BigCard({
             </Sans>
           </View>
           <View style={{ backgroundColor: color.lime, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5 }}>
-            <Bri size={10} weight={800} tracking={1} color={color.ink}>
+            <Bri size={10} weight={800} tracking={1} color={onLight}>
               PERFECT
             </Bri>
           </View>
         </View>
 
-        <Bri size={22} weight={800} tracking={-0.4} lineHeight={26} color={color.paper} style={{ marginTop: 13 }}>
+        <Bri size={22} weight={800} tracking={-0.4} lineHeight={26} color={onDark.primary} style={{ marginTop: 13 }}>
           {moment.title}
         </Bri>
 
@@ -273,7 +273,7 @@ function Stat({ value, label, accent }: { value: string; label: string; accent?:
   const color = useColors();
   return (
     <View>
-      <Bri size={16} weight={800} color={accent ? color.lime : color.paper}>
+      <Bri size={16} weight={800} color={accent ? color.lime : onDark.primary}>
         {value}
       </Bri>
       <Sans size={10} color={onDark.secondary}>
@@ -499,7 +499,7 @@ export const MineWinCard = React.memo(function MineWinCard({
 
         <View style={[row, { gap: 10 }]}>
           <View style={{ backgroundColor: color.lime, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5 }}>
-            <Bri size={10} weight={800} tracking={1} color={color.ink}>
+            <Bri size={10} weight={800} tracking={1} color={onLight}>
               PERFECT WEEK
             </Bri>
           </View>
@@ -508,7 +508,7 @@ export const MineWinCard = React.memo(function MineWinCard({
           </Sans>
         </View>
 
-        <Bri size={26} weight={800} tracking={-0.6} color={color.paper} style={{ marginTop: 12 }}>
+        <Bri size={26} weight={800} tracking={-0.6} color={onDark.primary} style={{ marginTop: 12 }}>
           All {taskCount} of it.
         </Bri>
 
@@ -532,7 +532,7 @@ export const MineWinCard = React.memo(function MineWinCard({
             backgroundColor: shared ? onDark.limeFill : color.lime,
           }}
         >
-          <Bri size={13} weight={800} color={shared ? color.lime : color.ink}>
+          <Bri size={13} weight={800} color={shared ? color.lime : onLight}>
             {shared ? 'Posted to the circle ✓' : 'Post it to the circle'}
           </Bri>
         </Tap>

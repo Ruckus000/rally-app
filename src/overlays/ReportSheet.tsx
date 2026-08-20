@@ -42,7 +42,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import { Animated, ScrollView, View } from 'react-native';
-import { radius } from '../theme/tokens';
+import { onLight, radius } from '../theme/tokens';
 import { useColors } from '../theme/ThemeProvider';
 import { Bri, Sans, Tap, fill, row } from '../components/primitives';
 import { Avatar } from '../components/Avatar';
@@ -186,7 +186,7 @@ export function ReportSheet() {
               justifyContent: 'center',
             }}
           >
-            <Icon name="close" size={15} color={color.ink} />
+            <Icon name="close" size={15} color={color.textPrimary} />
           </Tap>
         </View>
 
@@ -272,7 +272,7 @@ function ReasonStep({
               <Sans size={14} weight={600} style={fill}>
                 {r.label}
               </Sans>
-              {on ? <Icon name="check" size={15} color={color.ink} /> : null}
+              {on ? <Icon name="check" size={15} color={onLight} /> : null}
             </Tap>
           );
         })}

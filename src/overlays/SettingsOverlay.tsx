@@ -152,7 +152,7 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
           Settings
         </Bri>
         <Tap onPress={close} accessibilityLabel="Close settings" style={closeButton(color)}>
-          <Icon name="close" size={16} color={color.ink} />
+          <Icon name="close" size={16} color={color.textPrimary} />
         </Tap>
       </View>
 
@@ -293,7 +293,7 @@ function NameField({ current }: { current: string }) {
       style={{
         fontFamily: font.sans[600],
         fontSize: 15,
-        color: color.ink,
+        color: color.textPrimary,
         backgroundColor: color.card,
         borderRadius: radius.chip,
         paddingHorizontal: 14,
@@ -644,7 +644,7 @@ function SecureRow({ enabled }: { enabled: boolean }) {
         style={{ ...row, gap: 12, ...cardBox(color), opacity: enabled ? 1 : 0.5 }}
       >
         <View style={fill}>
-          <Bri size={15} weight={800} color={enabled ? color.ink : color.muted}>
+          <Bri size={15} weight={800} color={enabled ? color.textPrimary : color.muted}>
             {busy ? 'Securing…' : 'Secure this account'}
           </Bri>
           <Sans size={12.5} lineHeight={17} color={color.muted} style={{ marginTop: 3 }}>
@@ -715,7 +715,7 @@ function SignOutRow({ enabled }: { enabled: boolean }) {
         style={{ ...row, gap: 12, ...cardBox(color), opacity: enabled ? 1 : 0.5 }}
       >
         <View style={fill}>
-          <Bri size={15} weight={800} color={enabled ? color.ink : color.muted}>
+          <Bri size={15} weight={800} color={enabled ? color.textPrimary : color.muted}>
             {busy ? 'Signing out…' : 'Sign out'}
           </Bri>
           <Sans size={12.5} lineHeight={17} color={color.muted} style={{ marginTop: 3 }}>

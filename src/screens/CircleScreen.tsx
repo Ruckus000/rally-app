@@ -6,7 +6,7 @@
  */
 import React from 'react';
 import { View } from 'react-native';
-import { radius, shadows } from '../theme/tokens';
+import { onDark, onLight, radius, shadows } from '../theme/tokens';
 import { useColors, type Palette } from '../theme/ThemeProvider';
 import { Avatar, ProgressRing } from '../components/Avatar';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
@@ -165,8 +165,8 @@ export function CircleScreen() {
         }}
       >
         <Sans size={16}>🔥</Sans>
-        <Sans size={13} lineHeight={18} color={color.paper} style={fill}>
-          <Bri size={13} weight={800} color={color.paper}>
+        <Sans size={13} lineHeight={18} color={onDark.primary} style={fill}>
+          <Bri size={13} weight={800} color={onDark.primary}>
             {/* Derived from the ranking already in hand — `totalCheersExchanged`
                 re-runs the entire ranking to compute exactly this reduce. */}
             {ranked.reduce((a, r) => a + (r.given ?? 0), 0)}
@@ -186,7 +186,7 @@ export function CircleScreen() {
           marginTop: 12,
         }}
       >
-        <Bri size={15} weight={800} color={color.ink}>
+        <Bri size={15} weight={800} color={color.textPrimary}>
           + Invite someone to the circle
         </Bri>
       </Tap>
@@ -254,7 +254,7 @@ function PodiumMember({
               backgroundColor: isFirst ? color.lime : color.ink,
             }}
           >
-            <Bri size={11} weight={800} color={isFirst ? color.ink : color.lime}>
+            <Bri size={11} weight={800} color={isFirst ? onLight : color.lime}>
               {member.rank}
             </Bri>
           </View>
@@ -265,7 +265,7 @@ function PodiumMember({
           widened its podium column until the centred three-up row ran off
           both edges of the screen. */}
       <View style={[row, { marginTop: 9, maxWidth: size + 24 }]}>
-        <Sans size={12} weight={700} color={color.ink} numberOfLines={1} style={{ flexShrink: 1 }}>
+        <Sans size={12} weight={700} color={color.textPrimary} numberOfLines={1} style={{ flexShrink: 1 }}>
           {member.first}
         </Sans>
         <Sans size={12} color={color.faintInk} numberOfLines={1}>

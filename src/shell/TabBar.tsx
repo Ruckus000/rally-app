@@ -6,7 +6,7 @@ import React from 'react';
 import { View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
-import { onDark, radius, shadows } from '../theme/tokens';
+import { onDark, onLight, radius, shadows } from '../theme/tokens';
 import { useColors } from '../theme/ThemeProvider';
 import { Sans, Tap } from '../components/primitives';
 import { Icon, IconName } from '../components/Icon';
@@ -106,7 +106,7 @@ export function TabBar({ bottomInset }: { bottomInset: number }) {
                   ...shadows.fab,
                 }}
               >
-                <Icon name="plus" size={22} color={color.ink} />
+                <Icon name="plus" size={22} color={onLight} />
               </Tap>
               {tab}
             </React.Fragment>

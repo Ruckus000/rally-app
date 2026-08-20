@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { TextInput, View } from 'react-native';
-import { onDark, radius, shadows } from '../theme/tokens';
+import { onDark, onLight, radius, shadows } from '../theme/tokens';
 import { useColors } from '../theme/ThemeProvider';
 import { Moment, TITLE_MAX } from '../data/fixtures';
 import { useStore } from '../state/store';
@@ -112,7 +112,7 @@ function PersonalHeader() {
           marginBottom: 16,
         }}
       >
-        <Bri size={15} weight={800} color={color.paper}>
+        <Bri size={15} weight={800} color={onDark.primary}>
           {pts} pts
         </Bri>
         <View style={{ width: 3, height: 3, borderRadius: 2, backgroundColor: onDark.dot }} />
@@ -181,7 +181,7 @@ function QuickLogInput() {
           paddingHorizontal: 16,
           fontFamily: 'InstrumentSans_400Regular',
           fontSize: 14,
-          color: color.ink,
+          color: color.textPrimary,
           ...shadows.card,
         }}
       />
@@ -197,7 +197,7 @@ function QuickLogInput() {
           justifyContent: 'center',
         }}
       >
-        <Icon name="check" size={16} color={color.ink} />
+        <Icon name="check" size={16} color={onLight} />
       </Tap>
     </>
   );

@@ -3,7 +3,7 @@
  */
 import React from 'react';
 import { Alert, Platform, TextInput, View } from 'react-native';
-import { onDark, radius, shadows, useDisplayLeading, yearLevelColor } from '../theme/tokens';
+import { onDark, onLight, radius, shadows, useDisplayLeading, yearLevelColor } from '../theme/tokens';
 import { useColors } from '../theme/ThemeProvider';
 import { CIRCLE_NAME, ME, weekPointsLabel } from '../data/fixtures';
 import { NAME_MAX, type PersonId } from '../data/people';
@@ -204,7 +204,7 @@ export function MeScreen() {
                   fontFamily: 'BricolageGrotesque_800ExtraBold',
                   fontSize: 22,
                   letterSpacing: -0.5,
-                  color: color.paper,
+                  color: onDark.primary,
                   paddingVertical: 0,
                 }}
               />
@@ -224,7 +224,7 @@ export function MeScreen() {
                   size={22}
                   weight={800}
                   tracking={-0.5}
-                  color={nameMissing ? onDark.tertiary : color.paper}
+                  color={nameMissing ? onDark.tertiary : onDark.primary}
                 >
                   {nameMissing ? 'Add your name' : myName}
                 </Bri>
@@ -286,7 +286,7 @@ export function MeScreen() {
             size={48}
             weight={800}
             tracking={-2.2}
-            color={color.paper}
+            color={onDark.primary}
             style={pointsLeading}
           >
             {profile.allTimePoints.toLocaleString()}
@@ -399,7 +399,10 @@ export function MeScreen() {
             backgroundColor: color.exchangeTrack,
           }}
         >
-          <View style={{ width: `${Math.round((gave / exchangeTotal) * 100)}%`, backgroundColor: color.ink }} />
+          {/* The half you gave, drawn against `exchangeTrack` rather than as a
+              surface of its own — so it is the track it has to stay legible
+              against, and it moves when the track does. */}
+          <View style={{ width: `${Math.round((gave / exchangeTotal) * 100)}%`, backgroundColor: color.textPrimary }} />
           <View style={{ width: `${Math.round((got / exchangeTotal) * 100)}%`, backgroundColor: color.lime }} />
         </View>
 
@@ -467,7 +470,7 @@ export function MeScreen() {
                     backgroundColor: color.lime,
                   }}
                 >
-                  <Bri size={12} weight={800} color={color.ink}>
+                  <Bri size={12} weight={800} color={onLight}>
                     Say something
                   </Bri>
                 </Tap>
@@ -520,14 +523,14 @@ export function MeScreen() {
               }}
             >
               <View style={fill}>
-                <Sans size={14.5} weight={600} color={w.quiet ? color.faintInk : color.ink}>
+                <Sans size={14.5} weight={600} color={w.quiet ? color.faintInk : color.textPrimary}>
                   {w.label}
                 </Sans>
                 <Sans size={11.5} color={color.muted}>
                   {w.sub}
                 </Sans>
               </View>
-              <Bri size={14} weight={700} color={w.quiet ? color.faintInk : color.ink}>
+              <Bri size={14} weight={700} color={w.quiet ? color.faintInk : color.textPrimary}>
                 {weekPointsLabel(w)}
               </Bri>
             </Tap>
@@ -546,7 +549,7 @@ export function MeScreen() {
           justifyContent: 'center',
         }}
       >
-        <Bri size={15} weight={800} color={color.ink}>
+        <Bri size={15} weight={800} color={color.textPrimary}>
           See this week’s ledger
         </Bri>
       </Tap>

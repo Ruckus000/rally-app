@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { ScrollView, View } from 'react-native';
-import { gutter, onDark, radius, shadows } from '../theme/tokens';
+import { gutter, onDark, onLight, radius, shadows } from '../theme/tokens';
 import { useColors } from '../theme/ThemeProvider';
 import { NOTIF_TIERS, Notification, NotifTier } from '../data/fixtures';
 import { EmptyState } from '../components/FeedCards';
@@ -69,7 +69,7 @@ export function NotificationsOverlay({
           </Tap>
         ) : null}
         <Tap onPress={close} accessibilityLabel="Close notifications" style={closeButton(color)}>
-          <Icon name="close" size={16} color={color.ink} />
+          <Icon name="close" size={16} color={color.textPrimary} />
         </Tap>
       </View>
 
@@ -107,7 +107,7 @@ export function NotificationsOverlay({
                 backgroundColor: on ? color.ink : color.card,
               }}
             >
-              <Sans size={12.5} weight={700} color={on ? color.paper : color.avatarText}>
+              <Sans size={12.5} weight={700} color={on ? onDark.primary : color.avatarText}>
                 {f.label}
               </Sans>
               {/* Same rule as the tiers: a filter with nothing behind it wears
@@ -252,7 +252,7 @@ function NotificationRow({ item, isNeeds }: { item: Notification; isNeeds: boole
           <Icon
             name={TIER_ICON[item.kind] ?? 'due'}
             size={17}
-            color={item.kind === 'streak' ? color.lime : color.paper}
+            color={item.kind === 'streak' ? color.lime : onDark.primary}
           />
         </View>
       ) : (
@@ -274,8 +274,8 @@ function NotificationRow({ item, isNeeds }: { item: Notification; isNeeds: boole
       )}
 
       <View style={fill}>
-        <Sans size={13.5} lineHeight={18} color={isNeeds && !read ? color.ink : color.muted}>
-          <Sans size={13.5} weight={700} color={color.ink}>
+        <Sans size={13.5} lineHeight={18} color={isNeeds && !read ? color.textPrimary : color.muted}>
+          <Sans size={13.5} weight={700} color={color.textPrimary}>
             {name}
           </Sans>
           {' '}
@@ -304,7 +304,10 @@ function NotificationRow({ item, isNeeds }: { item: Notification; isNeeds: boole
             backgroundColor: isNeeds && !read ? color.lime : color.chip,
           }}
         >
-          <Sans size={11.5} weight={700} color={color.ink}>
+          {/* The pill under this label is `lime` when the row needs you and
+              `chip` when it does not — one fixed surface and one that flips —
+              so the label has to be told apart the same way the fill is. */}
+          <Sans size={11.5} weight={700} color={isNeeds && !read ? onLight : color.textPrimary}>
             {item.cta}
           </Sans>
         </View>

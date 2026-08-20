@@ -91,7 +91,7 @@ export function BootScreen() {
                 strokeWidth={MARK_GAP * 2}
                 strokeLinejoin="round"
               />
-              <Path d={MARK_PATH} fill={color.ink} />
+              <Path d={MARK_PATH} fill={color.textPrimary} />
             </G>
           </AnimatedG>
         ))}
