@@ -54,11 +54,37 @@ import { enableReminders } from '../lib/enableReminders';
 import { stakedPoints } from '../state/selectors';
 import type { AccountMode } from '../data/seed';
 import type { SessionState } from '../sync/session';
-import { canSecure, signOutEnabled, signOutVisible } from './settings/guards';
+import { canSecure, secureUnavailable, signOutEnabled, signOutVisible } from './settings/guards';
 import { attemptSignOut, unsentLine } from './settings/signOut';
 
 /**
  * What this account is, in one sentence, per platform.
+ *
+ * Every state of the session gets its own sentence, because this is the page
+ * somebody opens *because* something looks wrong. One line used to cover all
+ * five non-ready states — "Signed in. Checking this account…" — which is two
+ * claims, and on a build with no Supabase config both of them are false
+ * forever: the session is `off`, nothing is signed in, nothing is being
+ * checked, and that sentence sits there for good. It reassured in exactly the
+ * situations it exists to explain.
+ *
+ * What each line is careful about:
+ *
+ *  - **`signing-in`** is the only one that may say "checking", because it is
+ *    the only one where something is actually in flight.
+ *  - **`off`** on a live account means this build has no server configured.
+ *    That is a fact about the build, not about the person holding the phone,
+ *    so it reads as a plain statement and offers nothing to tap — there is no
+ *    action here that could change it.
+ *  - **`offline`** must not imply loss. The session retries by itself and the
+ *    outbox keeps everything, which is why `SyncBanner` deliberately stays
+ *    quiet for it.
+ *  - **`expired`** says the device is signed out and stops there. The way back
+ *    — "Try again", "Start over" — belongs to `SyncBanner`, and a second copy
+ *    of that offer under a heading would be two doors onto one action.
+ *  - **`error`** never renders `session.message`. That string is banner copy,
+ *    written to sit next to a retry; here it would be a raw fault under a
+ *    heading with nothing to do about it.
  *
  * Honest rather than encouraging. The Android line has to carry two facts at
  * once — no way back, and no sign-out — because on Android the sign-out row is
@@ -84,7 +110,19 @@ export function accountLine(
   if (account !== 'live') {
     return 'Nothing here reaches a server. It’s all made up, and it’s all yours.';
   }
-  if (session.status !== 'ready') return 'Signed in. Checking this account…';
+  if (session.status === 'signing-in') return 'Checking this account…';
+  if (session.status === 'off') {
+    return 'No server is set up for this copy of Rally, so this account never signs in. Everything you do stays on this phone.';
+  }
+  if (session.status === 'offline') {
+    return 'Signed in. No connection right now — this catches up on its own once there is one.';
+  }
+  if (session.status === 'expired') {
+    return 'Signed out on this device. Your week is safe here, but nothing new is reaching the server.';
+  }
+  if (session.status === 'error') {
+    return 'Signing in isn’t working on this phone, and trying again may not be enough.';
+  }
   if (!session.anonymous) return 'Signed in, and this account can be got back with Apple.';
   return platform === 'ios'
     ? 'Signed in, but this account can’t be got back yet. Secure it below and you can sign back in on a new phone.'
@@ -174,9 +212,12 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
           <RemindersRow />
         </Section>
 
-        {canSecure(account, session, Platform.OS) ? (
+        {/* Offered, or explained. Never silently missing — see
+            `secureUnavailable`. */}
+        {canSecure(account, session, Platform.OS) ||
+        secureUnavailable(account, session, Platform.OS) ? (
           <Section title="Getting back in">
-            <SecureRow />
+            <SecureRow enabled={canSecure(account, session, Platform.OS)} />
           </Section>
         ) : null}
 
@@ -555,8 +596,14 @@ function RemindersRow() {
  * session, the store folds it in, `canSecure` turns false and the section is
  * gone. A dismissed sheet says nothing at all — the user cancelled, and telling
  * them so would be the app arguing with them.
+ *
+ * Disabled rather than absent when the session has not resolved, the way
+ * `SignOutRow` already is and for the same reason — `secureUnavailable` carries
+ * the argument. Greyed *and* captioned, because colour is never the only
+ * signal, and the caption is the only place the page says why the one row
+ * somebody came here for is not tappable.
  */
-function SecureRow() {
+function SecureRow({ enabled }: { enabled: boolean }) {
   const [busy, setBusy] = React.useState(false);
   const [trouble, setTrouble] = React.useState<string | null>(null);
 
@@ -574,16 +621,27 @@ function SecureRow() {
   return (
     <View>
       <Tap
-        onPress={busy ? undefined : () => void secure()}
-        accessibilityLabel="Secure this account with Apple, so you can sign back in"
-        style={{ ...row, gap: 12, ...cardBox }}
+        onPress={enabled && !busy ? () => void secure() : undefined}
+        disabled={!enabled}
+        // Same trap as `SignOutRow`: a `Tap`'s `accessibilityLabel` collapses
+        // everything inside it, so the caption below never reaches VoiceOver
+        // and the reason has to travel in the label or not at all.
+        accessibilityState={{ disabled: !enabled, busy }}
+        accessibilityLabel={
+          enabled
+            ? 'Secure this account with Apple, so you can sign back in'
+            : 'Secure this account. Securing needs a connection'
+        }
+        style={{ ...row, gap: 12, ...cardBox, opacity: enabled ? 1 : 0.5 }}
       >
         <View style={fill}>
-          <Bri size={15} weight={800}>
+          <Bri size={15} weight={800} color={enabled ? color.ink : color.muted}>
             {busy ? 'Securing…' : 'Secure this account'}
           </Bri>
           <Sans size={12.5} lineHeight={17} color={color.muted} style={{ marginTop: 3 }}>
-            Continue with Apple, and this account comes back on a new phone.
+            {enabled
+              ? 'Continue with Apple, and this account comes back on a new phone.'
+              : 'Securing this account needs a connection. It’s still here when you get one.'}
           </Sans>
         </View>
       </Tap>

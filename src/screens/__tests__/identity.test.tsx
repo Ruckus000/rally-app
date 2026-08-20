@@ -120,13 +120,13 @@ describe('renaming yourself', () => {
     expect(screen.queryByLabelText(/Change your name/)).toBeNull();
   });
 
-  it('starts empty, not "Someone", before the first pull has landed', () => {
+  it('invites you to add a name, not "Someone", before the first pull has landed', () => {
     // No `people` entry for `selfId` at all — `seedPeople('live')` is empty,
     // which is every live account until its first pull. `people.name()` is
-    // total and answers "Someone" for an id it has not seen, which is a fine
-    // thing for the card to display and a terrible thing to seed the editor
-    // from: tap the name, tap away, and "Someone" gets filed as the real name
-    // and queued to the server. This is the case that bug shipped in.
+    // total and answers "Someone" for an id it has not seen — the right
+    // fallback for a stranger's row, and the wrong one for your own: the app
+    // knows exactly who this is, it just has no name for them yet. This is
+    // the case that bug shipped in.
     render(
       <StoreProvider
         persist={false}
@@ -137,16 +137,22 @@ describe('renaming yourself', () => {
       </StoreProvider>,
     );
 
-    fireEvent.press(screen.getByLabelText('Someone. Change your name.'));
+    expect(screen.getByText('Add your name')).toBeTruthy();
+    expect(screen.queryByText('Someone')).toBeNull();
 
+    fireEvent.press(screen.getByLabelText('Add your name'));
+
+    // Seeded empty, not with "Someone" — that would be filed as the real name
+    // the moment the field lost focus.
     expect(screen.getByLabelText('Your name').props.value).toBe('');
 
     // Blurring without typing anything must not file the placeholder as a real
     // name. `commitSelfName` no-ops on an empty draft, so the card still shows
-    // "Someone" and nothing was queued.
+    // the invitation and nothing was queued.
     fireEvent(screen.getByLabelText('Your name'), 'blur');
 
-    expect(screen.getByText('Someone')).toBeTruthy();
+    expect(screen.getByText('Add your name')).toBeTruthy();
+    expect(screen.queryByText('Someone')).toBeNull();
   });
 });
 
