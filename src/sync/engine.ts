@@ -38,7 +38,13 @@ import {
   type OutboxOp,
   type QueueTransport,
 } from './outbox';
-import { dropMediaFor, drainMedia, onMediaBlocked, type MediaTransport } from './media';
+import {
+  detachMedia,
+  dropMediaFor,
+  drainMedia,
+  onMediaBlocked,
+  type MediaTransport,
+} from './media';
 import { forgetLocalPhotoAt } from '../lib/localPhoto';
 import { IMAGE_BLOCKED_COPY } from '../../supabase/functions/_shared/imageVerdict.mjs';
 import {
@@ -884,12 +890,24 @@ export function createEngine(
         if (seen.get(task.id) === task) continue;
         enqueue('task.upsert', `task:${task.id}`, { task, weekStart });
       }
-      for (const id of seen.keys()) {
+      for (const [id, gone] of seen) {
         if (!next.has(id)) {
           enqueue('task.delete', `task:${id}`, { taskId: id });
           // The row cascades server-side, but a photo still waiting to upload
           // would spend the radio on a file nothing will ever point at.
           dropMediaFor(id);
+          // The cascade takes the row and leaves the object, which nothing
+          // else would ever collect: `can_see_media` refuses a file no `ready`
+          // row claims, so the bytes are unreadable but they are still there
+          // and still billed. Deleting a photo off a goal already sends this;
+          // deleting the goal underneath it did not, which is the same photo
+          // surviving the same intent by a different route.
+          //
+          // Sent unconditionally when there was a photo, because
+          // `detachMedia` is a delete of a row and a delete of an object and
+          // a delete of nothing is nothing — so this need not work out how
+          // far through the pipeline the upload had got.
+          if (gone.media) detachMedia(id, gone.media.id);
         }
       }
 

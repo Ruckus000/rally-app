@@ -440,3 +440,10 @@ enabled = true
 # header the function checks is what stands in its place, and is the whole
 # authorisation story for this endpoint.
 verify_jwt = false
+
+[functions.collect-media]
+# Same reasoning as `push`: called by a trigger, which is not a user and has no
+# session to present. `COLLECT_MEDIA_WEBHOOK_SECRET` is the whole gate, and the
+# function refuses every request when it is unset rather than treating "I
+# cannot tell who is asking" as permission to delete files.
+verify_jwt = false

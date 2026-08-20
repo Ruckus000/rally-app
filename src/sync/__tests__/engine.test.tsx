@@ -1657,3 +1657,59 @@ describe('pull_world', () => {
     expect(fakeSupabase.calls.filter((c) => c.method === 'select').length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * Deleting the goal has to take the photo with it, and until now it did not.
+ *
+ * Taking a photo *off* a goal sends `media.detach`, which deletes the row and
+ * then the object. Deleting the goal underneath that photo sent only
+ * `task.delete` and relied on `task_media`'s `on delete cascade` — which takes
+ * the row and leaves the object, because Postgres cannot reach into a bucket.
+ * The file then belongs to nobody: `can_see_media` refuses an object no `ready`
+ * row claims, so it is unreadable, and it is also uncollectable, because
+ * nothing else in the app or the schema ever looks at it again.
+ *
+ * Asserted through the reducer rather than through the chip, because this is
+ * the engine's diff loop noticing a task has gone, not a tap. The chip's own
+ * removal path is covered in `src/overlays/__tests__/taskPhoto.test.tsx`.
+ */
+describe('a goal deleted with a photo on it', () => {
+  it('detaches the photo instead of leaving the object behind', async () => {
+    mount();
+    await settle();
+    stake('Run 5k');
+    await settle();
+
+    const id = taskIds()[0];
+    const mediaId = '44444444-4444-4444-8444-444444444444';
+    act(() =>
+      dispatch({
+        type: 'ATTACH_MEDIA',
+        id,
+        media: { id: mediaId, path: `owner/${id}/${mediaId}.jpg`, w: 10, h: 10 },
+      }),
+    );
+    await settle();
+
+    act(() => dispatch({ type: 'REMOVE_TASK', id }));
+    await settle();
+
+    expect(ops()).toContain('media.detach');
+  });
+
+  it('sends nothing extra for a goal that never had one', async () => {
+    // The guard is `gone.media`, and this is the half of it that would
+    // otherwise go unasserted: a detach enqueued for every deleted goal would
+    // still pass the test above.
+    mount();
+    await settle();
+    stake('Read a chapter');
+    await settle();
+
+    const id = taskIds()[0];
+    act(() => dispatch({ type: 'REMOVE_TASK', id }));
+    await settle();
+
+    expect(ops()).not.toContain('media.detach');
+  });
+});
