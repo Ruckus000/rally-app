@@ -11,7 +11,8 @@
  */
 import React, { useRef, useState } from 'react';
 import { ScrollView, TextInput, View } from 'react-native';
-import { color, heroGlow, onDark } from '../../theme/tokens';
+import { heroGlow, onDark } from '../../theme/tokens';
+import { useColors } from '../../theme/ThemeProvider';
 import { TITLE_MAX } from '../../data/fixtures';
 import { Icon } from '../../components/Icon';
 import { Bri, Caps, GlowBloom, Sans, Tap, row } from '../../components/primitives';
@@ -42,6 +43,7 @@ export function StakeScreen({
   onAddCustom: (suggestion: Suggestion) => void;
   onNext: () => void;
 }) {
+  const color = useColors();
   const [draft, setDraft] = useState('');
   // Date.now() alone collides if you add two in the same millisecond, which a
   // paste-and-tap can do.
