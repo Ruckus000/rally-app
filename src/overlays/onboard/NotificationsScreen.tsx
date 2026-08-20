@@ -16,7 +16,8 @@
  */
 import React, { useEffect, useState } from 'react';
 import { Animated, View, ViewStyle } from 'react-native';
-import { color, onDark } from '../../theme/tokens';
+import { onDark } from '../../theme/tokens';
+import { useColors } from '../../theme/ThemeProvider';
 import { POP_DURATION, popEasing, useReducedMotion } from '../../theme/motion';
 import { Bri, Caps, Sans, fill } from '../../components/primitives';
 import { NotificationPreview, PillButton } from './kit';
@@ -38,6 +39,7 @@ export function NotificationsScreen({
   onAllow: () => void;
   onLater: () => void;
 }) {
+  const color = useColors();
   const stakeLine = hasPicks
     ? `You staked ${stakeSum} pts — time to move.`
     : 'Time to stake your plan.';
