@@ -15,10 +15,12 @@
  */
 import React from 'react';
 import { View } from 'react-native';
-import { color, radius } from '../theme/tokens';
+import { radius } from '../theme/tokens';
+import { useColors } from '../theme/ThemeProvider';
 import { Sans } from './primitives';
 
 export function Trouble({ message }: { message?: string | null }) {
+  const color = useColors();
   if (!message) return null;
   return (
     <View
