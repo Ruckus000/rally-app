@@ -28,7 +28,8 @@
 import React from 'react';
 import { Platform, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { color, onDark } from '../../theme/tokens';
+import { onDark } from '../../theme/tokens';
+import { useColors } from '../../theme/ThemeProvider';
 import { Bri, Caps, GlowBloom, Sans, row } from '../../components/primitives';
 import { HeroSegments, PillButton } from './kit';
 import { Trouble } from '../../components/Trouble';
@@ -54,6 +55,7 @@ export function WelcomeScreen({
   busy?: boolean;
   trouble?: string | null;
 }) {
+  const color = useColors();
   // Rendering decision, so it is read here rather than threaded through a prop:
   // which platform's sign-in exists is not something the flow host knows better.
   const appleReal = Platform.OS === 'ios' && !!onApple;
@@ -172,6 +174,8 @@ export function WelcomeScreen({
    here instead of in the icon set. */
 
 function AppleMark() {
+  const color = useColors();
+
   return (
     <Svg width={17} height={17} viewBox="0 0 24 24">
       <Path
