@@ -391,6 +391,7 @@ function MomentItem({ moment: m, from }: { moment: Moment; from: FeedSource }) {
       time={m.time}
       title={m.title ?? ''}
       quote={m.quote}
+      media={m.media}
       isAsk={isAsk}
       cheered={cheered}
       // Everyone else's, plus your own tap. `pullCheerCounts` deliberately

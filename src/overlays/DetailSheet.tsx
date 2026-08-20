@@ -26,15 +26,14 @@ import {
   PERSON_NOTES,
   PERSON_TASKS,
   Task,
-  TaskMedia,
 } from '../data/fixtures';
 import { DAY_NAMES } from '../data/week';
 import { CIRCLE_NAME_MAX, useStore } from '../state/store';
 import { myStats, visibleNotes } from '../state/selectors';
 import { SHEET_DURATION, sheetEasing, useReducedMotion } from '../theme/motion';
-import { Image } from 'expo-image';
 import { Avatar } from '../components/Avatar';
 import { Icon } from '../components/Icon';
+import { TaskPhoto } from '../components/TaskPhoto';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
 import { Trouble } from '../components/Trouble';
 import { Overlay } from './Overlay';
@@ -227,8 +226,13 @@ function TaskSheet({ id }: { id: string }) {
       {mine && mine.pairKind === 'joint' ? <JointProgress task={mine} /> : null}
 
       {/* The photo, at the aspect it was taken. Sized from the stored
-          dimensions so the sheet does not reflow when the image arrives. */}
+          dimensions so the sheet does not reflow when the image arrives.
+          Either side of it: your own goal draws from the file on this device,
+          somebody else's from the URL the pull signed. */}
       {mine?.media ? <TaskPhoto media={mine.media} /> : null}
+      {!mine && moment?.media ? (
+        <TaskPhoto media={moment.media} label={`Photo on ${first}’s goal`} />
+      ) : null}
 
       {/* Your own stake is editable — the one thing the prototype couldn't do. */}
       {mine ? (
@@ -353,43 +357,6 @@ function JointProgress({ task }: { task: Task }) {
   );
 }
 
-/**
- * A goal's photo.
- *
- * Drawn from `localUri` when this device has the file and from the signed
- * `url` otherwise, preferring the local one because it costs nothing and is
- * there before any URL has been minted. The aspect comes from the stored
- * dimensions rather than from the image, so the layout is settled before the
- * first byte arrives — a card that reflows when a photo loads is the jank
- * this app spent a release removing.
- *
- * `cacheKey` is the media id, deliberately not the URL: signed URLs are
- * re-minted on every pull, and keying the cache on one would re-download
- * every photo in the feed every cycle.
- */
-function TaskPhoto({ media }: { media: TaskMedia }) {
-  const color = useColors();
-  const source = media.localUri ?? media.url;
-  if (!source) return null;
-  const ratio = media.w && media.h ? media.w / media.h : 4 / 3;
-  return (
-    <Image
-      source={{ uri: source }}
-      cachePolicy="disk"
-      recyclingKey={media.id}
-      contentFit="cover"
-      accessibilityLabel="Photo on this goal"
-      style={{
-        width: '100%',
-        // Capped so a tall photo cannot push the actions off the sheet.
-        aspectRatio: Math.max(ratio, 3 / 4),
-        borderRadius: radius.chip,
-        marginTop: 12,
-        backgroundColor: color.chip,
-      }}
-    />
-  );
-}
 
 /**
  * Attach a photo, or take one back.

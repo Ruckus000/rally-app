@@ -13,6 +13,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { asAnon, asService, asUser, idOf } from '../support/clients';
+import { sql } from '../support/reset';
 import { CIRCLE_IDS, SEED_BOTS } from '../fixtures/world';
 
 /** 2026-08-10 is a Monday, which is what `week_start` means. */
@@ -36,6 +37,9 @@ type World = {
   reactions: { target_id: string; kind: string }[];
   notes: { id: string; body: string }[];
   rollups: { week_start: string; points: number }[];
+  media:
+    | { id: string; task_id: string; owner_id: string; path: string; state: string }[]
+    | null;
   cheer_counts: Record<string, number>;
 };
 
@@ -205,5 +209,99 @@ describe('signed out', () => {
     const { error } = await asAnon().rpc('pull_world', { p_week_start: WEEK });
     expect(error).not.toBeNull();
     expect(error!.code).toBe('42501');
+  });
+});
+
+/**
+ * The photos, which the pull carries because a goal and its picture are one
+ * thing to the person reading the feed.
+ *
+ * The CTE has no predicate of its own — `task_media_select` already answers
+ * screening state, blocks and audience, and `pull_world` runs as the caller.
+ * So what is being tested here is precisely that *not restating it works*: if
+ * the function ever stopped being SECURITY INVOKER, or grew a `where` of its
+ * own that drifted from the policy, these are the tests that fail.
+ */
+describe('the photos on those goals', () => {
+  const mediaId = () => randomUUID();
+
+  /** Attach a photo to one of maya's goals. `ready` unless a test says not. */
+  const attach = async (taskId: string, state: 'pending' | 'ready' = 'ready') => {
+    const id = mediaId();
+    const { error } = await asUser('maya')
+      .from('task_media')
+      .insert({
+        id,
+        task_id: taskId,
+        owner_id: idOf('maya'),
+        path: `${idOf('maya')}/${taskId}/${id}.jpg`,
+        width: 1600,
+        height: 1200,
+      });
+    expect(error).toBeNull();
+    if (state === 'ready') {
+      // The only route, and service-role only: no client can publish a photo.
+      await sql('select public.mark_task_media_ready($1)', [id]);
+    }
+    return id;
+  };
+
+  const mediaIn = (world: World) => (world.media ?? []).map((m) => m.id).sort();
+
+  it('gives a circle-mate the photo on a friends goal', async () => {
+    const id = await attach(taskIds.friends);
+    expect(mediaIn(await worldOf('dre'))).toEqual([id]);
+  });
+
+  it('withholds one the screener has not passed yet', async () => {
+    await attach(taskIds.friends, 'pending');
+    expect(mediaIn(await worldOf('dre'))).toEqual([]);
+  });
+
+  it('still gives the owner their own pending photo', async () => {
+    // The reason the CTE must not gain `and state = 'ready'`: this is what puts
+    // a photo on the owner's *second* device in the seconds before the screener
+    // answers. Take it away and that device shows nothing — and, because the
+    // client reads "no row" as "removed elsewhere", deletes the photo it has.
+    const id = await attach(taskIds.friends, 'pending');
+    expect(mediaIn(await worldOf('maya'))).toEqual([id]);
+  });
+
+  it('withholds a private goal’s photo from the circle', async () => {
+    await attach(taskIds.privateAlone);
+    expect(mediaIn(await worldOf('dre'))).toEqual([]);
+  });
+
+  it('withholds it from someone outside the circle', async () => {
+    await attach(taskIds.friends);
+    expect(mediaIn(await worldOf('jordan'))).toEqual([]);
+  });
+
+  it('withholds it from somebody blocked', async () => {
+    const id = await attach(taskIds.friends);
+    expect(mediaIn(await worldOf('dre'))).toEqual([id]);
+
+    const { error } = await asUser('dre').rpc('block_person', { p_blocked: idOf('maya') });
+    expect(error).toBeNull();
+    try {
+      expect(mediaIn(await worldOf('dre'))).toEqual([]);
+    } finally {
+      await sql('delete from public.blocks');
+    }
+  });
+
+  it('answers null rather than empty when there is no week to ask about', async () => {
+    // The distinction the client acts on. Empty means "these goals have no
+    // photos", which is how a removal on another device arrives — so a
+    // week-less pull answering `[]` would delete every photo on the device.
+    await attach(taskIds.friends);
+    const world = await worldOf('maya', null);
+    expect(world.media).toBeNull();
+    // And `my_tasks`, which has always answered this way, agrees.
+    expect(world.my_tasks).toBeNull();
+  });
+
+  it('answers empty when the week genuinely has none', async () => {
+    expect(await worldOf('maya').then((w) => w.media)).toEqual([]);
   });
 });
