@@ -6,8 +6,8 @@
  */
 import React from 'react';
 import { ScrollView, View, ViewStyle } from 'react-native';
-import { color, gutter, radius } from '../theme/tokens';
-import type { Palette } from '../theme/ThemeProvider';
+import { gutter, radius } from '../theme/tokens';
+import { useColors, type Palette } from '../theme/ThemeProvider';
 import { useStore, usePeople } from '../state/store';
 import { helpedByThisWeek, helpedThisWeek, pluralTimes, withoutBlocked } from '../state/selectors';
 import { Avatar } from '../components/Avatar';
@@ -17,6 +17,7 @@ import { Overlay } from './Overlay';
 import type { PersonId } from '../data/people';
 
 export function LedgerOverlay({ topInset, bottomInset }: { topInset: number; bottomInset: number }) {
+  const color = useColors();
   const { state, dispatch } = useStore();
   const history = state.wrapWeek ? (state.history.find((h) => h.n === state.wrapWeek) ?? null) : null;
   const close = () => dispatch({ type: 'CLOSE_WRAP' });
@@ -184,6 +185,7 @@ function PeopleList({ people }: { people: { k: PersonId; detail: string }[] }) {
 }
 
 function PersonLine({ who, detail }: { who: PersonId; detail: string }) {
+  const color = useColors();
   const people = usePeople();
   return (
     <View style={[row, { gap: 10 }]}>
@@ -214,9 +216,10 @@ function PersonLine({ who, detail }: { who: PersonId; detail: string }) {
  * `SettingsOverlay` use it too. Three components sharing one box is exactly
  * the case where hoisting a factory beats moving the object into one of them.
  *
- * The caller passes whatever palette it has — the static `color` import today,
- * `useColors()` once that file is migrated. Both work, which is what lets the
- * migration proceed one file at a time.
+ * The caller passes whatever palette it has. Every caller now passes
+ * `useColors()`, but the parameter is what let the migration proceed one file
+ * at a time — an unmigrated caller could still pass the static import — and it
+ * is what a caller yet to be migrated will lean on.
  */
 export const closeButton = (color: Palette): ViewStyle => ({
   width: 40,
