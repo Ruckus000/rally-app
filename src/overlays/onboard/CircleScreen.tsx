@@ -5,7 +5,7 @@
  */
 import React, { useState } from 'react';
 import { ScrollView, TextInput, View } from 'react-native';
-import { shadows } from '../../theme/tokens';
+import { onLight, shadows } from '../../theme/tokens';
 import { useColors } from '../../theme/ThemeProvider';
 import { Icon } from '../../components/Icon';
 import { Bri, Caps, Sans, Tap, fill, row } from '../../components/primitives';
@@ -72,7 +72,7 @@ export function CircleScreen({
             title="I have an invite"
             subtitle="A friend sent you a circle code"
             iconBg={color.lime}
-            icon={<Icon name="comment" size={18} color={color.ink} strokeWidth={2} />}
+            icon={<Icon name="comment" size={18} color={onLight} strokeWidth={2} />}
             open={open === 'code'}
             onPress={toggle('code')}
           >
@@ -103,7 +103,7 @@ export function CircleScreen({
                   fontFamily: 'BricolageGrotesque_700Bold',
                   fontSize: 15,
                   letterSpacing: 2,
-                  color: color.ink,
+                  color: color.textPrimary,
                 }}
               />
               <SmallButton
@@ -149,7 +149,7 @@ export function CircleScreen({
                   paddingHorizontal: 14,
                   fontFamily: 'InstrumentSans_600SemiBold',
                   fontSize: 14,
-                  color: color.ink,
+                  color: color.textPrimary,
                 }}
               />
               <SmallButton
