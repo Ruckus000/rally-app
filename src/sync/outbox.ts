@@ -37,6 +37,12 @@ export type OutboxOp =
   // and this is only ever enqueued once the upload has been acknowledged, so
   // the row cannot promise an object that is not there.
   | 'media.attach'
+  // Taking one back: the row and the object together. Shares `media.attach`'s
+  // coalescing key so a photo attached and removed before either left the
+  // device collapses — though unlike `task.delete` the detach still goes,
+  // because the *file* is written by the other queue and can be in the bucket
+  // even when the row never left this one.
+  | 'media.detach'
   // A report never updates and never withdraws — `report_content` is
   // insert-shaped, like `rollup.add` above.
   | 'report.file'
@@ -131,6 +137,7 @@ const OPS_BY_NAME: Record<OutboxOp, true> = {
   'device.register': true,
   'rollup.add': true,
   'media.attach': true,
+  'media.detach': true,
   'report.file': true,
   'block.add': true,
   'block.remove': true,
@@ -345,6 +352,23 @@ export function enqueue(op: OutboxOp, key: string, payload: Record<string, unkno
       schedule();
       return;
     }
+  }
+
+  if (op === 'media.detach') {
+    // The same coalescing the two above do, and then deliberately *not* the
+    // same early return.
+    //
+    // Dropping a not-yet-sent `media.attach` is right for the same reason it is
+    // right for a cheer: the row it would write is one this device has stopped
+    // showing, and an attach outliving its own cancellation puts a photo back
+    // on a goal the owner just cleared.
+    //
+    // But the detach itself still has to go, and that is where a photo differs
+    // from a cheer. The *object* is uploaded by `media.ts`'s queue, not by this
+    // entry — so the bucket can be holding the file even when the row never
+    // left. An early return here would coalesce away the only instruction that
+    // ever deletes it.
+    queue = queue.filter((e) => !(e.key === key && e.op === 'media.attach' && isFree(e)));
   }
 
   // Same row, same op, not yet on the wire: the newer payload is the whole

@@ -12,6 +12,7 @@ import {
   __resetMediaForTests,
   clearMedia,
   deadMedia,
+  detachMedia,
   drainMedia,
   dropMediaFor,
   enqueueMedia,
@@ -21,7 +22,7 @@ import {
   type MediaTransport,
   type ScreenOutcome,
 } from '../media';
-import { __resetOutboxForTests, pending } from '../outbox';
+import { __resetOutboxForTests, enqueue, pending } from '../outbox';
 import { supabaseTransport } from '../transport';
 import { fakeSupabase } from '../../__mocks__/@supabase/supabase-js';
 
@@ -87,6 +88,7 @@ afterEach(() => {
 });
 
 const attachOps = () => pending().filter((e) => e.op === 'media.attach');
+const detachOps = () => pending().filter((e) => e.op === 'media.detach');
 
 describe('upload first, record second', () => {
   it('writes no row until the file is in the bucket', async () => {
@@ -364,6 +366,90 @@ describe('the screening gate', () => {
   });
 });
 
+/**
+ * Taking a photo back, and the three places it can be.
+ *
+ * The bug this pins: `remove()` used to tell the screen and the upload queue
+ * and nobody else, so a photo removed after it had uploaded stayed on the
+ * server for good — invisible to the device that removed it and to nobody
+ * else, once anything reads other people's photos.
+ */
+describe('taking a photo back', () => {
+  it('cancels an upload that is already on the wire, rather than attaching it', async () => {
+    // The narrow window `dropMediaFor` used to leave open: an entry on the
+    // wire cannot be pulled out of the queue, so the upload landed and the row
+    // behind it was written for a photo the owner had just cleared.
+    enqueueMedia(photo());
+
+    let removeDuringUpload: () => void = () => {};
+    const { transport } = uploader();
+    transport.upload = async () => {
+      removeDuringUpload();
+      return { ok: true };
+    };
+    removeDuringUpload = () => dropMediaFor('task-1');
+
+    await drainMedia(transport);
+
+    // No row, ever.
+    expect(attachOps()).toHaveLength(0);
+    // And the bytes that did land are queued for deletion, because nothing
+    // else will ever mention them again.
+    expect(detachOps()).toHaveLength(1);
+    expect(detachOps()[0]!.payload).toMatchObject({ mediaId: 'media-1', taskId: 'task-1' });
+    expect(pendingMedia()).toHaveLength(0);
+  });
+
+  it('survives a force-quit mid-upload', async () => {
+    // The flag rides on the entry rather than in a set beside the queue, so it
+    // is written to disk with it. Held only in memory, the next launch would
+    // restore the entry, finish the upload and attach a removed photo.
+    enqueueMedia(photo());
+    const { transport } = uploader();
+    transport.upload = async () => {
+      dropMediaFor('task-1');
+      return { ok: false, permanent: false, error: 'offline' };
+    };
+    await drainMedia(transport);
+
+    const [entry] = pendingMedia();
+    expect(entry?.cancelled).toBe(true);
+  });
+
+  it('drops a photo that never left the device without telling the server', () => {
+    // Nothing uploaded, so there is nothing to delete. The detach is enqueued
+    // by the screen, not by the lane — this is only asserting the lane does
+    // not invent one of its own.
+    enqueueMedia(photo());
+    dropMediaFor('task-1');
+
+    expect(pendingMedia()).toHaveLength(0);
+    expect(detachOps()).toHaveLength(0);
+  });
+});
+
+describe('the detach the outbox carries', () => {
+  it('drops a not-yet-sent attach, and still goes itself', () => {
+    // Half of `reaction.remove`'s coalescing: the row this attach would write
+    // is one the device has stopped showing. The other half — the early
+    // return — is deliberately absent, because the *object* is uploaded by the
+    // other queue and can be in the bucket even when this row never left.
+    enqueue('media.attach', 'media:media-1', { mediaId: 'media-1', taskId: 'task-1' });
+    expect(attachOps()).toHaveLength(1);
+
+    detachMedia('task-1', 'media-1');
+
+    expect(attachOps()).toHaveLength(0);
+    expect(detachOps()).toHaveLength(1);
+  });
+
+  it('leaves another photo’s attach alone', () => {
+    enqueue('media.attach', 'media:media-2', { mediaId: 'media-2', taskId: 'task-2' });
+    detachMedia('task-1', 'media-1');
+    expect(attachOps()).toHaveLength(1);
+  });
+});
+
 describe('the row the upload earns', () => {
   const TASK = '33333333-3333-4333-8333-333333333333';
   const MEDIA = '44444444-4444-4444-8444-444444444444';
@@ -413,6 +499,57 @@ describe('the row the upload earns', () => {
     const rows = fakeSupabase.rows('task_media');
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ task_id: TASK, owner_id: OWNER, width: 1600, height: 1200 });
+  });
+
+  it('takes the row and the object away again', async () => {
+    fakeSupabase.reset();
+    fakeSupabase.seed({
+      profiles: [{ id: OWNER, handle: 'you', name: 'You' }],
+      tasks: [
+        { id: TASK, owner_id: OWNER, week_start: '2026-08-17', day: 0, title: 'Run 5k', category: 'Fitness', points: 40 },
+      ],
+      task_media: [
+        { id: MEDIA, task_id: TASK, owner_id: OWNER, path: `${OWNER}/${TASK}/${MEDIA}.jpg`, width: 1600, height: 1200 },
+      ],
+    });
+    fakeSupabase.seedObject('task-media', `${OWNER}/${TASK}/${MEDIA}.jpg`);
+
+    const wire = supabaseTransport();
+    const result = await wire.push(
+      { id: 'outbox-9', at: Date.now(), op: 'media.detach', mediaId: MEDIA, taskId: TASK },
+      OWNER,
+    );
+
+    expect(result.ok).toBe(true);
+    // Row first, then object — the order is argued at the handler. Both gone.
+    expect(fakeSupabase.rows('task_media')).toHaveLength(0);
+    expect(fakeSupabase.objects('task-media')).toEqual([]);
+  });
+
+  it('deletes the object its own ids name, not one it was handed', async () => {
+    // The payload carries no path, and this is why. `media.detach` reaches a
+    // service-shaped operation — a delete that RLS scopes only by the folder
+    // the caller owns — so the one string deciding which file disappears is
+    // built from the session and the ids, never sent.
+    fakeSupabase.reset();
+    fakeSupabase.seed({
+      profiles: [{ id: OWNER, handle: 'you', name: 'You' }],
+      tasks: [
+        { id: TASK, owner_id: OWNER, week_start: '2026-08-17', day: 0, title: 'Run 5k', category: 'Fitness', points: 40 },
+      ],
+    });
+    const mine = `${OWNER}/${TASK}/${MEDIA}.jpg`;
+    const someoneElses = `22222222-2222-4222-8222-222222222222/${TASK}/${MEDIA}.jpg`;
+    fakeSupabase.seedObject('task-media', mine);
+    fakeSupabase.seedObject('task-media', someoneElses);
+
+    const wire = supabaseTransport();
+    await wire.push(
+      { id: 'outbox-10', at: Date.now(), op: 'media.detach', mediaId: MEDIA, taskId: TASK },
+      OWNER,
+    );
+
+    expect(fakeSupabase.objects('task-media')).toEqual([someoneElses]);
   });
 
   it('absorbs a replay rather than attaching the same photo twice', async () => {

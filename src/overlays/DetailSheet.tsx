@@ -39,7 +39,7 @@ import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
 import { Trouble } from '../components/Trouble';
 import { Overlay } from './Overlay';
 import { createCircle } from '../sync/transport';
-import { dropMediaFor, enqueueMedia } from '../sync/media';
+import { detachMedia, dropMediaFor, enqueueMedia } from '../sync/media';
 import { forgetLocalPhoto, pickTaskPhoto } from '../lib/photos';
 import { kickSync } from '../sync/useSyncEngine';
 import { queueBlock } from '../sync/engine';
@@ -415,10 +415,14 @@ function PhotoChip({ task }: { task: Task }) {
         );
         return;
       }
-      // On screen first, uploaded second — see `media.ts`. Replacing an
-      // existing photo drops the old local file; the row is replaced by the
-      // one `unique (task_id)` allows.
+      // Nothing to displace: this chip only offers "add" when the goal has no
+      // photo, so replacing one is `remove` and then this, in that order. That
+      // is also why the collision `unique (task_id)` used to produce was never
+      // a bug of its own — the second row could not land while the first was
+      // still on the server, and the first was still on the server because
+      // `remove` never told it. Fixing that fixed this.
       void forgetLocalPhoto(task.media);
+      // On screen first, uploaded second — see `media.ts`.
       dispatch({ type: 'ATTACH_MEDIA', id: task.id, media: picked.media });
       enqueueMedia({
         id: picked.media.id,
@@ -436,7 +440,14 @@ function PhotoChip({ task }: { task: Task }) {
   const remove = () => {
     const had = task.media;
     dispatch({ type: 'REMOVE_MEDIA', id: task.id });
+    // Three places a photo can be, and all three have to be told. The screen
+    // is the dispatch; the upload queue is `dropMediaFor`, which also marks an
+    // upload already on the wire so its row is never written; the server is
+    // the detach. Before this, only the first two happened — a photo removed
+    // after it had uploaded stayed on the server for good, invisible to this
+    // device and to nobody else once anything reads other people's photos.
     dropMediaFor(task.id);
+    if (had) detachMedia(task.id, had.id);
     void forgetLocalPhoto(had);
   };
 

@@ -432,6 +432,17 @@ shares `rate-goal`'s per-user daily cap (`bump_llm_usage`, 200/day, one
 counter for both), and going over it also resolves `blocked`, deleting the
 pending upload rather than leaving it stranded unscreened.
 
+**Which half goes first, and why the two photo features disagree.** Both
+delete a row and an object; they do it in opposite orders, and each order is
+right for its own bucket. `clearAvatar` and `screen-image` delete the **object
+first**, because `avatars_objects_select` is `bucket_id = 'avatars'` for every
+signed-in account — an object outliving its row stays readable to anyone with
+the name. `media.detach` deletes the **row first**, because
+`private.can_see_media` refuses an object that no `ready` row claims, so
+removing the row is itself what makes the file unreadable; the storage delete
+after it is reclaiming space, not closing a hole. Get either backwards and the
+survivable failure becomes the dangerous one.
+
 **On refusal, the object is deleted, not just the row.** The bucket's select
 policy is `bucket_id = 'avatars'` for every authenticated account — deliberate,
 since an avatar's audience is everyone — so an object that survives a refusal

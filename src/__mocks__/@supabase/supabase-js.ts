@@ -386,6 +386,8 @@ type AuthListener = (event: string, session: Session | null) => void;
 const state = {
   db: {} as Record<string, Row[]>,
   calls: [] as CallLog[],
+  /** Object names per bucket. See `makeStorage` for what this does not model. */
+  objects: new Map<string, Set<string>>(),
   failures: [] as PostgrestErrorShape[],
   offline: false,
   anonymousDisabled: false,
@@ -1284,6 +1286,49 @@ const RPC: Record<string, (args: Row) => unknown> = {
 
 // ─── the client ───────────────────────────────────────────────────────────
 
+/**
+ * Storage, as far as an outbox op needs it: a set of object names per bucket.
+ *
+ * No policies, no bytes, no signed URLs — the same line `channel()` draws, and
+ * for the same reason. Whether a *reader* may fetch an object is
+ * `private.can_see_media`, which needs real RLS and is pinned in
+ * `integration/rls/task_media.test.ts`. What a unit test can honestly own is
+ * the other half: which object name an op names, and whether it is still there
+ * afterwards. That is the half where `media.detach` derives a path rather than
+ * trusting one, so it is the half worth being able to assert on.
+ *
+ * `remove` answering `{ data: [], error: null }` for a name that was never
+ * there is not a convenience. It is what the real one does — pinned in that
+ * same integration file — and `media.detach` leans on it, because a photo
+ * taken back seconds after it was picked never reached the bucket at all.
+ */
+function makeStorage() {
+  return {
+    from(bucket: string) {
+      let names = state.objects.get(bucket);
+      if (!names) {
+        names = new Set<string>();
+        state.objects.set(bucket, names);
+      }
+      const bucketNames = names;
+      return {
+        async upload(name: string, _body: unknown, _options?: unknown) {
+          if (state.offline) throw new TypeError('Network request failed');
+          state.calls.push({ method: 'storage.upload', table: bucket, body: { name } });
+          bucketNames.add(name);
+          return { data: { path: name }, error: null };
+        },
+        async remove(paths: string[]) {
+          if (state.offline) throw new TypeError('Network request failed');
+          state.calls.push({ method: 'storage.remove', table: bucket, body: { paths } });
+          const gone = paths.filter((p) => bucketNames.delete(p));
+          return { data: gone.map((name) => ({ name })), error: null };
+        },
+      };
+    },
+  };
+}
+
 export function createClient(url: string, key: string, _options?: unknown) {
   if (!url || !key) {
     // supabase-js is loud about this, and a config bug that reaches a real
@@ -1293,6 +1338,7 @@ export function createClient(url: string, key: string, _options?: unknown) {
 
   return {
     auth: makeAuth(),
+    storage: makeStorage(),
 
     from(table: string) {
       return new Builder(table);
@@ -1342,6 +1388,7 @@ export const fakeSupabase = {
   reset(): void {
     state.db = emptyDb();
     state.calls = [];
+    state.objects.clear();
     state.failures = [];
     state.offline = false;
     state.anonymousDisabled = false;
@@ -1389,6 +1436,21 @@ export const fakeSupabase = {
   /** Every row currently in a table, in insertion order. */
   rows(table: string): Row[] {
     return rowsOf(table).map((r) => ({ ...r }));
+  },
+
+  /** Object names currently in a bucket, sorted. See `makeStorage`. */
+  objects(bucket: string): string[] {
+    return [...(state.objects.get(bucket) ?? [])].sort();
+  },
+
+  /** Put an object there without an upload, to set a test's starting point. */
+  seedObject(bucket: string, name: string): void {
+    let names = state.objects.get(bucket);
+    if (!names) {
+      names = new Set<string>();
+      state.objects.set(bucket, names);
+    }
+    names.add(name);
   },
 
   /** The next `n` requests answer with this error instead of touching data. */
