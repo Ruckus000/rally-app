@@ -570,14 +570,20 @@ export const mediaPath = (ownerId: string, taskId: string, mediaId: string): str
   `${ownerId}/${taskId}/${mediaId}.jpg`;
 
 /**
- * A readable URL for a photo, good for a week.
+ * A readable URL for a photo, for as long as the caller asks.
  *
  * The bucket is private, so this is the only way to draw one — and signing
  * requires the select policy to pass, which is what makes the audience rule
  * reach the file rather than only the row pointing at it. Batched because a
  * pull can carry a whole feed's worth.
+ *
+ * `seconds` is deliberately not optional. It defaulted to a week, which is the
+ * wrong answer for the only caller there is: a URL that long outlives the photo
+ * it names — `media.detach` removes the row and the object, and a minted URL
+ * goes on resolving regardless — and `moments` is persisted, so it would reach
+ * the disk. `lib/mediaUrl.ts` owns the number and the cache in front of it.
  */
-export async function signMedia(paths: string[], seconds = 604800): Promise<Record<string, string>> {
+export async function signMedia(paths: string[], seconds: number): Promise<Record<string, string>> {
   if (paths.length === 0) return {};
   const { data, error } = await getSupabase()
     .storage.from(MEDIA_BUCKET)
