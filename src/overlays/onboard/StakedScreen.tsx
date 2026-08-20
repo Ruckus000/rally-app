@@ -3,7 +3,8 @@
  */
 import React, { useEffect, useState } from 'react';
 import { AccessibilityInfo, Animated, Platform, View, ViewStyle } from 'react-native';
-import { color, heroGlow, onDark } from '../../theme/tokens';
+import { heroGlow, onDark } from '../../theme/tokens';
+import { useColors } from '../../theme/ThemeProvider';
 import {
   POP_DURATION,
   RISE_DISTANCE,
@@ -46,6 +47,7 @@ export function StakedScreen({
   weekNumber: number;
   onEnter: () => void;
 }) {
+  const color = useColors();
   const closingLine = joined
     ? `Everyone in ${circle ?? 'your circle'} can see your plan from Monday. Close it out.`
     : 'Your week is on the record. Invite a circle whenever you want witnesses.';
@@ -174,6 +176,8 @@ export function StakedScreen({
 }
 
 function Stat({ value, label }: { value: string; label: string }) {
+  const color = useColors();
+
   return (
     <View>
       <Bri size={19} weight={800} color={color.paper}>
