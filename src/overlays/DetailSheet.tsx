@@ -17,7 +17,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { color, radius } from '../theme/tokens';
+import { radius } from '../theme/tokens';
+import { useColors, type Palette } from '../theme/ThemeProvider';
 import {
   AUDIENCE_LABEL,
   ME,
@@ -46,6 +47,7 @@ import type { PersonId } from '../data/people';
 import type { ReportTarget } from '../state/store';
 
 export function DetailSheet({ bottomInset }: { bottomInset: number }) {
+  const color = useColors();
   const { state, dispatch } = useStore();
   // `CLOSE_SHEET` nulls the slice while <Presence> is still fading this out;
   // holding the last sheet keeps the content on screen through the exit
@@ -141,6 +143,7 @@ export function DetailSheet({ bottomInset }: { bottomInset: number }) {
 /* ── task ───────────────────────────────────────────────────────────────── */
 
 function TaskSheet({ id }: { id: string }) {
+  const color = useColors();
   const { state, dispatch, people } = useStore();
 
   const mine = state.myTasks.find((x) => x.id === id);
@@ -301,6 +304,7 @@ function TaskSheet({ id }: { id: string }) {
 }
 
 function JointProgress({ task }: { task: Task }) {
+  const color = useColors();
   const { people } = useStore();
   const roster: { key: PersonId; name: string; done: boolean }[] = [
     { key: people.selfId, name: people.first(people.selfId), done: task.done },
@@ -356,6 +360,7 @@ function JointProgress({ task }: { task: Task }) {
  * every photo in the feed every cycle.
  */
 function TaskPhoto({ media }: { media: TaskMedia }) {
+  const color = useColors();
   const source = media.localUri ?? media.url;
   if (!source) return null;
   const ratio = media.w && media.h ? media.w / media.h : 4 / 3;
@@ -387,6 +392,7 @@ function TaskPhoto({ media }: { media: TaskMedia }) {
  * because a control that silently is not there reads as a bug.
  */
 function PhotoChip({ task }: { task: Task }) {
+  const color = useColors();
   const { state, dispatch } = useStore();
   const [busy, setBusy] = useState(false);
   const [trouble, setTrouble] = useState<string | null>(null);
@@ -478,6 +484,7 @@ type PersonTask = {
 };
 
 function PersonSheet({ who }: { who: PersonId }) {
+  const color = useColors();
   const { state, dispatch, people } = useStore();
   const stats = people.isSelf(who) ? myStats(state) : people.stats(who);
 
@@ -639,6 +646,7 @@ function PersonSheet({ who }: { who: PersonId }) {
  * neither could be reached again. One field and the call that already exists.
  */
 function StartCircle() {
+  const color = useColors();
   const { dispatch } = useStore();
   const [name, setName] = React.useState('');
   const [busy, setBusy] = React.useState(false);
@@ -719,6 +727,7 @@ function StartCircle() {
 }
 
 function InviteSheet() {
+  const color = useColors();
   const { state, dispatch, demo, people } = useStore();
   const pending: PersonId[] = Object.keys(state.pending);
   const suggestions = demo.inviteSuggestions.filter((k) => !state.pending[k]);
@@ -807,7 +816,7 @@ function InviteSheet() {
       </Caps>
       <View style={{ gap: 8 }}>
         {pending.map((k) => (
-          <View key={k} style={inviteRow}>
+          <View key={k} style={inviteRow(color)}>
             <Avatar who={k} size={32} />
             <Sans size={13.5} weight={600} style={fill}>
               {people.name(k)}
@@ -834,7 +843,7 @@ function InviteSheet() {
           </Sans>
         ) : null}
         {suggestions.map((k) => (
-          <View key={k} style={inviteRow}>
+          <View key={k} style={inviteRow(color)}>
             <Avatar who={k} size={32} />
             <Sans size={13.5} weight={600} style={fill}>
               {people.name(k)}
@@ -872,7 +881,13 @@ const sheetChip = (background: string, border?: string) => ({
   ...(border ? { borderWidth: 1, borderColor: border } : null),
 });
 
-const inviteRow = {
+/**
+ * A function of the palette, not an object — the shape settled in
+ * `theme/ThemeProvider.tsx`. As a plain object it captured `color.card` at
+ * import and would have frozen whichever palette was active then, silently,
+ * until the first live theme toggle.
+ */
+const inviteRow = (color: Palette) => ({
   flexDirection: 'row' as const,
   alignItems: 'center' as const,
   gap: 10,
@@ -880,7 +895,7 @@ const inviteRow = {
   borderRadius: radius.chip,
   paddingVertical: 11,
   paddingHorizontal: 13,
-};
+});
 
 /* ── reporting, and blocking ────────────────────────────────────────────── */
 
@@ -917,6 +932,7 @@ function useSafety(who: PersonId | undefined): boolean {
  * that sentence has to be read before a block, not after.
  */
 function SafetyFooter({ target }: { target: ReportTarget }) {
+  const color = useColors();
   const { dispatch, people } = useStore();
   const offer = useSafety(target.who);
   if (!offer) return null;
@@ -997,6 +1013,7 @@ const footerAction = {
 /* ── shared ─────────────────────────────────────────────────────────────── */
 
 function NoteThread({ notes, emptyText }: { notes: Note[]; emptyText: string }) {
+  const color = useColors();
   if (!notes.length) {
     return (
       <Sans size={13} color={color.muted} style={{ textAlign: 'center', padding: 16 }}>
@@ -1034,6 +1051,7 @@ function NoteThread({ notes, emptyText }: { notes: Note[]; emptyText: string }) 
  * row the server would accept and nobody could ever act on.
  */
 function NoteBubble({ note }: { note: Note }) {
+  const color = useColors();
   const { dispatch } = useStore();
   const offer = useSafety(note.k) && !!note.id;
 
@@ -1092,6 +1110,7 @@ function NoteBubble({ note }: { note: Note }) {
 }
 
 function NoteComposer({ bottomInset }: { bottomInset: number }) {
+  const color = useColors();
   const { state, dispatch, people } = useStore();
   const sheet = state.sheet;
   // Buffered locally while typing: a keystroke used to dispatch `SET_NOTE`,

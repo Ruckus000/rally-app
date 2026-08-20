@@ -32,7 +32,8 @@
  */
 import React from 'react';
 import { Alert, Linking, Platform, ScrollView, TextInput, View } from 'react-native';
-import { color, font, gutter, radius } from '../theme/tokens';
+import { font, gutter, radius } from '../theme/tokens';
+import { useColors, type Palette } from '../theme/ThemeProvider';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
 import { Icon } from '../components/Icon';
 import { Avatar } from '../components/Avatar';
@@ -130,6 +131,7 @@ export function accountLine(
 }
 
 export function SettingsOverlay({ topInset }: { topInset: number }) {
+  const color = useColors();
   const { state, dispatch } = useStore();
   const { account, session } = state;
   const live = account === 'live';
@@ -244,7 +246,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 /** The read-only twin of the tappable rows: same box, no minimum height. */
 function Card({ children }: { children: React.ReactNode }) {
-  return <View style={{ ...cardBox, minHeight: undefined }}>{children}</View>;
+  const color = useColors();
+  return <View style={{ ...cardBox(color), minHeight: undefined }}>{children}</View>;
 }
 
 /**
@@ -258,6 +261,7 @@ function Card({ children }: { children: React.ReactNode }) {
  * unchanged name, which is what makes opening the page and leaving a no-op.
  */
 function NameField({ current }: { current: string }) {
+  const color = useColors();
   const { dispatch } = useStore();
   // Seeded once, on purpose: re-syncing to `current` mid-edit would yank the
   // field out from under somebody typing. The narrow cost, recorded rather than
@@ -331,6 +335,7 @@ function NameField({ current }: { current: string }) {
  * that exists — and hand the replace after it a `previousPath` of `undefined`.
  */
 function PhotoRow() {
+  const color = useColors();
   const { state, dispatch } = useStore();
   const me = state.people[state.selfId];
   const path = me?.avatarPath;
@@ -390,7 +395,7 @@ function PhotoRow() {
 
   return (
     <View>
-      <View style={{ ...row, gap: 12, ...cardBox }}>
+      <View style={{ ...row, gap: 12, ...cardBox(color) }}>
         <Avatar who={state.selfId} size={40} />
         <View style={fill}>
           <Bri size={15} weight={800}>
@@ -441,6 +446,7 @@ function PhotoRow() {
  * Present for every account, including the demo, because the demo can block.
  */
 function BlockedList() {
+  const color = useColors();
   const { state } = useStore();
 
   if (!state.blocked.length) {
@@ -476,6 +482,7 @@ function BlockedList() {
  * the way the account row above does.
  */
 function BlockedRow({ id }: { id: string }) {
+  const color = useColors();
   const { state, dispatch } = useStore();
   const name = state.people[id]?.name?.trim();
   const shown = name || `Account ${id.slice(0, 8)}`;
@@ -488,7 +495,7 @@ function BlockedRow({ id }: { id: string }) {
   };
 
   return (
-    <View style={{ ...row, gap: 12, ...cardBox }}>
+    <View style={{ ...row, gap: 12, ...cardBox(color) }}>
       <View style={fill}>
         <Bri size={15} weight={800}>
           {shown}
@@ -521,6 +528,7 @@ function BlockedRow({ id }: { id: string }) {
  * only place the answer can still change.
  */
 function RemindersRow() {
+  const color = useColors();
   const { state } = useStore();
   // Null until the OS answers. Rendering "Off" in the meantime would be a guess
   // the user could act on, so the row says nothing it does not know yet.
@@ -571,7 +579,7 @@ function RemindersRow() {
       disabled={perm === null}
       accessibilityState={{ disabled: perm === null }}
       accessibilityLabel={label}
-      style={{ ...row, gap: 12, ...cardBox }}
+      style={{ ...row, gap: 12, ...cardBox(color) }}
     >
       <View style={fill}>
         <Bri size={15} weight={800}>
@@ -604,6 +612,7 @@ function RemindersRow() {
  * somebody came here for is not tappable.
  */
 function SecureRow({ enabled }: { enabled: boolean }) {
+  const color = useColors();
   const [busy, setBusy] = React.useState(false);
   const [trouble, setTrouble] = React.useState<string | null>(null);
 
@@ -632,7 +641,7 @@ function SecureRow({ enabled }: { enabled: boolean }) {
             ? 'Secure this account with Apple, so you can sign back in'
             : 'Secure this account. Securing needs a connection'
         }
-        style={{ ...row, gap: 12, ...cardBox, opacity: enabled ? 1 : 0.5 }}
+        style={{ ...row, gap: 12, ...cardBox(color), opacity: enabled ? 1 : 0.5 }}
       >
         <View style={fill}>
           <Bri size={15} weight={800} color={enabled ? color.ink : color.muted}>
@@ -663,6 +672,7 @@ function SecureRow({ enabled }: { enabled: boolean }) {
  * a bug. Greyed *and* captioned, because colour is never the only signal.
  */
 function SignOutRow({ enabled }: { enabled: boolean }) {
+  const color = useColors();
   const { dispatch } = useStore();
   const [busy, setBusy] = React.useState(false);
 
@@ -702,7 +712,7 @@ function SignOutRow({ enabled }: { enabled: boolean }) {
         // state for the same reason `onPress` is gated on it.
         accessibilityState={{ disabled: !enabled, busy }}
         accessibilityLabel={enabled ? 'Sign out' : 'Sign out. Signing out needs a connection'}
-        style={{ ...row, gap: 12, ...cardBox, opacity: enabled ? 1 : 0.5 }}
+        style={{ ...row, gap: 12, ...cardBox(color), opacity: enabled ? 1 : 0.5 }}
       >
         <View style={fill}>
           <Bri size={15} weight={800} color={enabled ? color.ink : color.muted}>
@@ -727,11 +737,19 @@ const rowAction = {
   justifyContent: 'center' as const,
 };
 
-/** The one card box every tappable row on this page shares. */
-const cardBox = {
+/**
+ * The one card box every tappable row on this page shares.
+ *
+ * A function of the palette, not an object — the shape settled in
+ * `theme/ThemeProvider.tsx`. As a plain object it captured `color.card` at
+ * import and would have frozen whichever palette was active then, invisibly,
+ * until the first live theme toggle. Six call sites across five components is
+ * exactly the case a factory beats moving the object into a component.
+ */
+const cardBox = (color: Palette) => ({
   backgroundColor: color.card,
   borderRadius: radius.chip,
   paddingVertical: 13,
   paddingHorizontal: 14,
   minHeight: 62,
-};
+});
