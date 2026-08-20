@@ -60,3 +60,40 @@ export function canSecure(
   if (platform !== 'ios') return false;
   return session.status === 'ready' && session.anonymous;
 }
+
+/**
+ * Whether to show that row **greyed out**, rather than not at all.
+ *
+ * `canSecure` needs the `anonymous` claim, and only a resolved session carries
+ * one — so on a phone in a tunnel the whole "Getting back in" section used to
+ * vanish with no explanation. That is the same absence `signOutVisible` refuses
+ * to create, for the same reason: a control that appears and disappears with
+ * connectivity reads as a bug, and the person most likely to go looking for
+ * this row is the one whose session is not resolving.
+ *
+ * Shown to a session that may already be secured, and that is on purpose. The
+ * device cannot tell without the claim, and `isAnonymous` in `sync/session.ts`
+ * already settles which way to guess when it cannot know: an extra row offered
+ * to an account that is already safe costs nothing, where hiding it from one
+ * that is not leaves somebody believing they are covered.
+ *
+ * `off` is excluded, and it is the one exclusion worth naming. `off` is not a
+ * session that failed to resolve — it is a build with no server behind it at
+ * all, where "needs a connection" would be a lie about a connection that is
+ * never coming. `accountLine` says that outright, so there is nothing left for
+ * a disabled row to add.
+ */
+export function secureUnavailable(
+  account: AccountMode | null,
+  session: SessionState,
+  platform: typeof Platform.OS,
+): boolean {
+  if (account !== 'live') return false;
+  if (platform !== 'ios') return false;
+  return (
+    session.status === 'signing-in' ||
+    session.status === 'offline' ||
+    session.status === 'expired' ||
+    session.status === 'error'
+  );
+}

@@ -6,7 +6,7 @@
  * uuid — so rather than ship that behind a warning, the control is absent and
  * "Secure this account" stands in its place.
  */
-import { canSecure, signOutEnabled, signOutVisible } from '../guards';
+import { canSecure, secureUnavailable, signOutEnabled, signOutVisible } from '../guards';
 import type { SessionState } from '../../../sync/session';
 
 const READY_SECURED: SessionState = { status: 'ready', userId: 'u1', anonymous: false };
@@ -67,5 +67,55 @@ describe('canSecure', () => {
 
   it('is not offered to the demo', () => {
     expect(canSecure('seeded', OFF, 'ios')).toBe(false);
+  });
+});
+
+/**
+ * The row that used to just not be there.
+ *
+ * `canSecure` needs the `anonymous` claim and only a resolved session carries
+ * one, so on an offline phone the whole "Getting back in" section vanished with
+ * no explanation — the same silent absence `signOutVisible` refuses to create.
+ * This is what puts it back, greyed.
+ */
+describe('secureUnavailable', () => {
+  it('holds the row on screen for every session that has not resolved', () => {
+    expect(secureUnavailable('live', { status: 'signing-in' }, 'ios')).toBe(true);
+    expect(secureUnavailable('live', OFFLINE, 'ios')).toBe(true);
+    expect(secureUnavailable('live', EXPIRED, 'ios')).toBe(true);
+    expect(secureUnavailable('live', { status: 'error', message: 'x' }, 'ios')).toBe(true);
+  });
+
+  it('is false once the session resolves, whichever way it resolves', () => {
+    // Resolved means `canSecure` has a real answer, and that answer owns the row.
+    expect(secureUnavailable('live', READY_ANON, 'ios')).toBe(false);
+    expect(secureUnavailable('live', READY_SECURED, 'ios')).toBe(false);
+  });
+
+  it('is false for `off`, which is a missing server rather than a missing answer', () => {
+    // "Securing needs a connection" would be a lie about a connection that is
+    // never coming. `accountLine` says what is actually going on instead.
+    expect(secureUnavailable('live', OFF, 'ios')).toBe(false);
+  });
+
+  it('is false on Android and for the demo, where the row could never appear', () => {
+    expect(secureUnavailable('live', OFFLINE, 'android')).toBe(false);
+    expect(secureUnavailable('seeded', OFFLINE, 'ios')).toBe(false);
+    expect(secureUnavailable(null, OFFLINE, 'ios')).toBe(false);
+  });
+
+  it('never overlaps with canSecure, so the row has exactly one owner', () => {
+    const sessions: SessionState[] = [
+      READY_SECURED,
+      READY_ANON,
+      OFFLINE,
+      EXPIRED,
+      OFF,
+      { status: 'signing-in' },
+      { status: 'error', message: 'x' },
+    ];
+    for (const s of sessions) {
+      expect(canSecure('live', s, 'ios') && secureUnavailable('live', s, 'ios')).toBe(false);
+    }
   });
 });
