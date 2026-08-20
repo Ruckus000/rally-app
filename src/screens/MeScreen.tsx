@@ -3,7 +3,7 @@
  */
 import React from 'react';
 import { Alert, Platform, TextInput, View } from 'react-native';
-import { displayLeading, onDark, radius, shadows, yearLevelColor } from '../theme/tokens';
+import { onDark, radius, shadows, useDisplayLeading, yearLevelColor } from '../theme/tokens';
 import { useColors } from '../theme/ThemeProvider';
 import { CIRCLE_NAME, ME, weekPointsLabel } from '../data/fixtures';
 import { NAME_MAX, type PersonId } from '../data/people';
@@ -21,6 +21,9 @@ import { Bri, Caps, GlowBloom, Sans, Tap, fill, row } from '../components/primit
 export function MeScreen() {
   const color = useColors();
   const { state, dispatch, demo, people, config } = useStore();
+  // Up here rather than inline on the `<Bri>` below because it is a hook, and
+  // hooks are read in the same order every render.
+  const pointsLeading = useDisplayLeading(48, 41);
   const { profile, week, history, yearLevels } = state;
   const live = state.account === 'live';
 
@@ -284,7 +287,7 @@ export function MeScreen() {
             weight={800}
             tracking={-2.2}
             color={color.paper}
-            style={displayLeading(48, 41)}
+            style={pointsLeading}
           >
             {profile.allTimePoints.toLocaleString()}
           </Bri>
