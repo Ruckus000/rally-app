@@ -55,6 +55,7 @@ import {
   initialsFromName,
   makePeople,
   personOf,
+  withFixtureTints,
 } from '../data/people';
 import { aggregatesFrom, closingWeek, stakedPoints } from './selectors';
 import { useWeekReminder } from '../lib/reminders';
@@ -627,7 +628,7 @@ const samePerson = (a: Person, b: Person): boolean =>
   (a.name === b.name &&
     a.first === b.first &&
     a.initials === b.initials &&
-    a.tint === b.tint &&
+    a.tintIndex === b.tintIndex &&
     a.trend === b.trend &&
     !!a.bot === !!b.bot &&
     // Both halves. The path alone would miss a photo going from `pending` to
@@ -1688,7 +1689,7 @@ export function hydrate(restored?: Partial<State> | null): State {
     // like `toString` returns the inherited function instead of missing.
     // indexPeople gives it a null prototype again.
     people: restored?.people
-      ? indexPeople(Object.values(restored.people).filter((p): p is Person => !!p))
+      ? indexPeople(withFixtureTints(Object.values(restored.people).filter((p): p is Person => !!p)))
       : seedPeople(s.account),
     // Re-seeded from the restored account rather than inherited, for the same
     // reason `people` is. A spread only copies keys that are *present*, so a

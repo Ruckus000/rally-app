@@ -242,16 +242,50 @@ export const fadeOut = (hex: string): string => {
 };
 
 /**
- * Avatar tints. The demo circle carries its own tint per person, straight from
- * the reference; this palette is what an id we've never seen falls back to.
+ * Avatar tints — every circle any face is drawn on, in one array.
+ *
+ * A person no longer carries a hex; they carry an **index into this**, and
+ * `Avatar` resolves it through `usePersonTints()`. That is what lets the dark
+ * palette restyle every avatar in the app by editing this one array, which a
+ * hex baked into `DEMO_PEOPLE` could never do.
+ *
+ * The array has two regions and they are not interchangeable:
+ *
+ * - **0–6, the palette proper.** These seven are what the demo circle was
+ *   assigned against the design reference, in this order, and they are also
+ *   the only slots an id nobody has a designed tint for can land on — see
+ *   `HASHED_TINTS` in `data/people.ts`, which is the modulus and is seven
+ *   rather than `personTints.length` on purpose. Every live circle member gets
+ *   their colour this way, so widening the modulus would re-tint them all.
+ * - **7–9, three hues nothing else in the app uses.** The Oz bots are
+ *   deliberately not coloured like people you might know; lilac, pale blue and
+ *   warm beige are outside the palette proper for that reason. Reachable by
+ *   index only. (The Scarecrow is the exception that proves it — he sits on
+ *   slot 2, the same warm sand Dre has.)
+ *
+ * Insertions therefore go at the end. Putting one in the middle silently
+ * re-tints whoever was after it, which is a thing no type can catch — the
+ * test in `theme/__tests__/personTints.test.ts` can, and does.
  */
-export const personTints = ['#E0E6D3','#D5E2BD','#E9E0C2','#E8CFBE','#C9D9CE','#EFE3AE','#CBD6C4'] as const;
+export const personTints = [
+  '#E0E6D3',
+  '#D5E2BD',
+  '#E9E0C2',
+  '#E8CFBE',
+  '#C9D9CE',
+  '#EFE3AE',
+  '#CBD6C4',
+  '#D8C9E0',
+  '#C9DCE0',
+  '#E0D8C9',
+] as const;
 
-export const hashTint = (id: string): string => {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (Math.imul(h, 31) + id.charCodeAt(i)) | 0;
-  return personTints[(h >>> 0) % personTints.length];
-};
+/**
+ * The shape a scheme has to supply. Ten today, and a scheme is free to bring a
+ * different number — with one floor: at least `HASHED_TINTS` of them, or the
+ * hash indexes past the end and a stranger's avatar is a transparent disc.
+ */
+export type PersonTints = readonly string[];
 
 /** Year-grid cell levels: 0 nothing · 1 partial · 2 good · 3 perfect */
 export const yearLevelColor: Record<number, string> = {
@@ -260,6 +294,8 @@ export const yearLevelColor: Record<number, string> = {
   2: '#A9D93C',
   3: '#C3F53C',
 };
+
+export type YearLevelColor = typeof yearLevelColor;
 
 export const font = {
   /** Display only: numbers, headings, names in stat positions, badge labels. */
@@ -304,6 +340,16 @@ const shadow = (c: string, y: number, blur: number, opacity: number, elevation: 
   elevation,
 });
 
+/**
+ * Every drop shadow in the app, and the last colour-carrying structure that
+ * was still an import rather than a context read.
+ *
+ * Components take these from `useShadows()`, not from here. A shadow is a
+ * colour at an opacity, and both halves have to move in the dark palette — a
+ * near-black `card` shadow under a near-black card is invisible work, and the
+ * lime blooms need a different opacity against a dark ground. Nothing about
+ * that can happen through a module import fixed at load time.
+ */
 export const shadows = {
   card: shadow('rgb(25,30,22)', 1, 2, 0.05, 1),
   cardStrong: shadow('rgb(25,30,22)', 1, 2, 0.08, 2),
@@ -315,6 +361,8 @@ export const shadows = {
   addCta: shadow('rgb(195,245,60)', 8, 26, 0.22, 6),
   doneCta: shadow('rgb(195,245,60)', 10, 30, 0.2, 8),
 } satisfies Record<string, Shadow>;
+
+export type Shadows = typeof shadows;
 
 /**
  * The handoff asks for 44px hit targets while keeping the dense card grammar.
@@ -341,6 +389,7 @@ export const gradientAngle = (deg: number) => {
   return { start: { x: 0.5 - dx, y: 0.5 - dy }, end: { x: 0.5 + dx, y: 0.5 + dy } };
 };
 
+/** Read through `useTheme().hairlineGradient` — `GradientHairline` is the only consumer. */
 export const hairlineGradient = {
   light: ['rgba(195,245,60,.45)', 'rgba(255,255,255,.75)', 'rgba(255,255,255,0)'],
   lightLocations: [0, 0.35, 0.7],
@@ -349,6 +398,8 @@ export const hairlineGradient = {
   composer: ['rgba(195,245,60,.60)', 'rgba(195,245,60,.06)', 'rgba(241,242,236,.05)'],
   composerLocations: [0, 0.42, 0.8],
 } as const;
+
+export type HairlineGradient = typeof hairlineGradient;
 
 /**
  * The bloom behind the Plan hero number. Android clips a text shadow to the
