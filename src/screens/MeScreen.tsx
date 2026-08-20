@@ -3,7 +3,8 @@
  */
 import React from 'react';
 import { Alert, Platform, TextInput, View } from 'react-native';
-import { color, displayLeading, onDark, radius, shadows, yearLevelColor } from '../theme/tokens';
+import { displayLeading, onDark, radius, shadows, yearLevelColor } from '../theme/tokens';
+import { useColors } from '../theme/ThemeProvider';
 import { CIRCLE_NAME, ME, weekPointsLabel } from '../data/fixtures';
 import { NAME_MAX, type PersonId } from '../data/people';
 import { commitSelfName } from '../sync/engine';
@@ -18,6 +19,7 @@ import { Avatar } from '../components/Avatar';
 import { Bri, Caps, GlowBloom, Sans, Tap, fill, row } from '../components/primitives';
 
 export function MeScreen() {
+  const color = useColors();
   const { state, dispatch, demo, people, config } = useStore();
   const { profile, week, history, yearLevels } = state;
   const live = state.account === 'live';
@@ -602,6 +604,7 @@ export function MeScreen() {
  * subscribing to it. For this audience that is the right amount of machinery.
  */
 function DeadLetters() {
+  const color = useColors();
   const dead = deadLetters();
   if (dead.length === 0) return null;
 
@@ -625,6 +628,7 @@ function DeadLetters() {
  * reinstalling.
  */
 function DevControls() {
+  const color = useColors();
   const { state, dispatch } = useStore();
 
   const confirm = () =>
@@ -713,6 +717,7 @@ const GRID_GAP = 4;
 
 /** One cell per week since joining, plus this week and the one being staked. */
 function YearGrid({ levels }: { levels: number[] }) {
+  const color = useColors();
   const [width, setWidth] = React.useState(0);
   // Floor the cell: a fractional width overflows the row by a hair on Android
   // and wraps the grid to 12 columns. The handoff specifies 13.
@@ -749,6 +754,7 @@ function YearGrid({ levels }: { levels: number[] }) {
 }
 
 function BestTile({ value, label }: { value: string; label: string }) {
+  const color = useColors();
   return (
     <View
       style={{
