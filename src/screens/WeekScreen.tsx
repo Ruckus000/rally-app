@@ -4,7 +4,8 @@
  */
 import React from 'react';
 import { TextInput, View } from 'react-native';
-import { color, radius, shadows } from '../theme/tokens';
+import { radius, shadows } from '../theme/tokens';
+import { useColors } from '../theme/ThemeProvider';
 import { Moment, TITLE_MAX } from '../data/fixtures';
 import { useStore } from '../state/store';
 import {
@@ -31,6 +32,7 @@ import {
 import { Bri, Sans, Tap, row } from '../components/primitives';
 
 export function WeekScreen() {
+  const color = useColors();
   const { state, dispatch } = useStore();
   const { scope } = state;
 
@@ -66,6 +68,7 @@ export function WeekScreen() {
 /* ── personal: quick-log composer + points bar ──────────────────────────── */
 
 function PersonalHeader() {
+  const color = useColors();
   const { state, dispatch, people } = useStore();
   const pts = weekPoints(state);
   const doneCount = state.myTasks.filter((t) => t.done).length;
@@ -137,6 +140,7 @@ function PersonalHeader() {
  * `SUBMIT_COMPOSER`, so the reducer contract is unchanged.
  */
 function QuickLogInput() {
+  const color = useColors();
   const { dispatch } = useStore();
   const [text, setText] = React.useState('');
 
@@ -259,6 +263,7 @@ function PersonalFeed() {
  * `mergedFeed` orders and labels; this only draws.
  */
 function Feed() {
+  const color = useColors();
   const { state, config, dispatch } = useStore();
   // Filter + merge + sort, keyed on the two slices it reads. It used to
   // re-sort the whole feed on every render of this screen.
