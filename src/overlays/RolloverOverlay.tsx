@@ -8,8 +8,8 @@
  */
 import React, { useState } from 'react';
 import { ScrollView, View } from 'react-native';
-import { gutter, onLight, radius, shadows } from '../theme/tokens';
-import { useColors } from '../theme/ThemeProvider';
+import { gutter, onLight, radius } from '../theme/tokens';
+import { useColors, useShadows } from '../theme/ThemeProvider';
 import { useStore } from '../state/store';
 import { closingWeek } from '../state/selectors';
 import { queueRollup } from '../sync/engine';
@@ -26,6 +26,7 @@ export function RolloverOverlay({
   bottomInset: number;
 }) {
   const color = useColors();
+  const shadows = useShadows();
   const { state, dispatch } = useStore();
   const [carry, setCarry] = useState<string[]>([]);
   // `COMMIT_ROLLOVER` rewrites the week while <Presence> is still fading this

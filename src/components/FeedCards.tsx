@@ -5,8 +5,8 @@
 import React from 'react';
 import { View } from 'react-native';
 import { Image } from 'expo-image';
-import { onDark, onLight, shadows } from '../theme/tokens';
-import { useColors } from '../theme/ThemeProvider';
+import { onDark, onLight } from '../theme/tokens';
+import { useColors, useShadows } from '../theme/ThemeProvider';
 import {
   AUDIENCE_LABEL,
   BIG_CARD_BASE_CHEERS,
@@ -72,6 +72,7 @@ export const MineRow = React.memo(function MineRow({
   onOpen: (id: string) => void;
 }) {
   const color = useColors();
+  const shadows = useShadows();
   const showAud = task.aud !== 'friends';
   return (
     <GradientHairline radius={21} style={{ marginBottom: CARD_GAP, ...shadows.card }}>
@@ -355,6 +356,7 @@ export const SocialCard = React.memo(function SocialCard({
   cta?: { label: string; onPress: () => void; style: 'lime' | 'inkOnLime' };
 }) {
   const color = useColors();
+  const shadows = useShadows();
   const quoteRule = tint ?? (who ? undefined : color.chip);
 
   return (

@@ -3,8 +3,8 @@
  */
 import React from 'react';
 import { Alert, Platform, TextInput, View } from 'react-native';
-import { onDark, onLight, radius, shadows, useDisplayLeading, yearLevelColor } from '../theme/tokens';
-import { useColors } from '../theme/ThemeProvider';
+import { onDark, onLight, radius, useDisplayLeading } from '../theme/tokens';
+import { useColors, useShadows, useTheme } from '../theme/ThemeProvider';
 import { CIRCLE_NAME, ME, weekPointsLabel } from '../data/fixtures';
 import { NAME_MAX, type PersonId } from '../data/people';
 import { commitSelfName } from '../sync/engine';
@@ -20,6 +20,7 @@ import { Bri, Caps, GlowBloom, Sans, Tap, fill, row } from '../components/primit
 
 export function MeScreen() {
   const color = useColors();
+  const shadows = useShadows();
   const { state, dispatch, demo, people, config } = useStore();
   // Up here rather than inline on the `<Bri>` below because it is a hook, and
   // hooks are read in the same order every render.
@@ -724,6 +725,11 @@ const GRID_GAP = 4;
 /** One cell per week since joining, plus this week and the one being staked. */
 function YearGrid({ levels }: { levels: number[] }) {
   const color = useColors();
+  // Off `useTheme()` rather than a `useYearLevelColor()` of its own: this is
+  // the only component in the app that reads it, and a hook with one caller is
+  // a name to look up rather than a name that saves anything. Destructured so
+  // the read below stays exactly what it was.
+  const { yearLevelColor } = useTheme();
   const [width, setWidth] = React.useState(0);
   // Floor the cell: a fractional width overflows the row by a hair on Android
   // and wraps the grid to 12 columns. The handoff specifies 13.

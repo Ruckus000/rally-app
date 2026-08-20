@@ -6,8 +6,8 @@ import React from 'react';
 import { View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
-import { onDark, onLight, radius, shadows } from '../theme/tokens';
-import { useColors } from '../theme/ThemeProvider';
+import { onDark, onLight, radius } from '../theme/tokens';
+import { useColors, useShadows } from '../theme/ThemeProvider';
 import { Sans, Tap } from '../components/primitives';
 import { Icon, IconName } from '../components/Icon';
 import { useStore, Tab } from '../state/store';
@@ -39,6 +39,7 @@ function ActiveGlow({ active }: { active: boolean }) {
 
 export function TabBar({ bottomInset }: { bottomInset: number }) {
   const color = useColors();
+  const shadows = useShadows();
   const { state, dispatch } = useStore();
 
   return (
