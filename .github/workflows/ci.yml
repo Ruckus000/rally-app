@@ -100,13 +100,39 @@ jobs:
       - name: Apply migrations and seed
         run: npx supabase db reset --local
 
-      # Not a gate yet: the advisor's exit-code behaviour on WARN-only findings
-      # is unconfirmed, and a job that fails for an unread reason trains people
-      # to ignore it. Read the output of one real run, then drop
-      # continue-on-error so security advisories become a hard gate.
+      # Informational, and now deliberately so rather than pending. The note
+      # here used to say "read the output of one real run, then drop
+      # continue-on-error". That was done, and the answer is that this step
+      # cannot become a gate, because the thing it runs is not the linter whose
+      # findings matter.
+      #
+      # `--local` emits INFO and nothing else. On this schema it returns six,
+      # all `rls_enabled_no_policy` for the tables that are readable by nobody
+      # on purpose — `reports`, `device_tokens`, `media_gc` and friends. It was
+      # given a table with RLS disabled in `public` and a `security definer`
+      # view, both of which the hosted linter calls ERROR, and it reported them
+      # as INFO too. There is no arrangement of this schema that makes it emit
+      # an ERROR, so `--fail-on error` is a gate that cannot fail — which is
+      # worse than no gate, because it reads like one.
+      #
+      # `--fail-on` is also not self-consistent: on its own it returns 0 with
+      # six findings present, and combined with `--level warn` it returns 1
+      # with nothing displayed at all. Not a flag to build a gate on.
+      #
+      # The findings that matter come from the hosted advisor, which sees a
+      # different set entirely — twenty-eight on the same schema, twenty-two of
+      # them WARN. Almost all are decisions this repo argued for in writing:
+      # the intentional `SECURITY DEFINER` RPCs, and the anonymous-access
+      # policies that exist because anonymous sign-in *is* the account model.
+      # Gating on those would fail every build on day one and teach everyone to
+      # ignore the colour, which is the failure this note has always been about.
+      #
+      # So: a real gate means running against the linked project, which needs a
+      # token here, and baselining the twenty-two known WARNs first. Worth doing
+      # the day a finding is ever acted on. Not before.
       - name: Security advisors
         continue-on-error: true
-        run: npx supabase db advisors --local --type security
+        run: npx supabase db advisors --local --type security --level info
 
       - name: Integration tests
         run: npm run test:integration -- --ci
