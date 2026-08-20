@@ -117,7 +117,7 @@ export function EngagementRow({
                 ? color.lime
                 : cta.style === 'inkOnLime'
                   ? color.ink
-                  : 'rgba(195,245,60,.16)',
+                  : onDark.limeFill,
           }}
         >
           <Sans size={12} weight={700} color={cta.style === 'lime' ? color.ink : color.lime}>

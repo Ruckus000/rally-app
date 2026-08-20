@@ -320,7 +320,7 @@ export function MeScreen() {
                   flex: 1,
                   height: 7,
                   borderRadius: 999,
-                  backgroundColor: i < streak ? color.lime : 'rgba(241,242,236,.14)',
+                  backgroundColor: i < streak ? color.lime : onDark.fillBold,
                 }}
               />
             ))}
@@ -744,7 +744,7 @@ function YearGrid({ levels }: { levels: number[] }) {
             )),
             <View
               key="current"
-              style={[box, { backgroundColor: color.ink, borderWidth: 2, borderColor: 'rgba(195,245,60,.5)' }]}
+              style={[box, { backgroundColor: color.ink, borderWidth: 2, borderColor: onDark.limeEdge }]}
             />,
             <View
               key="next"

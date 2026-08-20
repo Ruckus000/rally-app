@@ -298,7 +298,7 @@ function SourceBadge({ label, dark }: { label: string; dark?: boolean }) {
   return (
     <View
       style={{
-        backgroundColor: dark ? 'rgba(241,242,236,.12)' : color.chip,
+        backgroundColor: dark ? onDark.fillStrong : color.chip,
         borderRadius: 999,
         paddingHorizontal: 8,
         paddingVertical: 2,
@@ -529,7 +529,7 @@ export const MineWinCard = React.memo(function MineWinCard({
             alignItems: 'center',
             justifyContent: 'center',
             alignSelf: 'flex-start',
-            backgroundColor: shared ? 'rgba(195,245,60,.16)' : color.lime,
+            backgroundColor: shared ? onDark.limeFill : color.lime,
           }}
         >
           <Bri size={13} weight={800} color={shared ? color.lime : color.ink}>

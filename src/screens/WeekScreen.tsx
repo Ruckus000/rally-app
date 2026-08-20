@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { TextInput, View } from 'react-native';
-import { radius, shadows } from '../theme/tokens';
+import { onDark, radius, shadows } from '../theme/tokens';
 import { useColors } from '../theme/ThemeProvider';
 import { Moment, TITLE_MAX } from '../data/fixtures';
 import { useStore } from '../state/store';
@@ -115,13 +115,13 @@ function PersonalHeader() {
         <Bri size={15} weight={800} color={color.paper}>
           {pts} pts
         </Bri>
-        <View style={{ width: 3, height: 3, borderRadius: 2, backgroundColor: 'rgba(241,242,236,.3)' }} />
+        <View style={{ width: 3, height: 3, borderRadius: 2, backgroundColor: onDark.dot }} />
         {/* Ratified deviation — see design-reference/DEVIATIONS.md. The
             handoff reads "{n} this week"; this reports progress instead,
             because how many you staked is already the length of the list
             directly below, and how many you closed is not said anywhere else
             on this screen. */}
-        <Sans size={12.5} color="rgba(241,242,236,.6)">
+        <Sans size={12.5} color={onDark.bodySecondary}>
           {doneCount} of {state.myTasks.length} done
         </Sans>
         <Sans size={12} weight={700} color={color.lime} style={{ marginLeft: 'auto' }}>
