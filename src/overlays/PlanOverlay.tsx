@@ -357,11 +357,11 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                         minHeight: 36,
                         justifyContent: 'center',
                         borderWidth: 1,
-                        borderColor: on ? 'transparent' : onDark.hairlineStrong,
+                        borderColor: on ? 'transparent' : onDark.hairline,
                         backgroundColor: on ? color.lime : onDark.fill,
                       }}
                     >
-                      <Sans size={11.5} weight={700} color={on ? color.ink : onDark.bodyStrong}>
+                      <Sans size={11.5} weight={700} color={on ? color.ink : onDark.bodySecondary}>
                         {AUDIENCE_WORD[a]}
                       </Sans>
                     </Tap>
