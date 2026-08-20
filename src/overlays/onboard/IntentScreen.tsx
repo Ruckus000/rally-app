@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { View } from 'react-native';
-import { color } from '../../theme/tokens';
+import { useColors } from '../../theme/ThemeProvider';
 import { Bri, Caps, Sans } from '../../components/primitives';
 import { INTENTS, IntentId } from './data';
 import { PillButton, SelectChip } from './kit';
@@ -18,6 +18,7 @@ export function IntentScreen({
   onChange: (next: IntentId[]) => void;
   onNext: () => void;
 }) {
+  const color = useColors();
   const n = value.length;
 
   return (
