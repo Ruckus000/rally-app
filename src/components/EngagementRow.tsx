@@ -10,11 +10,26 @@
  */
 import React from 'react';
 import { GestureResponderEvent, View } from 'react-native';
-import { color, onDark } from '../theme/tokens';
+import { onDark } from '../theme/tokens';
+import { useColors, type Palette } from '../theme/ThemeProvider';
 import { Icon } from './Icon';
 import { Sans, Tap, row } from './primitives';
 
-const engButton = (active: boolean, dark: boolean) => ({
+/**
+ * The shared shape of the two engagement buttons, taking the palette rather
+ * than closing over it.
+ *
+ * It has to. This is module scope, so a `color` read up here would be resolved
+ * once when the module first loads and then never again — freezing whichever
+ * palette happened to be active at that instant, which is invisible today and
+ * wrong the moment a scheme can change under a mounted tree. Passing it in
+ * keeps the body of the function byte-identical and moves the decision to the
+ * call site, which is inside a component and can ask the context.
+ *
+ * `onDark` stays a plain import: the dark cards this styles are dark in both
+ * schemes, so that ramp is not scheme-dependent.
+ */
+const engButton = (color: Palette, active: boolean, dark: boolean) => ({
   ...row,
   gap: 6,
   paddingVertical: 11,
@@ -46,8 +61,9 @@ export function EngagementRow({
   /** The dark big card sits its row 14 from the quote; every other card 12. */
   marginTop?: number;
 }) {
-  const cheerStyle = engButton(cheered, dark);
-  const commentStyle = engButton(false, dark);
+  const color = useColors();
+  const cheerStyle = engButton(color, cheered, dark);
+  const commentStyle = engButton(color, false, dark);
 
   // Optional: RN only passes an event for real touches, and stopPropagation is
   // a no-op outside web anyway — the guard keeps synthetic invocations safe.
