@@ -20,7 +20,7 @@ import React, { useEffect, useState } from 'react';
 import { Animated, View } from 'react-native';
 import Svg, { G, Path } from 'react-native-svg';
 import { MARK_CANVAS, MARK_GAP, MARK_LETTERS, MARK_PATH } from '../theme/mark';
-import { color } from '../theme/tokens';
+import { useColors } from '../theme/ThemeProvider';
 import { useReducedMotion } from '../theme/motion';
 
 /** Matches `imageWidth` in app.json's splash config, so nothing jumps. */
@@ -32,6 +32,7 @@ const FADE = 260;
 const AnimatedG = Animated.createAnimatedComponent(G);
 
 export function BootScreen() {
+  const color = useColors();
   const reduced = useReducedMotion();
 
   // One value per letter, created once so a re-render never restarts the climb

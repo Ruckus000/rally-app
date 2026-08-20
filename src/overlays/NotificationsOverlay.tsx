@@ -66,7 +66,7 @@ export function NotificationsOverlay({
             </Sans>
           </Tap>
         ) : null}
-        <Tap onPress={close} accessibilityLabel="Close notifications" style={closeButton}>
+        <Tap onPress={close} accessibilityLabel="Close notifications" style={closeButton(color)}>
           <Icon name="close" size={16} color={color.ink} />
         </Tap>
       </View>

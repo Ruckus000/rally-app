@@ -9,7 +9,6 @@
  * React, the app.
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import { View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
 import {
@@ -24,8 +23,7 @@ import {
   InstrumentSans_600SemiBold,
   InstrumentSans_700Bold,
 } from '@expo-google-fonts/instrument-sans';
-import { App } from './src/App';
-import { BootScreen } from './src/screens/BootScreen';
+import { Root } from './src/App';
 import { loadPersistedState } from './src/state/store';
 import type { State } from './src/state/store';
 
@@ -34,7 +32,7 @@ import type { State } from './src/state/store';
 // about that and nothing to report, so it is swallowed.
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-export default function Root() {
+export default function Entry() {
   // Restored state has to be in hand before the first render, or the app would
   // paint the onboarding screen and then swap it out from under you.
   const [restored, setRestored] = useState<Partial<State> | null | undefined>(undefined);
@@ -65,12 +63,9 @@ export default function Root() {
     SplashScreen.hideAsync().catch(() => {});
   }, []);
 
-  // The wrapper carries `onLayout` so neither the boot screen nor the app has
-  // to take a prop about splash-screen timing, which is nothing to do with
-  // either of them.
-  return (
-    <View style={{ flex: 1 }} onLayout={reveal}>
-      {ready ? <App restored={restored} /> : <BootScreen />}
-    </View>
-  );
+  // Fonts, splash timing and reading state off disk are all this file does.
+  // The shape of the tree — the palette, and the choice between boot screen and
+  // app — is `Root`, in `src/App.tsx`, so that it can be tested without
+  // dragging `expo-font` into a test run. See the note there.
+  return <Root ready={ready} restored={restored} onReveal={reveal} />;
 }

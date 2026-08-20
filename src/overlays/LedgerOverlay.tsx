@@ -5,8 +5,9 @@
  * match, and empty states are written rather than generic.
  */
 import React from 'react';
-import { ScrollView, View } from 'react-native';
+import { ScrollView, View, ViewStyle } from 'react-native';
 import { color, gutter, radius } from '../theme/tokens';
+import type { Palette } from '../theme/ThemeProvider';
 import { useStore, usePeople } from '../state/store';
 import { helpedByThisWeek, helpedThisWeek, pluralTimes, withoutBlocked } from '../state/selectors';
 import { Avatar } from '../components/Avatar';
@@ -60,7 +61,7 @@ export function LedgerOverlay({ topInset, bottomInset }: { topInset: number; bot
         <Bri size={19} weight={800} tracking={-0.3} style={fill}>
           {history ? history.label : `${state.week.label}, quietly`}
         </Bri>
-        <Tap onPress={close} accessibilityLabel="Close ledger" style={closeButton}>
+        <Tap onPress={close} accessibilityLabel="Close ledger" style={closeButton(color)}>
           <Icon name="close" size={16} color={color.ink} />
         </Tap>
       </View>
@@ -198,13 +199,32 @@ function PersonLine({ who, detail }: { who: PersonId; detail: string }) {
   );
 }
 
-export const closeButton = {
+/**
+ * The round close button on the three full-page overlays.
+ *
+ * A function of the palette rather than an object, and this is the shape every
+ * module-level style object in the dark-mode migration takes — see the write-up
+ * in `theme/ThemeProvider.tsx`. As a plain object it captured `color.divider`
+ * and `color.card` at import, which is fine while there is one palette and
+ * wrong the moment there are two: it would freeze whichever was active when
+ * this module first loaded and never move again, and the bug would only show
+ * on a live toggle.
+ *
+ * Not moved inside `LedgerOverlay` instead, because `NotificationsOverlay` and
+ * `SettingsOverlay` use it too. Three components sharing one box is exactly
+ * the case where hoisting a factory beats moving the object into one of them.
+ *
+ * The caller passes whatever palette it has — the static `color` import today,
+ * `useColors()` once that file is migrated. Both work, which is what lets the
+ * migration proceed one file at a time.
+ */
+export const closeButton = (color: Palette): ViewStyle => ({
   width: 40,
   height: 40,
   borderRadius: 20,
   borderWidth: 1,
   borderColor: color.divider,
   backgroundColor: color.card,
-  alignItems: 'center' as const,
-  justifyContent: 'center' as const,
-};
+  alignItems: 'center',
+  justifyContent: 'center',
+});
