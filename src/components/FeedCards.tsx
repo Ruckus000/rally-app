@@ -4,7 +4,6 @@
  */
 import React from 'react';
 import { View } from 'react-native';
-import { Image } from 'expo-image';
 import { onDark, onLight } from '../theme/tokens';
 import { useColors, useShadows } from '../theme/ThemeProvider';
 import {
@@ -13,11 +12,13 @@ import {
   BIG_CARD_STATS,
   Moment,
   Task,
+  TaskMedia,
 } from '../data/fixtures';
 import { PersonId } from '../data/people';
 import { usePeople } from '../state/store';
 import { Avatar, FaceStack } from './Avatar';
 import { Icon } from './Icon';
+import { TaskPhoto } from './TaskPhoto';
 import { EngagementRow } from './EngagementRow';
 import { Bri, Caps, GlowBloom, GradientHairline, Sans, Tap, fill, row, rowTop } from './primitives';
 
@@ -158,20 +159,8 @@ export const MineRow = React.memo(function MineRow({
           onPress={() => onOpen(task.id)}
           accessibilityLabel={`Photo on ${task.title}`}
           minSize={0}
-          style={{ marginTop: 12 }}
         >
-          <Image
-            source={{ uri: task.media.localUri ?? task.media.url }}
-            cachePolicy="disk"
-            recyclingKey={task.media.id}
-            contentFit="cover"
-            style={{
-              width: '100%',
-              aspectRatio: Math.max(task.media.w / task.media.h || 4 / 3, 3 / 4),
-              borderRadius: 14,
-              backgroundColor: color.chip,
-            }}
-          />
+          <TaskPhoto media={task.media} label={`Photo on ${task.title}`} />
         </Tap>
       ) : null}
       </View>
@@ -326,6 +315,7 @@ export const SocialCard = React.memo(function SocialCard({
   time,
   title,
   quote,
+  media,
   statLabel,
   isAsk,
   cheered,
@@ -345,6 +335,11 @@ export const SocialCard = React.memo(function SocialCard({
   time: string;
   title: string;
   quote?: string;
+  /**
+   * Their photo, when there is one and you may see it. Only ever the `url`
+   * half — the file behind `localUri` is on their phone, not this one.
+   */
+  media?: TaskMedia;
   statLabel?: string;
   isAsk?: boolean;
   cheered: boolean;
@@ -424,6 +419,12 @@ export const SocialCard = React.memo(function SocialCard({
             </Sans>
           </View>
         ) : null}
+
+        {/* Under what they said and above what you can do about it — the photo
+            is the evidence for the line above it, not a thing in its own
+            right. Sized from the stored dimensions, so a card does not jump
+            when the image lands. */}
+        {media ? <TaskPhoto media={media} label={`Photo on ${name}’s goal`} /> : null}
 
         <EngagementRow
           cheered={cheered}

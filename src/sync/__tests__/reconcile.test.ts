@@ -8,8 +8,8 @@
  * identity assertions below are deliberately `toBe`, at both the array and the
  * element level.
  */
-import type { Task } from '../../data/fixtures';
-import { reconcileTasks } from '../reconcile';
+import type { Task, TaskMedia } from '../../data/fixtures';
+import { reconcileMedia, reconcileTasks } from '../reconcile';
 
 const aTask = (over: Partial<Task> = {}): Task => ({
   id: 'a',
@@ -258,5 +258,104 @@ describe('a delete that has not drained yet', () => {
     const out = reconcileTasks(local, server, dirty('b'), allAcked);
 
     expect(out.map((t) => t.id)).toEqual(['a']);
+  });
+});
+
+/**
+ * Folding the pull's photos into your own week.
+ *
+ * Every failure here is silent, which is why each branch gets its own test: a
+ * photo that never appears and a photo that is quietly deleted both look
+ * exactly like a goal that never had one.
+ */
+describe('reconcileMedia', () => {
+  const photo = (over: Partial<TaskMedia> = {}): TaskMedia => ({
+    id: 'p1',
+    path: 'owner/a/p1.jpg',
+    w: 1600,
+    h: 1200,
+    ...over,
+  });
+
+  const from = (entries: [string, TaskMedia][]) => new Map(entries);
+
+  it('says nothing about photos when the pull could not', () => {
+    // Null is silence — a week-less pull, or a server too old to know the key.
+    // Empty would be an answer, and the answer would be "delete them all".
+    const local = [aTask({ media: photo() })];
+    expect(reconcileMedia(local, null, clean)).toBe(local);
+  });
+
+  it('adds a photo the pull knows about and this device does not', () => {
+    // A reinstall, or a goal staked and photographed on the other phone.
+    const local = [aTask()];
+    const next = reconcileMedia(local, from([['a', photo({ url: 'https://x/1' })]]), clean);
+
+    expect(next[0]!.media).toEqual(photo({ url: 'https://x/1' }));
+  });
+
+  it('keeps this device’s object and takes only the url', () => {
+    // `localUri` is the half the server has never heard of, and the half that
+    // renders instantly. The url is the half only the pull can answer for.
+    const mine = photo({ localUri: 'file:///tmp/a.jpg' });
+    const local = [aTask({ media: mine })];
+
+    const next = reconcileMedia(local, from([['a', photo({ url: 'https://x/1' })]]), clean);
+
+    expect(next[0]!.media).toEqual({ ...mine, url: 'https://x/1' });
+  });
+
+  it('takes a replacement photo', () => {
+    const local = [aTask({ media: photo({ id: 'old' }) })];
+    const next = reconcileMedia(local, from([['a', photo({ id: 'new' })]]), clean);
+    expect(next[0]!.media!.id).toBe('new');
+  });
+
+  it('removes a photo the server no longer has', () => {
+    // How a removal on another device arrives. There is no other signal.
+    const local = [aTask({ media: photo() })];
+    const next = reconcileMedia(local, from([]), clean);
+    expect(next[0]!.media).toBeUndefined();
+  });
+
+  it('removes it even though this device still holds the file', () => {
+    // The trap. `localUri` survives a successful upload — `media.ts` keeps the
+    // file precisely because it is what the owner's own card draws — so gating
+    // the removal on it would mean a removal elsewhere never arrives here. Not
+    // a window: for ever.
+    const local = [aTask({ media: photo({ localUri: 'file:///tmp/a.jpg' }) })];
+    const next = reconcileMedia(local, from([]), clean);
+    expect(next[0]!.media).toBeUndefined();
+  });
+
+  it('leaves a goal alone while this device is mid-change', () => {
+    // An upload part-way up, an attach the server has not seen, a detach it has
+    // not processed. The pull is answering for a state we are leaving.
+    const local = [aTask({ media: photo({ localUri: 'file:///tmp/a.jpg' }) })];
+    expect(reconcileMedia(local, from([]), dirty('a'))).toBe(local);
+  });
+
+  it('does not resurrect a photo removed here but not yet on the server', () => {
+    const local = [aTask()];
+    const next = reconcileMedia(local, from([['a', photo()]]), dirty('a'));
+    expect(next[0]!.media).toBeUndefined();
+  });
+
+  it('is identity when nothing moved, so no task is re-sent', () => {
+    // The reference contract this whole file exists for: a rebuilt-but-equal
+    // task reads as a local edit and is pushed back at the server that sent it.
+    const local = [aTask({ media: photo({ url: 'https://x/1' }) }), aTask({ id: 'b' })];
+    const same = reconcileMedia(local, from([['a', photo({ url: 'https://x/1' })]]), clean);
+
+    expect(same).toBe(local);
+    expect(same[0]).toBe(local[0]);
+  });
+
+  it('leaves untouched goals identical when one photo changes', () => {
+    const local = [aTask({ media: photo() }), aTask({ id: 'b' })];
+    const next = reconcileMedia(local, from([['a', photo({ url: 'https://x/1' })]]), clean);
+
+    expect(next).not.toBe(local);
+    expect(next[1]).toBe(local[1]);
   });
 });

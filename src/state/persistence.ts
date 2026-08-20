@@ -11,6 +11,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AUDIENCES, CATEGORY_POINTS, MOMENT_KINDS, NOTIF_TIERS, Task } from '../data/fixtures';
+import type { Moment } from '../data/fixtures';
 import { ACCOUNT_MODES } from '../data/seed';
 import { NAME_MAX } from '../data/people';
 import { DAY_NAMES } from '../data/week';
@@ -132,8 +133,16 @@ function mediaIsSound(value: unknown): boolean {
   return (
     typeof m.id === 'string' &&
     typeof m.path === 'string' &&
+    // Positive, not merely finite. Both reach an `aspectRatio`, and a zero
+    // height is an infinite one — a card that takes the whole screen rather
+    // than a photo that looks wrong. `w / h || 4 / 3` does not save it either:
+    // only `NaN` is falsy enough to fall through to that default.
+    typeof m.w === 'number' &&
+    typeof m.h === 'number' &&
     Number.isFinite(m.w) &&
-    Number.isFinite(m.h)
+    Number.isFinite(m.h) &&
+    m.w > 0 &&
+    m.h > 0
   );
 }
 
@@ -155,7 +164,12 @@ function momentsAreSound(value: unknown): boolean {
       (MOMENT_KINDS as readonly string[]).includes(m.kind) &&
       Number.isInteger(m.day) &&
       m.day >= 0 &&
-      m.day < DAY_NAMES.length,
+      m.day < DAY_NAMES.length &&
+      // The backstop, not the gate. `write` drops a photo it could not read
+      // back, so nothing this build persists reaches here malformed — which
+      // matters, because failing is not losing the photo. `isSound` is
+      // all-or-nothing: it loses the week too.
+      mediaIsSound(m.media),
   );
 }
 
@@ -357,15 +371,56 @@ let lastWritten: Persisted | null = null;
 const unchanged = (a: Persisted | null, b: Persisted) =>
   !!a && PERSISTED_KEYS.every((k) => a[k] === b[k]);
 
+/**
+ * A moment as it goes to disk: no signed URL, and no photo this build could not
+ * read back.
+ *
+ * **The URL is dropped** because it is a bearer link with an hour on it. Written
+ * to disk it is a token in a file, and restored it is a token that expired
+ * overnight — a photo that renders nothing until the first pull mints another.
+ * The durable half is `path`, which is what the next pull signs. Same argument
+ * `lib/avatarUrl.ts` makes for never persisting its cache at all.
+ *
+ * **A malformed photo is dropped** rather than carried, because of what the
+ * check on the way back in does when it meets one. `momentsAreSound` failing
+ * does not lose the photo — `isSound` is all-or-nothing, so it loses the entire
+ * payload, week included. Nothing in this build can write a bad one, and this
+ * is what keeps that true across the next change to the shape: the validator
+ * stays a backstop instead of a tripwire.
+ *
+ * Done here rather than in `pick` on purpose. `pick` is compared by reference to
+ * decide whether a write is needed at all, so minting new arrays there would
+ * write on every keystroke.
+ */
+const scrubMoments = (moments: Moment[]): Moment[] =>
+  moments.map((m) => {
+    if (!m.media) return m;
+    if (!mediaIsSound(m.media)) {
+      const { media: _dropped, ...rest } = m;
+      return rest;
+    }
+    if (m.media.url === undefined) return m;
+    const { url: _url, ...media } = m.media;
+    return { ...m, media };
+  });
+
 async function write(data: Persisted) {
   try {
+    // The scrubbed copy is what goes to disk; `lastWritten` stays the object
+    // `pick` built, because that is what the next `unchanged` compares against
+    // by reference. Remembering the copy instead would make every save a write.
+    const payload: Persisted = {
+      ...data,
+      moments: scrubMoments(data.moments),
+      globalPosts: scrubMoments(data.globalPosts),
+    };
     // `backend` rides in the envelope, beside `version`, rather than in `data`.
     // It describes the write, not the app: as a state key it would be picked,
     // reference-diffed by `unchanged`, and threaded through `hydrate`, `RESET`
     // and `seedFor` for no gain.
     await AsyncStorage.setItem(
       KEY,
-      JSON.stringify({ version: VERSION, backend: projectRef(), data }),
+      JSON.stringify({ version: VERSION, backend: projectRef(), data: payload }),
     );
     lastWritten = data;
   } catch {

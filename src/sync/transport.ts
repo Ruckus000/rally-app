@@ -14,12 +14,12 @@
  * permanent failure classed retryable is an entry that jams the queue forever,
  * and a retryable one classed permanent is a tap the user made and lost.
  */
-import type { Task } from '../data/fixtures';
+import type { Task, TaskMedia } from '../data/fixtures';
 import type { Person } from '../data/people';
 import type { CircleRef } from '../state/store';
 import { getSupabase } from '../lib/supabase';
 import { avatarStateOf } from '../data/people';
-import { rowToPerson, rowToTask, taskToRow } from './mappers';
+import { rowToPerson, rowToPulledMedia, rowToTask, taskToRow } from './mappers';
 import type { ScreenOutcome } from './media';
 import type { NoteTarget, SyncableNote } from './notes';
 import { REACTION_KINDS, type ReactionKind, type ReactionRef } from './reactions';
@@ -114,6 +114,13 @@ export type PushResult =
  * `myTasks` is null when no week was asked for — "no week on screen yet" and
  * "a week with nothing staked" are different answers, exactly as `pullTasks`'s
  * absence vs its empty array has always distinguished them.
+ *
+ * `media` is null for the same reason and one more. Empty means "the server
+ * says these goals have no photos", which is how a photo removed on another
+ * device disappears from this one; null means "this pull cannot say", which
+ * must never remove anything. A server too old to know the key answers
+ * `undefined`, which maps to null here — otherwise every client on that build
+ * would read silence as a removal and delete every photo it had.
  */
 export type World = {
   people: Person[];
@@ -122,6 +129,7 @@ export type World = {
   notifications: Record<string, unknown>[];
   myTasks: Task[] | null;
   ownerTasks: Record<string, unknown>[];
+  media: PulledMedia[] | null;
   reactions: ReactionRef[];
   notes: PulledNote[];
   rollups: PulledRollup[];
@@ -183,6 +191,20 @@ export type Transport = {
 };
 
 /** A `week_rollups` row on the way back, before it becomes a `HistoryWeek`. */
+/**
+ * A photo as the pull hands it over: the goal it belongs to, and the photo.
+ *
+ * `taskId` rides alongside rather than inside `TaskMedia` because a `TaskMedia`
+ * is always *already* on the task it belongs to once it reaches state — the id
+ * would be a field that is redundant everywhere except the few lines between
+ * the wire and the merge. Same shape as `PulledNote` and `PulledRollup`, and
+ * for the same reason.
+ */
+export type PulledMedia = {
+  taskId: string;
+  media: TaskMedia;
+};
+
 export type PulledRollup = {
   weekStart: string;
   points: number;
@@ -570,14 +592,20 @@ export const mediaPath = (ownerId: string, taskId: string, mediaId: string): str
   `${ownerId}/${taskId}/${mediaId}.jpg`;
 
 /**
- * A readable URL for a photo, good for a week.
+ * A readable URL for a photo, for as long as the caller asks.
  *
  * The bucket is private, so this is the only way to draw one — and signing
  * requires the select policy to pass, which is what makes the audience rule
  * reach the file rather than only the row pointing at it. Batched because a
  * pull can carry a whole feed's worth.
+ *
+ * `seconds` is deliberately not optional. It defaulted to a week, which is the
+ * wrong answer for the only caller there is: a URL that long outlives the photo
+ * it names — `media.detach` removes the row and the object, and a minted URL
+ * goes on resolving regardless — and `moments` is persisted, so it would reach
+ * the disk. `lib/mediaUrl.ts` owns the number and the cache in front of it.
  */
-export async function signMedia(paths: string[], seconds = 604800): Promise<Record<string, string>> {
+export async function signMedia(paths: string[], seconds: number): Promise<Record<string, string>> {
   if (paths.length === 0) return {};
   const { data, error } = await getSupabase()
     .storage.from(MEDIA_BUCKET)
@@ -1165,6 +1193,11 @@ export function supabaseTransport(): Transport {
       // Null and empty stay distinct across the wire — see `World.myTasks`.
       myTasks: w.my_tasks == null ? null : rows(w.my_tasks).map(rowToTask),
       ownerTasks: rows(w.owner_tasks),
+      // `== null` on purpose: it catches the null a week-less pull sends *and*
+      // the `undefined` a server that predates this key sends. Those mean the
+      // same thing — this pull cannot say — and the alternative is a client
+      // deleting every photo it has because an older server said nothing.
+      media: w.media == null ? null : rows(w.media).flatMap(rowToPulledMedia),
       reactions: rows(w.reactions).flatMap(rowToReactionRef),
       notes: rows(w.notes).flatMap(rowToPulledNote),
       rollups: rows(w.rollups).map(rowToPulledRollup),
