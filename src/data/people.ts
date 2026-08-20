@@ -7,8 +7,6 @@
  * is total by construction — it answers for ids it has never seen rather than
  * handing back an undefined the compiler swore was a string.
  */
-import { hashTint } from '../theme/tokens';
-
 export type PersonId = string;
 export type Trend = 'up' | 'down' | 'same';
 
@@ -48,7 +46,14 @@ export type Person = {
   name: string;
   first: string;
   initials: string;
-  tint?: string;
+  /**
+   * Which slot of the theme's `personTints` this person's avatar circle is
+   * drawn in — an index, never a colour. A person used to carry the hex
+   * itself, which meant every face in the app was coloured by a module-level
+   * literal no hook could reach and no scheme could vary. Absent means "no
+   * designed tint", and the reader falls back to `tintIndex(id)` below.
+   */
+  tintIndex?: number;
   trend?: Trend;
   stats?: MemberStats;
   /**
@@ -76,6 +81,33 @@ export type Person = {
 /** Deliberately `| undefined`: without noUncheckedIndexedAccess a plain Record would hand back a
  *  confidently-typed undefined. This signature forces the check the config skips. */
 export type PeopleIndex = { readonly [id: string]: Person | undefined };
+
+/**
+ * How many of the theme's `personTints` an id we have never seen may land on.
+ *
+ * Seven, not `personTints.length`, and the two differ on purpose: slots 7–9
+ * are the Oz bots' own hues and belong to named characters, so nothing may
+ * arrive at them by accident. Widening this would also re-tint every live
+ * circle member at once — a live profile row carries no designed tint, so the
+ * hash is where every real person's avatar colour comes from.
+ *
+ * It lives here rather than beside the array because this file must not import
+ * from `theme/`: the whole point of the split is that the arithmetic knows
+ * nothing about colour. `theme/__tests__/personTints.test.ts` is what holds
+ * the two in agreement.
+ */
+export const HASHED_TINTS = 7;
+
+/**
+ * The half of the old `hashTint` that is not a colour: a stable slot for an
+ * arbitrary id. Same 31-multiply as before, and the same modulus, so every id
+ * resolves to exactly the tint it always did.
+ */
+export const tintIndex = (id: PersonId, count: number = HASHED_TINTS): number => {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (Math.imul(h, 31) + id.charCodeAt(i)) | 0;
+  return (h >>> 0) % count;
+};
 
 export const SELF_DEMO_ID: PersonId = 'you';
 
@@ -122,17 +154,20 @@ export const personOf = (
 /**
  * The demo circle, transcribed from the fixtures it replaces. Each one keeps
  * its explicit tint — these were picked against the design reference, and a
- * pure hash would restyle the whole app.
+ * pure hash would restyle the whole app. They are slots 0–6 of the theme's
+ * `personTints`, in that order, which is what they always were: the seven
+ * hexes that used to sit in this file were a byte-for-byte second copy of that
+ * array.
  */
 export const DEMO_PEOPLE: Person[] = [
   // No stats: yours are live, off your own week.
-  { id: 'you', name: 'You', first: 'You', initials: 'AR', tint: '#E0E6D3', trend: 'up' },
+  { id: 'you', name: 'You', first: 'You', initials: 'AR', tintIndex: 0, trend: 'up' },
   {
     id: 'maya',
     name: 'Maya Chen',
     first: 'Maya',
     initials: 'MC',
-    tint: '#D5E2BD',
+    tintIndex: 1,
     trend: 'up',
     stats: { done: 7, total: 7, streak: 5, given: 9 },
   },
@@ -141,7 +176,7 @@ export const DEMO_PEOPLE: Person[] = [
     name: 'Dre Okafor',
     first: 'Dre',
     initials: 'DO',
-    tint: '#E9E0C2',
+    tintIndex: 2,
     trend: 'down',
     stats: { done: 5, total: 7, streak: 2, given: 6 },
   },
@@ -150,7 +185,7 @@ export const DEMO_PEOPLE: Person[] = [
     name: 'Jordan Lee',
     first: 'Jordan',
     initials: 'JL',
-    tint: '#E8CFBE',
+    tintIndex: 3,
     trend: 'down',
     stats: { done: 1, total: 5, streak: 0, given: 1 },
   },
@@ -159,7 +194,7 @@ export const DEMO_PEOPLE: Person[] = [
     name: 'Sofia Park',
     first: 'Sofia',
     initials: 'SP',
-    tint: '#C9D9CE',
+    tintIndex: 4,
     trend: 'up',
     stats: { done: 4, total: 6, streak: 4, given: 3 },
   },
@@ -168,7 +203,7 @@ export const DEMO_PEOPLE: Person[] = [
     name: 'Nana Rosa',
     first: 'Nana',
     initials: 'NR',
-    tint: '#EFE3AE',
+    tintIndex: 5,
     trend: 'same',
     stats: { done: 6, total: 6, streak: 1, given: 5 },
   },
@@ -177,7 +212,7 @@ export const DEMO_PEOPLE: Person[] = [
     name: 'Tomás Vega',
     first: 'Tomás',
     initials: 'TV',
-    tint: '#CBD6C4',
+    tintIndex: 6,
     trend: 'up',
     stats: { done: 2, total: 2, streak: 1, given: 0 },
   },
@@ -200,6 +235,11 @@ export const indexPeople = (list: Person[]): PeopleIndex =>
 /**
  * The Global feed's cast, and openly not people.
  *
+ * Their tint slots are 7–9 — three hues (lilac, pale blue, warm beige) the
+ * palette proper does not contain, so a bot never looks like somebody you
+ * might know. The Scarecrow is the one exception, on slot 2 beside Dre, which
+ * is what he has always been.
+ *
  * The feed used to be four invented accounts with handles like `@kwon.builds`
  * — names chosen to pass for real, attached to cheer counts no ledger backs.
  * These are chosen to fail: nobody mistakes the Tin Man for a person they
@@ -215,7 +255,7 @@ export const OZ_PEOPLE: Person[] = [
     name: 'Dorothy Gale',
     first: 'Dorothy',
     initials: 'DG',
-    tint: '#D8C9E0',
+    tintIndex: 7,
     trend: 'up',
     stats: { done: 5, total: 6, streak: 4, given: 11 },
   },
@@ -224,7 +264,7 @@ export const OZ_PEOPLE: Person[] = [
     name: 'The Scarecrow',
     first: 'Scarecrow',
     initials: 'SC',
-    tint: '#E9E0C2',
+    tintIndex: 2,
     trend: 'up',
     stats: { done: 4, total: 4, streak: 2, given: 7 },
   },
@@ -233,7 +273,7 @@ export const OZ_PEOPLE: Person[] = [
     name: 'Tin Man',
     first: 'Tin',
     initials: 'TM',
-    tint: '#C9DCE0',
+    tintIndex: 8,
     trend: 'same',
     stats: { done: 3, total: 6, streak: 1, given: 5 },
   },
@@ -242,7 +282,7 @@ export const OZ_PEOPLE: Person[] = [
     name: 'Cowardly Lion',
     first: 'Lion',
     initials: 'CL',
-    tint: '#E0D8C9',
+    tintIndex: 9,
     trend: 'down',
     stats: { done: 2, total: 5, streak: 0, given: 3 },
   },
@@ -260,12 +300,36 @@ export const SELF_ONLY_INDEX: PeopleIndex = indexPeople([
   ...OZ_PEOPLE,
 ]);
 
+/**
+ * A directory off disk, with the fixture cast's designed tint slots put back.
+ *
+ * A tint used to be a hex written onto the person, and `people` is persisted —
+ * so a payload from an earlier build carries a `tint` string this build no
+ * longer reads and no `tintIndex` at all. Left alone, all eleven fixture
+ * people would fall through to the hash on the first launch after the upgrade
+ * and come back a different pastel: Maya's face changing colour because of a
+ * refactor, which is exactly what this change promised not to do. Live rows
+ * never carried a tint, so they are untouched either way.
+ *
+ * Repaired here rather than by bumping the persistence `VERSION`, which throws
+ * away the staked week, the history and the totals — far too much to pay for a
+ * pastel — and rather than by keeping a table of the old hexes, which would
+ * re-create in this file the literals the change exists to remove. The id is
+ * enough: it is what the fixture is keyed by.
+ */
+export const withFixtureTints = (list: Person[]): Person[] =>
+  list.map((p) => {
+    const designed = DEMO_INDEX[p.id]?.tintIndex;
+    return p.tintIndex === undefined && designed !== undefined ? { ...p, tintIndex: designed } : p;
+  });
+
 export type People = {
   get(id: PersonId): Person;
   name(id: PersonId): string;
   first(id: PersonId): string;
   initials(id: PersonId): string;
-  tint(id: PersonId): string;
+  /** A slot in the theme's `personTints`, for a caller that has the hook. */
+  tintIndex(id: PersonId): number;
   trend(id: PersonId): Trend;
   stats(id: PersonId): MemberStats;
   isSelf(id: PersonId): boolean;
@@ -281,7 +345,7 @@ const stranger = (id: PersonId): Person => ({
   name: 'Someone',
   first: 'Someone',
   initials: '?',
-  tint: hashTint(id),
+  tintIndex: tintIndex(id),
 });
 
 export function makePeople(index: PeopleIndex, selfId: PersonId): People {
@@ -291,7 +355,7 @@ export function makePeople(index: PeopleIndex, selfId: PersonId): People {
     name: (id) => get(id).name,
     first: (id) => get(id).first,
     initials: (id) => get(id).initials,
-    tint: (id) => get(id).tint ?? hashTint(id),
+    tintIndex: (id) => get(id).tintIndex ?? tintIndex(id),
     trend: (id) => get(id).trend ?? 'same',
     stats: (id) => get(id).stats ?? EMPTY_STATS,
     isSelf: (id) => id === selfId,

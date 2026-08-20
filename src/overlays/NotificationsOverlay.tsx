@@ -4,8 +4,9 @@
  */
 import React from 'react';
 import { ScrollView, View } from 'react-native';
-import { gutter, onDark, onLight, radius, shadows } from '../theme/tokens';
-import { useColors } from '../theme/ThemeProvider';
+import { gutter, onDark, onLight, radius } from '../theme/tokens';
+import { useColors, usePersonTints, useShadows } from '../theme/ThemeProvider';
+import type { Palette, PersonTints } from '../theme/ThemeProvider';
 import { NOTIF_TIERS, Notification, NotifTier } from '../data/fixtures';
 import { EmptyState } from '../components/FeedCards';
 import { useStore, usePeople } from '../state/store';
@@ -28,6 +29,30 @@ const TIER_ICON: Partial<Record<Notification['kind'], IconName>> = {
   wrap: 'wrap',
 };
 
+/**
+ * The 7px dot beside a tier heading — the colour half of what `NOTIF_TIERS`
+ * used to carry as an `accent` string.
+ *
+ * It is here rather than in the fixture because a fixture cannot call a hook,
+ * and these three have to move with the scheme: two of them are palette tokens
+ * and would have gone on saying `#191E16` on a dark ground forever.
+ *
+ * A factory taking what it reads, which is the convention settled in
+ * `ThemeProvider`'s docblock and worked in `LedgerOverlay`'s `closeButton` —
+ * not a hook, because the caller is already inside a `.map()` and there is
+ * exactly one call site.
+ *
+ * **The circle dot is an avatar tint, deliberately.** `'#D5E2BD'` was slot 1
+ * of `personTints`, which is not a coincidence: the dot stands for *people*,
+ * and it was picked out of the palette the circle's faces are drawn from. So
+ * it is spelled as that read, and it follows the avatars into the dark palette
+ * rather than being left behind as a literal that nothing else agrees with.
+ * The coupling is real and worth seeing — if the avatar palette ever stops
+ * being the right source for it, this line is where that argument happens.
+ */
+const tierAccent = (key: NotifTier, color: Palette, personTints: PersonTints): string =>
+  key === 'needs' ? color.lime : key === 'week' ? color.ink : personTints[1];
+
 export function NotificationsOverlay({
   topInset,
   bottomInset = 0,
@@ -36,6 +61,7 @@ export function NotificationsOverlay({
   bottomInset?: number;
 }) {
   const color = useColors();
+  const personTints = usePersonTints();
   const { state, dispatch } = useStore();
   // One slice, every account. The demo's feed is seeded into it and a live
   // account's arrives from the server, so there is no world to read by mistake
@@ -150,7 +176,14 @@ export function NotificationsOverlay({
             return (
               <View key={tier.key} style={{ marginBottom: 22 }}>
                 <View style={[row, { gap: 8, marginHorizontal: 2, marginBottom: 4 }]}>
-                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: tier.accent }} />
+                  <View
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: 4,
+                      backgroundColor: tierAccent(tier.key, color, personTints),
+                    }}
+                  />
                   <Caps size={11} tracking={1.4} color={color.avatarText}>
                     {tier.title}
                   </Caps>
@@ -197,6 +230,7 @@ export function NotificationsOverlay({
 
 function NotificationRow({ item, isNeeds }: { item: Notification; isNeeds: boolean }) {
   const color = useColors();
+  const shadows = useShadows();
   const { state, dispatch } = useStore();
   const people = usePeople();
   const isSystem = !item.who && !item.faces;

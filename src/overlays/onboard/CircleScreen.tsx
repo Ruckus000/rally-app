@@ -5,8 +5,8 @@
  */
 import React, { useState } from 'react';
 import { ScrollView, TextInput, View } from 'react-native';
-import { onLight, shadows } from '../../theme/tokens';
-import { useColors } from '../../theme/ThemeProvider';
+import { onLight } from '../../theme/tokens';
+import { useColors, useShadows } from '../../theme/ThemeProvider';
 import { Icon } from '../../components/Icon';
 import { Bri, Caps, Sans, Tap, fill, row } from '../../components/primitives';
 import { Trouble } from '../../components/Trouble';
@@ -187,6 +187,7 @@ function SmallButton({
   paddingHorizontal: number;
 }) {
   const color = useColors();
+  const shadows = useShadows();
 
   return (
     <Tap

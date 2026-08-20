@@ -6,8 +6,8 @@
  */
 import React from 'react';
 import { View } from 'react-native';
-import { onDark, onLight, radius, shadows } from '../theme/tokens';
-import { useColors, type Palette } from '../theme/ThemeProvider';
+import { onDark, onLight, radius } from '../theme/tokens';
+import { useColors, usePersonTints, useShadows, type Palette } from '../theme/ThemeProvider';
 import { Avatar, ProgressRing } from '../components/Avatar';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
 import { Icon } from '../components/Icon';
@@ -35,6 +35,7 @@ const cheers = (given: number | null) => (given === null ? '–' : String(given)
 
 export function CircleScreen() {
   const color = useColors();
+  const shadows = useShadows();
   const { state, dispatch, config, people } = useStore();
   // The ranking sorts the whole circle and walks every cheer against every
   // moment — too much to redo on renders where none of its inputs moved.
@@ -204,6 +205,7 @@ function PodiumMember({
   onPress: () => void;
 }) {
   const color = useColors();
+  const personTints = usePersonTints();
   const people = usePeople();
   const isFirst = member.rank === 1;
   const size = isFirst ? 92 : 74;
@@ -228,7 +230,7 @@ function PodiumMember({
             right: 8,
             bottom: 8,
             borderRadius: size / 2,
-            backgroundColor: people.tint(member.k),
+            backgroundColor: personTints[people.tintIndex(member.k)],
             alignItems: 'center',
             justifyContent: 'center',
           }}

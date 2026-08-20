@@ -4,8 +4,8 @@
  */
 import React from 'react';
 import { TextInput, View } from 'react-native';
-import { onDark, onLight, radius, shadows } from '../theme/tokens';
-import { useColors } from '../theme/ThemeProvider';
+import { onDark, onLight, radius } from '../theme/tokens';
+import { useColors, useShadows } from '../theme/ThemeProvider';
 import { Moment, TITLE_MAX } from '../data/fixtures';
 import { useStore } from '../state/store';
 import {
@@ -69,6 +69,7 @@ export function WeekScreen() {
 
 function PersonalHeader() {
   const color = useColors();
+  const shadows = useShadows();
   const { state, dispatch, people } = useStore();
   const pts = weekPoints(state);
   const doneCount = state.myTasks.filter((t) => t.done).length;
@@ -141,6 +142,7 @@ function PersonalHeader() {
  */
 function QuickLogInput() {
   const color = useColors();
+  const shadows = useShadows();
   const { dispatch } = useStore();
   const [text, setText] = React.useState('');
 

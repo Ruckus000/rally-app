@@ -40,8 +40,8 @@ const sheet = (moments: Moment[]) =>
         account: 'live',
         selfId: ME,
         people: {
-          [ME]: { id: ME, name: 'You', first: 'You', initials: 'Y', tint: '#E0E6D3' },
-          [MAYA]: { id: MAYA, name: 'Maya Chen', first: 'Maya', initials: 'MC', tint: '#D5E2BD' },
+          [ME]: { id: ME, name: 'You', first: 'You', initials: 'Y', tintIndex: 0 },
+          [MAYA]: { id: MAYA, name: 'Maya Chen', first: 'Maya', initials: 'MC', tintIndex: 1 },
         },
         moments,
         sheet: { type: 'person', id: MAYA },

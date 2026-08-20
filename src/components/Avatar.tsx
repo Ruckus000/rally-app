@@ -25,7 +25,7 @@
 import React from 'react';
 import { Image, StyleProp, View, ViewStyle } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import { useColors } from '../theme/ThemeProvider';
+import { useColors, usePersonTints } from '../theme/ThemeProvider';
 import { PersonId } from '../data/people';
 import { useAvatarUrl } from '../lib/avatarUrl';
 import { usePeople } from '../state/store';
@@ -48,10 +48,13 @@ export function Avatar({
   style?: StyleProp<ViewStyle>;
 }) {
   const color = useColors();
+  const personTints = usePersonTints();
   const people = usePeople();
   const person = who ? people.get(who) : undefined;
   const ini = initials ?? (who ? people.initials(who) : '?');
-  const bg = tint ?? (who ? people.tint(who) : color.chip);
+  // A person hands out a slot, not a colour; the palette that slot indexes is
+  // this component's to resolve, because this is where the hook is.
+  const bg = tint ?? (who ? personTints[people.tintIndex(who)] : color.chip);
   const name = label ?? (who ? people.name(who) : undefined);
 
   // `null` unless there is a screened photo and a URL that has not expired.

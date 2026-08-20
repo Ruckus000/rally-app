@@ -5,8 +5,10 @@
  * Who the people *are* is no longer here: names, initials, tints, trends and
  * their week's numbers live in `people.ts`, because live mode has to answer the
  * same questions for ids these fixtures have never heard of.
+ *
+ * Nothing here carries a colour, and the file imports nothing from `theme/`.
+ * The last one was `NOTIF_TIERS.accent`; see the note above that list.
  */
-import { lightColors } from '../theme/tokens';
 import { SELF_DEMO_ID, type PersonId } from './people';
 import type { DayIndex } from './week';
 
@@ -707,24 +709,29 @@ export const NOTIFICATIONS: Notification[] = [
  * is something that happens to cheers inside a tier — `batchCheers` groups
  * them wherever they land — so a tier named after it would be a rendering
  * detail sitting alongside two real categories.
+ *
+ * No `accent` here any more. Each tier used to carry the colour of the dot
+ * beside its heading, which made this the one fixture in the app that decided
+ * how something looked — a hardcoded hex in a data module, three schemes away
+ * from anything that could vary it. `tierAccent` in `NotificationsOverlay`
+ * owns that now, keyed off `key`, where the theme hooks are. The two other
+ * importers of this list (`state/persistence.ts`, `sync/mappers.ts`) only ever
+ * read `.key`, which is why the field could simply go rather than move.
  */
-export const NOTIF_TIERS: { key: NotifTier; title: string; accent: string; blurb: string }[] = [
+export const NOTIF_TIERS: { key: NotifTier; title: string; blurb: string }[] = [
   {
     key: 'needs',
     title: 'NEEDS YOU',
-    accent: lightColors.lime,
     blurb: 'Someone is waiting on a word from you.',
   },
   {
     key: 'week',
     title: 'YOUR WEEK',
-    accent: '#191E16',
     blurb: 'Your own commitments and what’s at stake.',
   },
   {
     key: 'circle',
     title: 'YOUR CIRCLE',
-    accent: '#D5E2BD',
     blurb: 'What the circle got up to. Nothing to do here.',
   },
 ];

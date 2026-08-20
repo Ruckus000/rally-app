@@ -29,18 +29,32 @@
  *
  * ## Why the context value is an object rather than the colour map
  *
- * `yearLevelColor`, `personTints` and `hairlineGradient` all carry colour and
- * all have to become theme-dependent eventually — `personTints` in particular
- * needs real design thought, not a token swap. They are **deliberately not
- * moved in this PR**. But the context holds a `Theme` object with a named
- * `colors` field, so when they join they become extra fields on that object
- * and extra hooks beside `useColors()`. Nothing that has already been migrated
- * has to be migrated a second time. Had the context value been the bare colour
- * map, adding them later would mean touching every call site again.
+ * `yearLevelColor`, `personTints`, `hairlineGradient` and `shadows` all carry
+ * colour and all had to become theme-dependent eventually. The cheque this
+ * paragraph wrote in PR 1 is cashed: they are fields on `Theme` now, they
+ * arrived as extra fields plus extra hooks, and **not one already-migrated
+ * `useColors()` call site had to be touched a second time.** Had the context
+ * value been the bare colour map, adding them would have meant editing every
+ * one of the ~470 reads again.
  *
- * `onDark` is not here either, and for a different reason: the dark design
- * keeps every already-dark surface exactly as it is, so the `onDark` ramp is
- * scheme-independent by construction. It can stay a plain import.
+ * `onDark` and `onLight` are not here, and for a different reason: the dark
+ * design keeps every already-dark surface exactly as it is, so those ramps are
+ * scheme-independent by construction. They stay plain imports.
+ *
+ * ## Which of the five gets its own hook
+ *
+ * One rule, applied without exception: **a structure read in more than one
+ * file gets a named hook; a structure with a single consumer is read off
+ * `useTheme()`.** A hook earns its name when it saves repetition across files
+ * and gives "who reads this" a single grep; for a structure one component
+ * touches, `useTheme().hairlineGradient` says more at the call site than a
+ * `useHairlineGradient()` would, and there is nothing extra to import.
+ *
+ * So: `useColors()` (~470 reads), `useShadows()` (31 reads across 12 files)
+ * and `usePersonTints()` (4 files) are hooks. `hairlineGradient` — only
+ * `GradientHairline` in `primitives.tsx` — and `yearLevelColor` — only
+ * `YearGrid` in `MeScreen.tsx` — come off `useTheme()`. If either grows a
+ * second consumer the rule says promote it, and that is a two-line change.
  *
  * ## The two awkward shapes, settled here so the next four PRs do not re-argue
  *
@@ -99,7 +113,24 @@
  */
 import React, { createContext, useContext, useMemo } from 'react';
 import { useColorScheme } from 'react-native';
-import { lightColors } from './tokens';
+import {
+  hairlineGradient,
+  HairlineGradient,
+  lightColors,
+  personTints,
+  PersonTints,
+  shadows,
+  Shadows,
+  yearLevelColor,
+  YearLevelColor,
+} from './tokens';
+
+/**
+ * Re-exported so a consumer needing one of these as a *type* — a factory
+ * taking what it reads, in the convention below — has one import to reach for
+ * rather than two. `Palette` is defined here; these four come from `tokens`.
+ */
+export type { HairlineGradient, PersonTints, Shadows, YearLevelColor };
 
 export type Scheme = 'light' | 'dark';
 
@@ -107,23 +138,47 @@ export type Scheme = 'light' | 'dark';
 export type Palette = typeof lightColors;
 
 /**
- * What the context carries. `colors` today; `yearLevelColor`, `personTints`
- * and `hairlineGradient` land beside it in a later PR without a second
- * migration — see the note above.
+ * What the context carries: everything in the app that is a colour and could
+ * have to differ between schemes.
+ *
+ * Five fields and, for now, no sixth — anything else carrying colour is either
+ * already in here or is scheme-independent on purpose (`onDark`, `onLight`,
+ * `heroGlow`, and the handful of literals 6a named).
  */
 export type Theme = {
   scheme: Scheme;
   colors: Palette;
+  shadows: Shadows;
+  personTints: PersonTints;
+  hairlineGradient: HairlineGradient;
+  yearLevelColor: YearLevelColor;
 };
 
-const lightTheme: Theme = { scheme: 'light', colors: lightColors };
+const lightTheme: Theme = {
+  scheme: 'light',
+  colors: lightColors,
+  shadows,
+  personTints,
+  hairlineGradient,
+  yearLevelColor,
+};
 
 /**
- * Dark, holding the light palette. Not an oversight and not a placeholder to
- * be filled in casually: the palette swap is PR 6, and the test suite asserts
- * this is still value-identical to `color` until then.
+ * Dark, holding the light structures — all five, by reference to the very
+ * objects the light theme names.
+ *
+ * Not an oversight and not a placeholder to be filled in casually: the palette
+ * swap is the next PR, and the test suite asserts that both schemes still hand
+ * back the identical object for every field until then.
  */
-const darkTheme: Theme = { scheme: 'dark', colors: lightColors };
+const darkTheme: Theme = {
+  scheme: 'dark',
+  colors: lightColors,
+  shadows,
+  personTints,
+  hairlineGradient,
+  yearLevelColor,
+};
 
 /**
  * Defaulting to the light theme rather than `null` is what lets a component
@@ -162,4 +217,27 @@ export function useTheme(): Theme {
 /** The colours. This is the one nearly every component wants. */
 export function useColors(): Palette {
   return useContext(ThemeContext).colors;
+}
+
+/**
+ * The drop shadows. Named because 31 reads across 12 files is well past the
+ * point where spelling `useTheme().shadows` at each of them is the shorter
+ * thing.
+ *
+ * Call the result `shadows`, shadowing the old import name, for the same
+ * reason `useColors()` is called `color`: everything below the hook stays
+ * byte-identical and the diff is the import plus one line.
+ */
+export function useShadows(): Shadows {
+  return useContext(ThemeContext).shadows;
+}
+
+/**
+ * The avatar palette. Four files resolve a person's tint *index* against it —
+ * `Avatar`, `CircleScreen`, `DetailSheet`, and onboarding's `IdentityScreen`.
+ * `data/people.ts` is deliberately not one of them: it hands out the index and
+ * has no idea what colour that is.
+ */
+export function usePersonTints(): PersonTints {
+  return useContext(ThemeContext).personTints;
 }

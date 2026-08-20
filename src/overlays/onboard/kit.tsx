@@ -5,8 +5,8 @@
  */
 import React, { useEffect, useState } from 'react';
 import { Animated, View, ViewStyle } from 'react-native';
-import { onDark, onLight, shadows } from '../../theme/tokens';
-import { useColors } from '../../theme/ThemeProvider';
+import { onDark, onLight } from '../../theme/tokens';
+import { useColors, useShadows } from '../../theme/ThemeProvider';
 import { SHEET_DURATION, sheetEasing, useReducedMotion } from '../../theme/motion';
 import { Icon } from '../../components/Icon';
 import { Bri, Sans, Tap, fill, row, rowTop } from '../../components/primitives';
@@ -232,6 +232,7 @@ export function ExpandingCard({
   children?: React.ReactNode;
 }) {
   const color = useColors();
+  const shadows = useShadows();
 
   return (
     <Tap
@@ -292,6 +293,7 @@ export function NotificationPreview({
   children: React.ReactNode;
 }) {
   const color = useColors();
+  const shadows = useShadows();
   const dark = variant === 'dark';
   return (
     <View

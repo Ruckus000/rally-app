@@ -18,7 +18,7 @@ import {
   View,
 } from 'react-native';
 import { onLight, radius } from '../theme/tokens';
-import { useColors, type Palette } from '../theme/ThemeProvider';
+import { useColors, usePersonTints, type Palette } from '../theme/ThemeProvider';
 import {
   AUDIENCE_LABEL,
   ME,
@@ -144,6 +144,7 @@ export function DetailSheet({ bottomInset }: { bottomInset: number }) {
 
 function TaskSheet({ id }: { id: string }) {
   const color = useColors();
+  const personTints = usePersonTints();
   const { state, dispatch, people } = useStore();
 
   const mine = state.myTasks.find((x) => x.id === id);
@@ -158,7 +159,7 @@ function TaskSheet({ id }: { id: string }) {
   const who = mine ? state.selfId : moment?.who;
   const name = who ? people.name(who) : '';
   const initials = who ? people.initials(who) : '?';
-  const tintColor = who ? people.tint(who) : color.chip;
+  const tintColor = who ? personTints[people.tintIndex(who)] : color.chip;
   const first = who ? people.first(who) : '';
   // A demo post has no thread of its own — what we can show is what you said.
   // Filtered, because this thread never passes through `mergedFeed` — the sheet

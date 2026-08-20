@@ -17,15 +17,8 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
-import {
-  capsLabel,
-  font,
-  gradientAngle,
-  hairlineGradient,
-  HIT_TARGET,
-  MAX_FONT_SCALE,
-} from '../theme/tokens';
-import { useColors } from '../theme/ThemeProvider';
+import { capsLabel, font, gradientAngle, HIT_TARGET, MAX_FONT_SCALE } from '../theme/tokens';
+import { useColors, useTheme } from '../theme/ThemeProvider';
 
 type Weight = 400 | 500 | 600 | 700 | 800;
 
@@ -229,6 +222,11 @@ export function GradientHairline({
   style?: StyleProp<ViewStyle>;
   children: React.ReactNode;
 }) {
+  // Off `useTheme()` rather than a hook of its own: this component is the only
+  // reader of the gradient in the app, so `useHairlineGradient()` would be a
+  // second name for one call site. Destructured to keep the six reads below
+  // byte-identical to what they were.
+  const { hairlineGradient } = useTheme();
   const angle = variant === 'composer' ? 158 : 150;
   const colors =
     variant === 'light'

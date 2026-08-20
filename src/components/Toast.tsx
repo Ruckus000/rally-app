@@ -1,8 +1,7 @@
 /** Single-slot toast, `bPop` in, a short fade out, auto-dismissed by the store. */
 import React, { useEffect, useState } from 'react';
 import { AccessibilityInfo, Animated, View } from 'react-native';
-import { shadows } from '../theme/tokens';
-import { useColors } from '../theme/ThemeProvider';
+import { useColors, useShadows } from '../theme/ThemeProvider';
 import { POP_DURATION, popEasing, useReducedMotion } from '../theme/motion';
 import { Bri } from './primitives';
 
@@ -22,6 +21,7 @@ export function Toast({
   bottomInset?: number;
 }) {
   const color = useColors();
+  const shadows = useShadows();
   const reduced = useReducedMotion();
   const [anim] = useState(() => new Animated.Value(1));
   // The store nulls the message to dismiss; keeping the last one lets the

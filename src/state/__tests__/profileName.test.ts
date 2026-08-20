@@ -89,7 +89,7 @@ describe('renaming yourself later', () => {
     const withExtras = {
       ...named,
       people: indexPeople([
-        { ...named.people[SESSION_ID]!, tint: '#D5E2BD', trend: 'up' as const },
+        { ...named.people[SESSION_ID]!, tintIndex: 1, trend: 'up' as const },
       ]),
     };
 
@@ -100,7 +100,7 @@ describe('renaming yourself later', () => {
       first: 'Maya',
       initials: 'MC',
       // Rebuilding the record from the name alone would drop these silently.
-      tint: '#D5E2BD',
+      tintIndex: 1,
       trend: 'up',
     });
   });
