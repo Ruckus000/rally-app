@@ -111,6 +111,7 @@ describe('the default palette', () => {
   "quietText": "#6E7663",
   "quoteInk": "#5A6350",
   "tabbar": "rgba(19,24,13,.94)",
+  "textPrimary": "#191E16",
 }
 `);
   });

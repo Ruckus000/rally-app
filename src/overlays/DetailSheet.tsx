@@ -17,7 +17,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { radius } from '../theme/tokens';
+import { onLight, radius } from '../theme/tokens';
 import { useColors, type Palette } from '../theme/ThemeProvider';
 import {
   AUDIENCE_LABEL,
@@ -126,7 +126,7 @@ export function DetailSheet({ bottomInset }: { bottomInset: number }) {
               justifyContent: 'center',
             }}
           >
-            <Icon name="close" size={15} color={color.ink} />
+            <Icon name="close" size={15} color={color.textPrimary} />
           </Tap>
         </View>
 
@@ -284,7 +284,14 @@ function TaskSheet({ id }: { id: string }) {
                   backgroundColor: done ? (a.k === 'in' ? color.ink : color.lime) : color.chip,
                 }}
               >
-                <Sans size={12.5} weight={600} color={done && a.k === 'in' ? color.lime : color.ink}>
+                {/* Three fills under one label: `ink` when you are in, `lime`
+                    when the other actions are done, `chip` when they are not.
+                    Only the last of those flips, so the label splits with it. */}
+                <Sans
+                  size={12.5}
+                  weight={600}
+                  color={done ? (a.k === 'in' ? color.lime : onLight) : color.textPrimary}
+                >
                   {done ? a.on : a.off}
                 </Sans>
               </Tap>
@@ -469,7 +476,7 @@ function PhotoChip({ task }: { task: Task }) {
         accessibilityState={{ disabled: busy }}
         style={sheetChip(color.chip)}
       >
-        <Sans size={12.5} weight={600} color={busy ? color.muted : color.ink}>
+        <Sans size={12.5} weight={600} color={busy ? color.muted : color.textPrimary}>
           {busy ? 'Opening…' : task.media ? 'Remove photo' : 'Add a photo'}
         </Sans>
       </Tap>
@@ -584,7 +591,7 @@ function PersonSheet({ who }: { who: PersonId }) {
                 }}
               />
               <View style={fill}>
-                <Sans size={14} weight={600} color={t.done ? color.muted : color.ink}>
+                <Sans size={14} weight={600} color={t.done ? color.muted : color.textPrimary}>
                   {t.title}
                 </Sans>
                 <Sans size={11.5} color={color.muted}>
@@ -628,7 +635,9 @@ function PersonSheet({ who }: { who: PersonId }) {
                   backgroundColor: acted ? color.lime : color.chip,
                 }}
               >
-                <Sans size={11.5} weight={700} color={color.ink}>
+                {/* `lime` once acted, `chip` before — one fixed surface and
+                    one that flips, so the label follows the same test. */}
+                <Sans size={11.5} weight={700} color={acted ? onLight : color.textPrimary}>
                   {acted ? '✓' : t.done ? 'Cheer' : 'Back it'}
                 </Sans>
               </Tap>
@@ -712,7 +721,7 @@ function StartCircle() {
             paddingHorizontal: 14,
             fontFamily: 'InstrumentSans_600SemiBold',
             fontSize: 14,
-            color: color.ink,
+            color: color.textPrimary,
           }}
         />
         <Tap
@@ -1173,7 +1182,7 @@ function NoteComposer({ bottomInset }: { bottomInset: number }) {
             paddingHorizontal: 16,
             fontFamily: 'InstrumentSans_400Regular',
             fontSize: 14,
-            color: color.ink,
+            color: color.textPrimary,
           }}
         />
         <Tap
@@ -1188,7 +1197,7 @@ function NoteComposer({ bottomInset }: { bottomInset: number }) {
             justifyContent: 'center',
           }}
         >
-          <Icon name="send" size={19} color={color.ink} />
+          <Icon name="send" size={19} color={onLight} />
         </Tap>
       </View>
     </KeyboardAvoidingView>

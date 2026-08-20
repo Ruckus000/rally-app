@@ -111,7 +111,7 @@ export function IdentityScreen({
           paddingHorizontal: 18,
           fontFamily: font.sans[600],
           fontSize: 16,
-          color: color.ink,
+          color: color.textPrimary,
           ...shadows.card,
         }}
       />

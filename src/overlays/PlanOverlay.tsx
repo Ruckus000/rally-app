@@ -9,6 +9,7 @@ import {
   gradientAngle,
   heroGlow,
   onDark,
+  onLight,
   planGutter,
   shadows,
   useDisplayLeading,
@@ -122,13 +123,13 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
             justifyContent: 'center',
           }}
         >
-          <Icon name="chevronLeft" size={15} color={color.paper} />
+          <Icon name="chevronLeft" size={15} color={onDark.primary} />
         </Tap>
         <View style={fill}>
           <Caps size={10} tracking={1.9} color={onDark.secondary}>
             {`Week ${state.week.number} · ${state.week.daysLeft} days left`}
           </Caps>
-          <Bri size={20} weight={800} tracking={-0.5} color={color.paper} style={{ marginTop: 2 }}>
+          <Bri size={20} weight={800} tracking={-0.5} color={onDark.primary} style={{ marginTop: 2 }}>
             Plan your week
           </Bri>
         </View>
@@ -211,7 +212,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                 backgroundColor: over ? color.lime : onDark.fill,
               }}
             >
-              <Bri size={10} weight={800} tracking={1} color={over ? color.ink : onDark.secondary}>
+              <Bri size={10} weight={800} tracking={1} color={over ? onLight : onDark.secondary}>
                 {over ? 'NEW BEST' : `BEST ${best}`}
               </Bri>
             </Tap>
@@ -266,7 +267,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                 fontSize: 23,
                 letterSpacing: -0.6,
                 lineHeight: 28,
-                color: color.paper,
+                color: onDark.primary,
                 paddingVertical: 2,
               }}
             />
@@ -329,7 +330,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                       backgroundColor: on ? color.lime : onDark.fill,
                     }}
                   >
-                    <Sans size={12.5} weight={700} color={on ? color.ink : onDark.bodySecondary}>
+                    <Sans size={12.5} weight={700} color={on ? onLight : onDark.bodySecondary}>
                       {c}
                     </Sans>
                   </Tap>
@@ -361,7 +362,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                         backgroundColor: on ? color.lime : onDark.fill,
                       }}
                     >
-                      <Sans size={11.5} weight={700} color={on ? color.ink : onDark.bodySecondary}>
+                      <Sans size={11.5} weight={700} color={on ? onLight : onDark.bodySecondary}>
                         {AUDIENCE_WORD[a]}
                       </Sans>
                     </Tap>
@@ -435,7 +436,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
               {/* The disabled label tells you how to enable the button, so it
                   gets `.55` rather than the .35 it was drawn at — WCAG does
                   not exempt text that carries the instruction. */}
-              <Bri size={15.5} weight={800} color={canStake ? color.ink : onDark.secondary}>
+              <Bri size={15.5} weight={800} color={canStake ? onLight : onDark.secondary}>
                 {!hasDraft
                   ? 'Write it down first'
                   : blocked
@@ -504,7 +505,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                     {s.tag}
                   </Caps>
                 </View>
-                <Bri size={15.5} weight={800} tracking={-0.3} lineHeight={18} color={color.paper} style={{ marginTop: 10 }}>
+                <Bri size={15.5} weight={800} tracking={-0.3} lineHeight={18} color={onDark.primary} style={{ marginTop: 10 }}>
                   {s.title}
                 </Bri>
                 <Sans size={11.5} lineHeight={16} color={onDark.secondary} style={[fill, { marginTop: 6 }]}>
@@ -523,7 +524,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                     backgroundColor: used ? onDark.limeFill : color.lime,
                   }}
                 >
-                  <Bri size={12.5} weight={800} color={used ? color.lime : color.ink}>
+                  <Bri size={12.5} weight={800} color={used ? color.lime : onLight}>
                     {used ? 'Staked ✓' : `Stake +${s.pts}`}
                   </Bri>
                 </Tap>
@@ -585,7 +586,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                     size={14}
                     weight={600}
                     lineHeight={17.5}
-                    color={color.paper}
+                    color={onDark.primary}
                     numberOfLines={2}
                   >
                     {t.title}
@@ -677,10 +678,10 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
             ...shadows.doneCta,
           }}
         >
-          <Bri size={16} weight={800} color={color.ink}>
+          <Bri size={16} weight={800} color={onLight}>
             Done — into the week
           </Bri>
-          <Sans size={12.5} weight={700} color={color.ink} style={{ opacity: 0.55 }}>
+          <Sans size={12.5} weight={700} color={onLight} style={{ opacity: 0.55 }}>
             {staked} pts at stake
           </Sans>
         </Tap>

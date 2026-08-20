@@ -83,7 +83,7 @@ export function StakeScreen({
           weight={800}
           tracking={-0.9}
           lineHeight={31.5}
-          color={color.paper}
+          color={onDark.primary}
           style={{ marginTop: 8 }}
         >
           What will you close this week?
@@ -140,7 +140,7 @@ export function StakeScreen({
               paddingHorizontal: 15,
               fontFamily: 'InstrumentSans_400Regular',
               fontSize: 13.5,
-              color: color.paper,
+              color: onDark.primary,
             }}
           />
           <Tap

@@ -36,7 +36,7 @@ export function BannerAction({ label, onPress }: { label: string; onPress: () =>
         justifyContent: 'center',
       }}
     >
-      <Sans size={12} weight={600} color={color.ink}>
+      <Sans size={12} weight={600} color={color.textPrimary}>
         {label}
       </Sans>
     </Tap>
@@ -59,7 +59,7 @@ export function Banner({ message, children }: { message: string; children?: Reac
         gap: 8,
       }}
     >
-      <Sans size={12.5} weight={600} lineHeight={17} color={color.ink}>
+      <Sans size={12.5} weight={600} lineHeight={17} color={color.textPrimary}>
         {message}
       </Sans>
       <View style={[row, { gap: 8 }]}>{children}</View>

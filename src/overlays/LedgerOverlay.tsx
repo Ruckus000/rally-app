@@ -63,7 +63,7 @@ export function LedgerOverlay({ topInset, bottomInset }: { topInset: number; bot
           {history ? history.label : `${state.week.label}, quietly`}
         </Bri>
         <Tap onPress={close} accessibilityLabel="Close ledger" style={closeButton(color)}>
-          <Icon name="close" size={16} color={color.ink} />
+          <Icon name="close" size={16} color={color.textPrimary} />
         </Tap>
       </View>
 

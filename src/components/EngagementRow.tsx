@@ -10,7 +10,7 @@
  */
 import React from 'react';
 import { GestureResponderEvent, View } from 'react-native';
-import { onDark } from '../theme/tokens';
+import { onDark, onLight } from '../theme/tokens';
 import { useColors, type Palette } from '../theme/ThemeProvider';
 import { Icon } from './Icon';
 import { Sans, Tap, row } from './primitives';
@@ -120,7 +120,7 @@ export function EngagementRow({
                   : onDark.limeFill,
           }}
         >
-          <Sans size={12} weight={700} color={cta.style === 'lime' ? color.ink : color.lime}>
+          <Sans size={12} weight={700} color={cta.style === 'lime' ? onLight : color.lime}>
             {cta.label}
           </Sans>
         </Tap>

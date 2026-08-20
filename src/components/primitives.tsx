@@ -60,6 +60,10 @@ export function Bri({
   // default fires only on `undefined`, and `||` would additionally swallow an
   // empty string. Same behaviour as before, exactly. This is the shape the
   // rest of the migration follows.
+  //
+  // `textPrimary`, not `ink`: uncoloured type only ever lands on the ground
+  // or a card, both of which flip. Anything drawn on a dark surface passes an
+  // `onDark` rung explicitly and never reaches this default.
   const colors = useColors();
   const w = (weight < 500 ? 500 : weight) as 500 | 600 | 700 | 800;
   return (
@@ -70,7 +74,7 @@ export function Bri({
         {
           fontFamily: font.bri[w],
           fontSize: size,
-          color: c ?? colors.ink,
+          color: c ?? colors.textPrimary,
           ...(tracking !== undefined ? { letterSpacing: tracking } : null),
           ...(lineHeight !== undefined ? { lineHeight } : null),
         },
@@ -100,7 +104,7 @@ export function Sans({
         {
           fontFamily: font.sans[w],
           fontSize: size,
-          color: c ?? colors.ink,
+          color: c ?? colors.textPrimary,
           ...(tracking !== undefined ? { letterSpacing: tracking } : null),
           ...(lineHeight !== undefined ? { lineHeight } : null),
         },

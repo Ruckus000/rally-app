@@ -28,7 +28,7 @@
 import React from 'react';
 import { Platform, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { onDark } from '../../theme/tokens';
+import { onDark, onLight } from '../../theme/tokens';
 import { useColors } from '../../theme/ThemeProvider';
 import { Bri, Caps, GlowBloom, Sans, row } from '../../components/primitives';
 import { HeroSegments, PillButton } from './kit';
@@ -84,11 +84,11 @@ export function WelcomeScreen({
             backgroundColor: color.lime,
           }}
         >
-          <Bri size={17} weight={800} color={color.ink}>
+          <Bri size={17} weight={800} color={onLight}>
             R
           </Bri>
         </View>
-        <Bri size={21} weight={800} tracking={-0.4} color={color.paper}>
+        <Bri size={21} weight={800} tracking={-0.4} color={onDark.primary}>
           Rally
         </Bri>
       </View>
@@ -97,7 +97,7 @@ export function WelcomeScreen({
         <View style={{ marginBottom: 26 }}>
           <HeroSegments count={7} filled={4} height={7} />
         </View>
-        <Bri size={42} weight={800} tracking={-1.6} lineHeight={42.8} color={color.paper}>
+        <Bri size={42} weight={800} tracking={-1.6} lineHeight={42.8} color={onDark.primary}>
           Your week, on the record.
         </Bri>
         <Sans
@@ -136,7 +136,10 @@ export function WelcomeScreen({
           }
           style={{
             height: AUTH_HEIGHT,
-            backgroundColor: color.paper,
+            // The pill the mark sits on, restated so `style` survives the
+            // disabled state. Light on a dark screen in both schemes, which is
+            // `onDark.primary` and not the ground token it used to name.
+            backgroundColor: onDark.primary,
             ...(appleReal && !busy ? null : { opacity: UNAVAILABLE_OPACITY }),
           }}
         />
@@ -174,12 +177,12 @@ export function WelcomeScreen({
    here instead of in the icon set. */
 
 function AppleMark() {
-  const color = useColors();
-
   return (
     <Svg width={17} height={17} viewBox="0 0 24 24">
       <Path
-        fill={color.ink}
+        // The mark is drawn on the paper pill, which stays light in both
+        // schemes — so this stays dark in both. An SVG fill is just a paint.
+        fill={onLight}
         d="M16.7 12.9c0-2.4 2-3.6 2.1-3.7-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.8-1.6 0-3.1 1-4 2.4-1.7 3-.4 7.4 1.2 9.8.8 1.2 1.8 2.5 3.1 2.4 1.2-.1 1.7-.8 3.2-.8s1.9.8 3.2.8c1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8-.1 0-2.6-1-2.7-3.9zM14.4 5.6c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.9 1.1.1 2.2-.6 2.8-1.4z"
       />
     </Svg>

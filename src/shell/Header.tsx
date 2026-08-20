@@ -96,7 +96,7 @@ export function Header({ topInset }: { topInset: number }) {
             justifyContent: 'center',
           }}
         >
-          <Icon name="bell" size={24} color={color.ink} />
+          <Icon name="bell" size={24} color={color.textPrimary} />
           {unread > 0 ? (
             <View
               style={{
@@ -143,7 +143,7 @@ export function Header({ topInset }: { topInset: number }) {
                     have left a rule running well past both ends of "Feed". */}
                 <View>
                   {active ? (
-                    <Bri size={14.5} weight={800} color={color.ink}>
+                    <Bri size={14.5} weight={800} color={color.textPrimary}>
                       {s.label}
                     </Bri>
                   ) : (

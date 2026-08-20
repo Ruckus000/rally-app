@@ -34,7 +34,7 @@ export function Trouble({ message }: { message?: string | null }) {
         backgroundColor: color.chip,
       }}
     >
-      <Sans size={12} weight={600} lineHeight={16.5} color={color.ink}>
+      <Sans size={12} weight={600} lineHeight={16.5} color={color.textPrimary}>
         {message}
       </Sans>
     </View>

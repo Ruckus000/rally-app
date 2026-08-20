@@ -8,7 +8,7 @@
  */
 import React, { useState } from 'react';
 import { ScrollView, View } from 'react-native';
-import { gutter, radius, shadows } from '../theme/tokens';
+import { gutter, onLight, radius, shadows } from '../theme/tokens';
 import { useColors } from '../theme/ThemeProvider';
 import { useStore } from '../state/store';
 import { closingWeek } from '../state/selectors';
@@ -149,7 +149,7 @@ export function RolloverOverlay({
                           : { borderWidth: 2, borderStyle: 'dashed' as const, borderColor: color.dash }),
                       }}
                     >
-                      {on ? <Icon name="check" size={14} color={color.ink} strokeWidth={3} /> : null}
+                      {on ? <Icon name="check" size={14} color={onLight} strokeWidth={3} /> : null}
                     </View>
                     <View style={fill}>
                       <Sans size={14.5} weight={600}>

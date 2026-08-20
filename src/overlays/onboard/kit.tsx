@@ -5,7 +5,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import { Animated, View, ViewStyle } from 'react-native';
-import { onDark, shadows } from '../../theme/tokens';
+import { onDark, onLight, shadows } from '../../theme/tokens';
 import { useColors } from '../../theme/ThemeProvider';
 import { SHEET_DURATION, sheetEasing, useReducedMotion } from '../../theme/motion';
 import { Icon } from '../../components/Icon';
@@ -65,15 +65,20 @@ export function PillButton({
     : variant === 'primary'
       ? color.lime
       : variant === 'paper'
-        ? color.paper
+        ? // Not `color.paper`. This is a light chip sitting on a dark screen —
+          // a fill drawn *on* dark, not the ground itself — so it has to stay
+          // light once the ground stops being light.
+          onDark.primary
         : onDark.fill;
-  const ink = disabled
+  // Not `ink`: that is now the name of a surface token this can never be. Every
+  // fill above is light, so every label here is dark, on both schemes.
+  const fg = disabled
     ? dark
       ? onDark.tertiary
       : color.faintInk
     : variant === 'outline'
-      ? color.paper
-      : color.ink;
+      ? onDark.primary
+      : onLight;
 
   return (
     <Tap
@@ -95,7 +100,7 @@ export function PillButton({
       }}
     >
       {icon}
-      <Bri size={16} weight={800} color={ink}>
+      <Bri size={16} weight={800} color={fg}>
         {label}
       </Bri>
     </Tap>
@@ -137,7 +142,7 @@ export function SelectChip({
       }}
     >
       {icon ? <Sans size={16}>{icon}</Sans> : null}
-      <Sans size={14} weight={600} color={selected ? color.lime : color.ink}>
+      <Sans size={14} weight={600} color={selected ? color.lime : color.textPrimary}>
         {label}
       </Sans>
     </Tap>
@@ -190,10 +195,10 @@ export function CommitmentRow({
           backgroundColor: selected ? color.lime : 'transparent',
         }}
       >
-        {selected ? <Icon name="check" size={14} color={color.ink} strokeWidth={3} /> : null}
+        {selected ? <Icon name="check" size={14} color={onLight} strokeWidth={3} /> : null}
       </View>
       <View style={fill}>
-        <Sans size={14} weight={600} color={selected ? color.paper : onDark.bodyStrong}>
+        <Sans size={14} weight={600} color={selected ? onDark.primary : onDark.bodyStrong}>
           {title}
         </Sans>
         <Sans size={11} color={onDark.tertiary} style={{ marginTop: 1 }}>
@@ -238,7 +243,7 @@ export function ExpandingCard({
         paddingHorizontal: 16,
         paddingVertical: 15,
         borderWidth: 1.5,
-        borderColor: open ? color.ink : color.divider,
+        borderColor: open ? color.textPrimary : color.divider,
         backgroundColor: color.card,
         ...shadows.card,
       }}
@@ -257,7 +262,7 @@ export function ExpandingCard({
           {icon}
         </View>
         <View style={fill}>
-          <Sans size={15} weight={700} color={color.ink}>
+          <Sans size={15} weight={700} color={color.textPrimary}>
             {title}
           </Sans>
           <Sans size={12} color={color.muted} style={{ marginTop: 1 }}>
@@ -311,13 +316,13 @@ export function NotificationPreview({
           backgroundColor: dark ? color.lime : '#E0E6D3',
         }}
       >
-        <Bri size={19} weight={800} color={dark ? color.ink : color.avatarText}>
+        <Bri size={19} weight={800} color={dark ? onLight : color.avatarText}>
           R
         </Bri>
       </View>
       <View style={fill}>
         <View style={[row, { justifyContent: 'space-between', gap: 8 }]}>
-          <Sans size={13} weight={700} color={dark ? color.paper : color.ink}>
+          <Sans size={13} weight={700} color={dark ? onDark.primary : color.textPrimary}>
             Rally
           </Sans>
           <Sans size={11} color={dark ? onDark.tertiary : color.faintInk}>
@@ -434,7 +439,7 @@ export function OnboardHeader({
           backgroundColor: dark ? onDark.fill : color.card,
         }}
       >
-        <Icon name="chevronLeft" size={15} color={dark ? color.paper : color.ink} />
+        <Icon name="chevronLeft" size={15} color={dark ? onDark.primary : color.textPrimary} />
       </Tap>
 
       <View style={[fill, { alignItems: 'center' }]}>

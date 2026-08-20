@@ -3,7 +3,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import { AccessibilityInfo, Animated, Platform, View, ViewStyle } from 'react-native';
-import { heroGlow, onDark } from '../../theme/tokens';
+import { heroGlow, onDark, onLight } from '../../theme/tokens';
 import { useColors } from '../../theme/ThemeProvider';
 import {
   POP_DURATION,
@@ -100,7 +100,7 @@ export function StakedScreen({
               backgroundColor: color.lime,
             }}
           >
-            <Bri size={11} weight={800} tracking={1.6} color={color.ink}>
+            <Bri size={11} weight={800} tracking={1.6} color={onLight}>
               STAKED
             </Bri>
           </View>
@@ -176,11 +176,10 @@ export function StakedScreen({
 }
 
 function Stat({ value, label }: { value: string; label: string }) {
-  const color = useColors();
-
+  // No palette read left: both rungs here are on-dark, which never flips.
   return (
     <View>
-      <Bri size={19} weight={800} color={color.paper}>
+      <Bri size={19} weight={800} color={onDark.primary}>
         {value}
       </Bri>
       <Sans size={10} color={onDark.secondary} style={{ marginTop: 2 }}>
