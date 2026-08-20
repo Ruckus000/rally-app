@@ -25,17 +25,21 @@ import {
   PERSON_NOTES,
   PERSON_TASKS,
   Task,
+  TaskMedia,
 } from '../data/fixtures';
 import { DAY_NAMES } from '../data/week';
 import { CIRCLE_NAME_MAX, useStore } from '../state/store';
 import { myStats, visibleNotes } from '../state/selectors';
 import { SHEET_DURATION, sheetEasing, useReducedMotion } from '../theme/motion';
+import { Image } from 'expo-image';
 import { Avatar } from '../components/Avatar';
 import { Icon } from '../components/Icon';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
 import { Trouble } from '../components/Trouble';
 import { Overlay } from './Overlay';
 import { createCircle } from '../sync/transport';
+import { dropMediaFor, enqueueMedia } from '../sync/media';
+import { forgetLocalPhoto, pickTaskPhoto } from '../lib/photos';
 import { kickSync } from '../sync/useSyncEngine';
 import { queueBlock } from '../sync/engine';
 import type { PersonId } from '../data/people';
@@ -218,6 +222,10 @@ function TaskSheet({ id }: { id: string }) {
 
       {mine && mine.pairKind === 'joint' ? <JointProgress task={mine} /> : null}
 
+      {/* The photo, at the aspect it was taken. Sized from the stored
+          dimensions so the sheet does not reflow when the image arrives. */}
+      {mine?.media ? <TaskPhoto media={mine.media} /> : null}
+
       {/* Your own stake is editable — the one thing the prototype couldn't do. */}
       {mine ? (
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 13, flexWrap: 'wrap' }}>
@@ -239,6 +247,7 @@ function TaskSheet({ id }: { id: string }) {
               {mine.done ? 'Reopen it' : 'Mark it done'}
             </Sans>
           </Tap>
+          <PhotoChip task={mine} />
           <Tap
             onPress={() => {
               dispatch({ type: 'CLOSE_SHEET' });
@@ -329,6 +338,126 @@ function JointProgress({ task }: { task: Task }) {
         </View>
       ))}
     </View>
+  );
+}
+
+/**
+ * A goal's photo.
+ *
+ * Drawn from `localUri` when this device has the file and from the signed
+ * `url` otherwise, preferring the local one because it costs nothing and is
+ * there before any URL has been minted. The aspect comes from the stored
+ * dimensions rather than from the image, so the layout is settled before the
+ * first byte arrives — a card that reflows when a photo loads is the jank
+ * this app spent a release removing.
+ *
+ * `cacheKey` is the media id, deliberately not the URL: signed URLs are
+ * re-minted on every pull, and keying the cache on one would re-download
+ * every photo in the feed every cycle.
+ */
+function TaskPhoto({ media }: { media: TaskMedia }) {
+  const source = media.localUri ?? media.url;
+  if (!source) return null;
+  const ratio = media.w && media.h ? media.w / media.h : 4 / 3;
+  return (
+    <Image
+      source={{ uri: source }}
+      cachePolicy="disk"
+      recyclingKey={media.id}
+      contentFit="cover"
+      accessibilityLabel="Photo on this goal"
+      style={{
+        width: '100%',
+        // Capped so a tall photo cannot push the actions off the sheet.
+        aspectRatio: Math.max(ratio, 3 / 4),
+        borderRadius: radius.chip,
+        marginTop: 12,
+        backgroundColor: color.chip,
+      }}
+    />
+  );
+}
+
+/**
+ * Attach a photo, or take one back.
+ *
+ * Only on your own task, and only where a photo is not public: an image on an
+ * `everyone` goal is open image hosting, and moderation is explicitly out of
+ * scope (see docs/backend.md). The chip says so rather than being missing,
+ * because a control that silently is not there reads as a bug.
+ */
+function PhotoChip({ task }: { task: Task }) {
+  const { state, dispatch } = useStore();
+  const [busy, setBusy] = useState(false);
+  const [trouble, setTrouble] = useState<string | null>(null);
+
+  const owner = state.selfId;
+  const public_ = task.aud === 'everyone';
+
+  const attach = async () => {
+    setBusy(true);
+    setTrouble(null);
+    try {
+      const picked = await pickTaskPhoto(owner, task.id);
+      if (!picked.ok) {
+        // Changing your mind is not a failure and says nothing.
+        if (picked.reason === 'cancelled') return;
+        setTrouble(
+          picked.reason === 'denied'
+            ? 'Rally needs access to your photos for this.'
+            : 'That photo didn’t attach. Try another?'
+        );
+        return;
+      }
+      // On screen first, uploaded second — see `media.ts`. Replacing an
+      // existing photo drops the old local file; the row is replaced by the
+      // one `unique (task_id)` allows.
+      void forgetLocalPhoto(task.media);
+      dispatch({ type: 'ATTACH_MEDIA', id: task.id, media: picked.media });
+      enqueueMedia({
+        id: picked.media.id,
+        taskId: task.id,
+        localUri: picked.media.localUri!,
+        path: picked.media.path,
+        width: picked.media.w,
+        height: picked.media.h,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = () => {
+    const had = task.media;
+    dispatch({ type: 'REMOVE_MEDIA', id: task.id });
+    dropMediaFor(task.id);
+    void forgetLocalPhoto(had);
+  };
+
+  if (public_) {
+    return (
+      <View style={sheetChip('transparent', color.divider)}>
+        <Sans size={12.5} weight={600} color={color.faintInk}>
+          No photos on public goals
+        </Sans>
+      </View>
+    );
+  }
+
+  return (
+    <>
+      <Tap
+        onPress={busy ? undefined : () => void (task.media ? remove() : attach())}
+        accessibilityLabel={task.media ? `Remove the photo on ${task.title}` : `Add a photo to ${task.title}`}
+        accessibilityState={{ disabled: busy }}
+        style={sheetChip(color.chip)}
+      >
+        <Sans size={12.5} weight={600} color={busy ? color.muted : color.ink}>
+          {busy ? 'Opening…' : task.media ? 'Remove photo' : 'Add a photo'}
+        </Sans>
+      </Tap>
+      <Trouble message={trouble} />
+    </>
   );
 }
 

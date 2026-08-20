@@ -110,7 +110,30 @@ function tasksAreSound(value: unknown): value is Task[] {
       t.cat in CATEGORY_POINTS &&
       AUDIENCES.includes(t.aud) &&
       Array.isArray(t.pair) &&
-      Array.isArray(t.cmts),
+      Array.isArray(t.cmts) &&
+      mediaIsSound(t.media),
+  );
+}
+
+/**
+ * A photo on a task, or nothing.
+ *
+ * Deliberately **not** a `VERSION` bump: the field is additive and optional,
+ * exactly like the two before it, and bumping would throw away every existing
+ * install's week to add a key they simply do not have yet. What it does need
+ * is this — `undefined` is the normal case, and anything else is checked,
+ * because the renderer reads `.localUri` and divides by `.h`, and a payload
+ * carrying `media: null` would take the card down rather than the photo.
+ */
+function mediaIsSound(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== 'object') return false;
+  const m = value as Record<string, unknown>;
+  return (
+    typeof m.id === 'string' &&
+    typeof m.path === 'string' &&
+    Number.isFinite(m.w) &&
+    Number.isFinite(m.h)
   );
 }
 

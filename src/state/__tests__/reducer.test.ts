@@ -1312,3 +1312,42 @@ describe('week rollover', () => {
     expect(reducer(base, { type: 'COMMIT_ROLLOVER', carryIds: [] })).toBe(base);
   });
 });
+
+describe('a photo on a goal', () => {
+  const media = { id: 'm1', localUri: 'file:///photo.jpg', path: 'o/t/m1.jpg', w: 1600, h: 1200 };
+
+  it('is on the task the moment it is picked, before any upload', () => {
+    // The point of attaching locally: `localUri` is a file this device
+    // already holds, so there is nothing to wait for and nothing to spin.
+    const staked = reducer(base, { type: 'ATTACH_MEDIA', id: base.myTasks[0]!.id, media });
+    expect(staked.myTasks[0]!.media).toEqual(media);
+  });
+
+  it('replaces one photo with another rather than keeping both', () => {
+    // `unique (task_id)` allows exactly one, so the screen must agree.
+    const first = reducer(base, { type: 'ATTACH_MEDIA', id: base.myTasks[0]!.id, media });
+    const second = reducer(first, {
+      type: 'ATTACH_MEDIA',
+      id: base.myTasks[0]!.id,
+      media: { ...media, id: 'm2', path: 'o/t/m2.jpg' },
+    });
+    expect(second.myTasks[0]!.media?.id).toBe('m2');
+  });
+
+  it('leaves every other task alone', () => {
+    const next = reducer(base, { type: 'ATTACH_MEDIA', id: base.myTasks[0]!.id, media });
+    expect(next.myTasks.slice(1).every((t) => t.media === undefined)).toBe(true);
+  });
+
+  it('comes off when it is taken back', () => {
+    const withPhoto = reducer(base, { type: 'ATTACH_MEDIA', id: base.myTasks[0]!.id, media });
+    const without = reducer(withPhoto, { type: 'REMOVE_MEDIA', id: base.myTasks[0]!.id });
+    expect(without.myTasks[0]!.media).toBeUndefined();
+  });
+
+  it('does not churn state when there was no photo to remove', () => {
+    // Identity, not equality: a no-op that mints a new state re-renders every
+    // screen and writes to disk for nothing.
+    expect(reducer(base, { type: 'REMOVE_MEDIA', id: base.myTasks[0]!.id })).toBe(base);
+  });
+});

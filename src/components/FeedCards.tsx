@@ -4,6 +4,7 @@
  */
 import React from 'react';
 import { View } from 'react-native';
+import { Image } from 'expo-image';
 import { color, onDark, shadows } from '../theme/tokens';
 import {
   AUDIENCE_LABEL,
@@ -74,14 +75,13 @@ export const MineRow = React.memo(function MineRow({
     <GradientHairline radius={21} style={{ marginBottom: CARD_GAP, ...shadows.card }}>
       <View
         style={{
-          ...rowTop,
-          gap: 10,
           backgroundColor: color.card,
           borderRadius: 19,
           paddingVertical: 14,
           paddingHorizontal: 16,
         }}
       >
+      <View style={{ ...rowTop, gap: 10 }}>
         <Tap
           onPress={() => onToggle(task.id)}
           accessibilityRole="checkbox"
@@ -145,6 +145,32 @@ export const MineRow = React.memo(function MineRow({
         <Bri size={13.5} weight={700} color={task.done ? color.moss : color.ink}>
           +{task.pts}
         </Bri>
+      </View>
+      {/* Under the row rather than beside it, and *inside* the card: a photo
+          is the evidence, and a thumbnail small enough to sit in the row
+          would not be worth attaching. Tapping it opens the same sheet the
+          title does. */}
+      {task.media ? (
+        <Tap
+          onPress={() => onOpen(task.id)}
+          accessibilityLabel={`Photo on ${task.title}`}
+          minSize={0}
+          style={{ marginTop: 12 }}
+        >
+          <Image
+            source={{ uri: task.media.localUri ?? task.media.url }}
+            cachePolicy="disk"
+            recyclingKey={task.media.id}
+            contentFit="cover"
+            style={{
+              width: '100%',
+              aspectRatio: Math.max(task.media.w / task.media.h || 4 / 3, 3 / 4),
+              borderRadius: 14,
+              backgroundColor: color.chip,
+            }}
+          />
+        </Tap>
+      ) : null}
       </View>
     </GradientHairline>
   );
