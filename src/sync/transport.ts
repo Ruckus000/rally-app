@@ -61,6 +61,12 @@ export type WireOp =
       width: number;
       height: number;
     }
+  // Taking a photo back, and the only op that removes one. No `path`: the one
+  // string that decides which file gets deleted is derived at send time from
+  // the session, for the reason `20260820020000_task_media_screened.sql`
+  // gives about the column the screener reads — a payload that can name an
+  // object is a payload that can name somebody else's.
+  | { id: string; at: number; op: 'media.detach'; mediaId: string; taskId: string }
   | {
       id: string;
       at: number;
@@ -287,7 +293,8 @@ function classify(err: unknown): PushResult {
 const isAlreadyDone = (err: unknown): boolean => asWireError(err).code === '23505';
 
 /** A delete cannot collide, so a 23505 back from one is not the same good news. */
-const writes = (op: WireOp['op']): boolean => op !== 'task.delete' && op !== 'reaction.remove';
+const writes = (op: WireOp['op']): boolean =>
+  op !== 'task.delete' && op !== 'reaction.remove' && op !== 'media.detach';
 
 const isKind = (v: string): v is ReactionKind => (REACTION_KINDS as readonly string[]).includes(v);
 
@@ -748,6 +755,27 @@ export function supabaseTransport(): Transport {
         { onConflict: 'id', ignoreDuplicates: true },
       );
       if (error) throw error;
+      return;
+    }
+
+    if (entry.op === 'media.detach') {
+      // Row first, then object — the opposite order to `clearAvatar`, and the
+      // inversion is the whole reason this is worth a comment.
+      //
+      // There, the bucket's select policy is `bucket_id = 'avatars'` for every
+      // signed-in account, so an object that outlives its row stays readable to
+      // anyone who learns the name: the bytes have to go first. Here
+      // `private.can_see_media` refuses an object no `ready` row claims, so
+      // deleting the row is itself what makes the file unreadable. The storage
+      // delete that follows is reclaiming space, not closing a hole — and if it
+      // fails, what is left is an orphan nobody can address.
+      const { error } = await supabase.from('task_media').delete().eq('id', entry.mediaId);
+      if (error) throw error;
+
+      // Derived from the session, never carried. See the op's own comment.
+      const path = mediaPath(userId, entry.taskId, entry.mediaId);
+      const { error: objErr } = await supabase.storage.from(MEDIA_BUCKET).remove([path]);
+      if (objErr) throw objErr;
       return;
     }
 

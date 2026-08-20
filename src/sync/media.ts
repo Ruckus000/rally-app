@@ -65,6 +65,19 @@ export type MediaEntry = {
   width: number;
   height: number;
   phase: MediaPhase;
+  /**
+   * Taken back while its bytes were already on the wire.
+   *
+   * An upload in flight cannot be recalled, so the entry is marked instead and
+   * `run` reads this the moment the upload lands: no row is written, and the
+   * object that just arrived is queued for deletion instead.
+   *
+   * It lives on the entry rather than in a set beside the queue so that it is
+   * written to disk with everything else. A flag held only in memory would be
+   * lost to a force-quit mid-upload, and the next launch would restore the
+   * entry, finish the upload and attach a photo its owner had removed.
+   */
+  cancelled?: boolean;
   at: number;
   tries: number;
   nextAt: number;
@@ -270,18 +283,36 @@ export function enqueueMedia(entry: Omit<MediaEntry, 'at' | 'tries' | 'nextAt' |
 }
 
 /**
- * The task is gone, so the photo is not going anywhere.
+ * The task is gone, or the photo has been taken back.
  *
- * Called when a `task.delete` is enqueued. The row would cascade server-side
- * anyway, but the upload would still spend a phone's radio on a file nothing
- * will ever point at. An in-flight entry is left alone — it is already on the
- * wire, and the object it writes is collectable by the same sweep that
- * collects any other orphan.
+ * Anything still waiting is simply dropped: no object, no row, nothing to
+ * undo. An entry already on the wire cannot be pulled back, so it is marked
+ * `cancelled` instead — see that field. It used to be left alone entirely,
+ * which meant a photo removed mid-upload landed in the bucket and then had a
+ * row written for it, putting it back on a goal its owner had just cleared.
  */
 export function dropMediaFor(taskId: string): void {
   const before = queue.length;
+  const flying = queue.find((e) => e.id === inFlight && e.taskId === taskId);
+  if (flying) flying.cancelled = true;
   queue = queue.filter((e) => e.taskId !== taskId || e.id === inFlight);
-  if (queue.length !== before) schedule();
+  if (queue.length !== before || flying) schedule();
+}
+
+/**
+ * Tell the server to let a photo go: the row, then the object.
+ *
+ * Enqueued from the tap that removes or replaces a photo rather than derived
+ * from the reducer, for the reason `queueDeviceToken` gives — the one place
+ * that knows a photo is being taken back is the place the user took it back.
+ *
+ * Safe to send for a photo the server has never heard of: both halves are
+ * deletes, and a delete of nothing is nothing. That is what lets the caller
+ * enqueue one without first working out how far through the pipeline the
+ * photo had got.
+ */
+export function detachMedia(taskId: string, mediaId: string): void {
+  enqueue('media.detach', `media:${mediaId}`, { mediaId, taskId });
 }
 
 export const pendingMedia = (): MediaEntry[] => queue.map((e) => ({ ...e }));
@@ -417,6 +448,16 @@ async function run(transport: MediaTransport, now: number): Promise<void> {
           dead.push(head);
           if (dead.length > DEAD_MAX) dead = dead.slice(-DEAD_MAX);
           refused = true;
+          continue;
+        }
+
+        // Landed on a photo its owner has since removed. No row is written —
+        // that is the whole point of the flag — and the bytes that just
+        // arrived are queued for deletion, because nothing else will ever
+        // mention them again.
+        if (head.cancelled) {
+          queue.splice(at, 1);
+          detachMedia(head.taskId, head.id);
           continue;
         }
 

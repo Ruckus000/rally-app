@@ -143,6 +143,8 @@ function wireEntry(op: OutboxOp, payload: Record<string, unknown>, entry: QueueE
         width: Number(payload.width),
         height: Number(payload.height),
       };
+    case 'media.detach':
+      return { ...head, op, mediaId: String(payload.mediaId), taskId: String(payload.taskId) };
     case 'rollup.add':
       return {
         ...head,

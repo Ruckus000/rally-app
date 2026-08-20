@@ -560,6 +560,20 @@ describe('the file itself', () => {
     expect((await asUser('maya').storage.from(BUCKET).createSignedUrl(name, 60)).error).toBeNull();
   });
 
+  it('treats removing an object that is not there as done', async () => {
+    // `media.detach` is enqueued whenever a photo is taken back, without first
+    // working out how far down the pipeline it got — so it routinely names an
+    // object that was never uploaded. That is the common case, not the odd
+    // one: a photo removed seconds after it was picked never reached the
+    // bucket at all. If storage answered an error there, the op would retry
+    // for ever on exactly the case it meets most.
+    const { data, error } = await asUser('maya')
+      .storage.from(BUCKET)
+      .remove([pathFor(idOf('maya'), taskOf.friends, uuid(50))]);
+    expect(error).toBeNull();
+    expect(data ?? []).toEqual([]);
+  });
+
   it('will not take an upload whose name names no task', async () => {
     // A consequence of the above worth pinning: `upload` returns the created
     // row, so the *select* policy runs too — and a name that resolves to no
