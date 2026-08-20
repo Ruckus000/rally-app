@@ -18,7 +18,7 @@
  */
 import React, { useState } from 'react';
 import { StatusBar, View } from 'react-native';
-import { color } from '../theme/tokens';
+import { useColors } from '../theme/ThemeProvider';
 import { CIRCLE_NAME, Category } from '../data/fixtures';
 import { OnboardStake, useStore } from '../state/store';
 import { Overlay } from './Overlay';
@@ -105,6 +105,7 @@ export function OnboardOverlay({
   topInset: number;
   bottomInset: number;
 }) {
+  const color = useColors();
   const { state, dispatch, effectiveAudience } = useStore();
   const [flow, setFlow] = useState<Flow>(INITIAL_FLOW);
   const [trouble, setTrouble] = useState<string | null>(null);
