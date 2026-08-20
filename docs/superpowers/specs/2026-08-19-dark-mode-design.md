@@ -162,8 +162,9 @@ actually drawn on — is what forced the split.
 
 ## The finding that reshaped the plan
 
-**Of 87 flagged literals, 56 sit on surfaces that are dark in both schemes and need no
-dark value at all.** `PlanOverlay` holds 34 of them and every one is on `planBg` or
+**Of 87 flagged literals, 55 sit on surfaces that are dark in both schemes and need no
+dark value at all.** The books close as 91 warnings = 4 in test fixtures + 87 in source,
+and 87 = 55 always-dark + 28 that flip + 4 Google brand hexes. `PlanOverlay` holds 34 of them and every one is on `planBg` or
 `planCard`; the file with the most colour in it needs none of it changed. Only 28
 literals actually flip.
 
@@ -207,14 +208,38 @@ must be decided", and only the second is a design change.
 
 ## The remaining sequence
 
-Each step keeps the property that has made this migration reviewable: the first two
-change nothing on screen, so "nothing may look different" remains the test.
+PRs 1–5 were all reviewable by one rule: nothing may look different. **6a is the first
+step where that stops being true**, and it is worth being exact about why, because the
+rule is otherwise doing a lot of work.
 
-**6a — name the always-dark literals.** Extend the `onDark` ramp and fold in the ~56
-literals that sit on always-dark surfaces. `PlanOverlay` alone uses paper-alpha at some
-twenty distinct rungs where `onDark` defines eight; consolidating that ramp is a
-design-system decision independent of the palette. Nothing changes on screen. Clears 56
-of 87 warnings, so the palette PR's diff contains only lines that alter appearance.
+6b still changes nothing on screen. 6a changes a little, on purpose.
+
+**6a — name the always-dark literals.** Extend the `onDark` ramp and fold in the 55
+literals that sit on always-dark surfaces.
+
+The reason this cannot be a pure rename is `HANDOFF.md` line 52. It authors the on-dark
+alpha ramp **for text only** — `.45` tertiary, `.55` secondary, `.62` body-secondary,
+`1.0` primary — and names just two paper-alpha values in the entire document. So the
+literals divide by whether anyone ever designed them:
+
+- **Text rungs are authored, and the app is off them.** Labels are drawn at `.58`, `.60`,
+  `.70`, `.72` and `.75`, all invented steps between the authored `.62` and `1.0`.
+  Snapping each to the nearest real rung is not a design change; it is removing a
+  deviation. Six sites, one of which moves *up*.
+- **Surface rungs are not authored at all.** Borders, fills and tracks span fifteen values
+  from `.035` to `.25` — incidental, not designed. `PlanOverlay` gives four chip families
+  four different border alphas for the same visual job. Consolidating them into a small
+  set of named steps is straightforwardly correct.
+
+So roughly forty values move, most by one or two points of alpha. **The invariant is
+ordering, not identity:** wherever one thing read heavier than another, it still must.
+That is the property to check, and it is checkable on a device in a way that "is this
+`.07` or `.06`" is not.
+
+Clears 55 of 87 warnings, so the palette PR's diff contains only lines that alter
+appearance. The remaining 32 are the 28 that flip plus the four Google brand hexes, which
+`eslint.config.js` already rules are a lockup rather than theme values and wants
+suppressed at the call site.
 
 **6b — split `ink` and `paper`.** 140 reads, each classified as surface or text. Both new
 keys hold the identical value in the light palette, so this too is verifiable by nothing
