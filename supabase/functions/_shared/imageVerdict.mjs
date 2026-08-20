@@ -19,8 +19,8 @@
  * category would be wrong twice over: on a false positive it accuses somebody of
  * something over a picture of their kitchen, and on a true one it hands the
  * person a checklist for getting the next attempt past the guard. "Something
- * else" is also the honest answer when the block came from a refusal or an
- * outage, where nothing was ever said about the picture at all.
+ * else" is also the honest answer when the block came from a refusal, where
+ * nothing was ever said about the picture at all.
  */
 export const IMAGE_BLOCKED_COPY = 'That photo can’t be used here. Try a different one.';
 
@@ -31,7 +31,7 @@ const REASON_MAX = 160;
  * @param {{status: 'ok', value: {harmful?: boolean, reason?: string}}
  *        | {status: 'refused'}
  *        | {status: 'unavailable'}} screening
- * @returns {{verdict: 'ok' | 'blocked', reason: string}}
+ * @returns {{verdict: 'ok' | 'blocked' | 'unproven', reason: string}}
  *
  * `reason` is diagnostic — the model's own words when it gave any, an empty
  * string otherwise. What the person sees is `IMAGE_BLOCKED_COPY`, every time.
@@ -55,23 +55,42 @@ export function imageVerdict(screening) {
     };
   }
 
-  // Everything else blocks: a refusal, an outage, and any shape this function
-  // does not recognise.
+  // ─── the call that never arrived ─────────────────────────────────────────
   //
-  // A refusal blocks for the reason `verdict.mjs` already gives — a hosted
-  // model's safety filter stopping its own response is not an absent answer, it
-  // is the answer arriving by another route, on exactly the images this prompt
-  // exists to catch.
+  // Held back, like everything else that is not an explicit `false` — an
+  // unscreened avatar is a picture on the screens of people who have never met
+  // its owner, and failing open there publishes exactly what app stores remove
+  // apps for. That much this file has always said, and it is still right.
   //
-  // `unavailable` is where this file inverts its sibling, and the asymmetry is
-  // the point. An unscreened goal is a sentence its author typed, shown to the
-  // circle they chose; failing open there costs at worst a private line of text,
-  // while failing closed would stop everybody writing anything down whenever the
-  // model has a bad day. An unscreened avatar is a picture that lands on the
-  // screens of people who have never met its owner, and failing open there
-  // publishes exactly what app stores remove apps for. The cost of a false
-  // refusal is one person asked to upload again; the cost of a false pass is not
-  // recoverable by the person who has already seen it. So a timeout, a 429, or a
-  // garbled body holds the image back rather than letting it through.
+  // What it did not separate is *held back* from *destroyed*. Both callers read
+  // `blocked` as "refuse it and delete the object", which is correct when the
+  // model has spoken and wrong when it never did. A timeout, a 429, or a
+  // dropped connection is not evidence about the picture; it is the absence of
+  // evidence, and deleting on it means a Gemini outage silently destroys the
+  // photo of every person who uploads one during it — each of them told only
+  // `IMAGE_BLOCKED_COPY`, which by design does not explain, and each retry
+  // failing the same way for as long as the incident lasts.
+  //
+  // `unproven` is that third answer: do not publish, and do not delete. Both
+  // callers already have somewhere to put it. An avatar stays `pending`, which
+  // renders initials — `resumePendingAvatar` in `src/sync/transport.ts` finds
+  // it on the next launch and asks again, and its comment has always described
+  // this exact case ("a screener having a bad day"). A goal photo stays in the
+  // media lane's `screen` phase, which retries on its own backoff. The retry
+  // machinery for this was built on both sides before there was a state that
+  // could reach it.
+  if (screening?.status === 'unavailable') {
+    return { verdict: 'unproven', reason: '' };
+  }
+
+  // A refusal is not an absent answer. A hosted model's safety filter stopping
+  // its own response is the answer arriving by another route, on exactly the
+  // images this prompt exists to catch — so it blocks and deletes, as it did.
+  //
+  // So does any shape this function does not recognise, and that is not the
+  // same judgement as the one above. `unavailable` is a status this module
+  // knows and expects to see again in a minute; an unreadable reply is a
+  // surprise, and resolving a surprise as `unproven` would leave the image
+  // retrying against a fault that is not going to clear on its own.
   return { verdict: 'blocked', reason: '' };
 }
