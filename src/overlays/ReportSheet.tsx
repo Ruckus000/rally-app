@@ -42,7 +42,8 @@
  */
 import React, { useEffect, useState } from 'react';
 import { Animated, ScrollView, View } from 'react-native';
-import { color, radius } from '../theme/tokens';
+import { radius } from '../theme/tokens';
+import { useColors } from '../theme/ThemeProvider';
 import { Bri, Sans, Tap, fill, row } from '../components/primitives';
 import { Avatar } from '../components/Avatar';
 import { Icon } from '../components/Icon';
@@ -82,6 +83,7 @@ const SUBJECT_TITLE: Record<ReportTarget['kind'], string> = {
 type Step = 'reason' | 'filed' | 'confirmBlock';
 
 export function ReportSheet() {
+  const color = useColors();
   const { state, dispatch, people } = useStore();
   const target = state.reportTarget;
   const reduced = useReducedMotion();
@@ -241,6 +243,7 @@ function ReasonStep({
   onFile: () => void;
   onCancel: () => void;
 }) {
+  const color = useColors();
   return (
     <View>
       <Sans size={13} color={color.muted} lineHeight={18.5} style={{ marginBottom: 12 }}>
@@ -324,6 +327,7 @@ function FiledStep({
   onBlock: () => void;
   onDone: () => void;
 }) {
+  const color = useColors();
   return (
     <View>
       {kind === 'profile' ? (
@@ -383,6 +387,7 @@ function BlockStep({
   onConfirm: () => void;
   onBack: () => void;
 }) {
+  const color = useColors();
   return (
     <View>
       <Sans size={14} lineHeight={20}>
