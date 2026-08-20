@@ -11,7 +11,7 @@
  * design exists to make impossible — and it is the exact failure a
  * hand-copied audience rule in a storage policy would eventually produce.
  */
-import { asAnon, asUser, idOf } from '../support/clients';
+import { asAnon, asService, asUser, idOf } from '../support/clients';
 import { sql } from '../support/reset';
 import { CIRCLE_IDS, type SeedHandle } from '../fixtures/world';
 
@@ -306,6 +306,119 @@ describe('until a model has looked at it', () => {
     const { error } = await asUser('maya').rpc('mark_task_media_ready', { p_media: uuid(35) });
     expect(error).not.toBeNull();
     expect(await canSee('dre', 'friends')).toBe(false);
+  });
+
+  it('refuses a row whose path is not its own', async () => {
+    // The one that matters most, and it is not about reading.
+    //
+    // `screen-task-media` downloads `row.path` with the service role, and on a
+    // refusal *deletes* it — so a row that may name an arbitrary object is a
+    // way to make the screener delete somebody else's photo. Getting a refusal
+    // on demand is easy: burn the daily cap, and every call refuses before it
+    // ever looks at the image.
+    //
+    // The path is fully determined by the row's own three ids, so the row is
+    // made to say so. Nothing downstream has to trust it.
+    const id = uuid(40);
+    const { error } = await asUser('maya')
+      .from('task_media')
+      .insert({
+        id,
+        task_id: taskOf.friends,
+        owner_id: idOf('maya'),
+        // Dre's folder, on a task of Dre's. Everything else about this row is
+        // legitimately Maya's, which is what makes it pass every other check.
+        path: `${idOf('dre')}/${taskOf.friends}/${id}.jpg`,
+        width: 1,
+        height: 1,
+      });
+    expect(error).not.toBeNull();
+  });
+
+  it('refuses a row whose path names the right folder but the wrong photo', async () => {
+    // The near miss: own owner, own task, somebody else's media id. Enough to
+    // aim the screener at a different object of the caller's own — which is
+    // less bad than aiming it at Dre's, and still not something to allow.
+    const id = uuid(41);
+    const { error } = await asUser('maya')
+      .from('task_media')
+      .insert({
+        id,
+        task_id: taskOf.friends,
+        owner_id: idOf('maya'),
+        path: pathFor(idOf('maya'), taskOf.friends, uuid(42)),
+        width: 1,
+        height: 1,
+      });
+    expect(error).not.toBeNull();
+  });
+
+  it('still takes the upsert the real client actually sends', async () => {
+    // The narrowed grant is a column list, and the client does not `insert` —
+    // it upserts with `onConflict: 'id', ignoreDuplicates: true`, which is a
+    // different statement (`ON CONFLICT DO NOTHING`) with different privilege
+    // requirements. Every other test here uses a plain insert, so without this
+    // one the grant change is only reasoned about, never exercised.
+    const id = uuid(43);
+    const row = {
+      id,
+      task_id: taskOf.friends,
+      owner_id: idOf('maya'),
+      path: pathFor(idOf('maya'), taskOf.friends, id),
+      width: 1600,
+      height: 1200,
+    };
+
+    const first = await asUser('maya')
+      .from('task_media')
+      .upsert(row, { onConflict: 'id', ignoreDuplicates: true });
+    expect(first.error).toBeNull();
+
+    // And the replay the outbox can always deliver twice.
+    const replay = await asUser('maya')
+      .from('task_media')
+      .upsert(row, { onConflict: 'id', ignoreDuplicates: true });
+    expect(replay.error).toBeNull();
+
+    const rows = await sql<{ n: string }>('select count(*) as n from task_media where id = $1', [id]);
+    expect(rows[0]!.n).toBe('1');
+  });
+
+  it('lets the screener reach the table at all', async () => {
+    // Not a policy test — a *privilege* test, and it is here because the
+    // absence of this grant is invisible until something with the service role
+    // tries to use the table. `repair_write_paths` granted `all on all tables`
+    // to service_role on the day it ran; `task_media` arrived four migrations
+    // later and nobody granted it, so it sat with REFERENCES/TRIGGER/TRUNCATE
+    // and no DML while nothing service-role-shaped existed to notice.
+    //
+    // `screen-task-media` is the first thing that does. Without the grant its
+    // opening `select` answers "permission denied for table task_media", every
+    // call 503s, and every photo stays `pending` for ever — the gate would be
+    // shut with nothing on the other side able to open it, and every test
+    // above would still pass.
+    const id = uuid(44);
+    expect((await attach('friends', 'maya', id, { screened: false })).error).toBeNull();
+
+    const svc = asService();
+
+    const read = await svc.from('task_media').select('id, state').eq('id', id).maybeSingle();
+    expect(read.error).toBeNull();
+    expect(read.data).toMatchObject({ id, state: 'pending' });
+
+    // Publishing, as the screener actually does it. Every `markReady` above
+    // goes in over `pg` as the superuser, which would pass whether or not
+    // service_role holds the EXECUTE grant — so this is the only assertion
+    // that the real caller can open the gate.
+    const published = await svc.rpc('mark_task_media_ready', { p_media: id });
+    expect(published.error).toBeNull();
+    expect(await canSee('dre', 'friends')).toBe(true);
+
+    // And the other half: taking a refused photo's row away.
+    const gone = await svc.from('task_media').delete().eq('id', id);
+    expect(gone.error).toBeNull();
+    const after = await sql<{ n: string }>('select count(*) as n from task_media where id = $1', [id]);
+    expect(after[0]!.n).toBe('0');
   });
 
   it('will not republish a photo whose owner has taken it down', async () => {

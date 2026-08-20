@@ -23,10 +23,24 @@
  * `waiting`, exactly as an id that never existed does. The argument chooses
  * among the caller's own photos and can reach nothing else.
  *
- * `taskId` is only ever used to build a storage prefix, and the owner segment
- * of that prefix comes from the token rather than the body — so the worst a
- * wrong `taskId` can do is make this look in one of the caller's own empty
- * folders and answer `waiting`.
+ * `taskId` is only ever used to build a storage prefix when there is no row,
+ * and the owner segment of that prefix comes from the token rather than the
+ * body — so the worst a wrong `taskId` can do is make this look in one of the
+ * caller's own empty folders and answer `waiting`. Where there *is* a row, its
+ * own `task_id` is used instead: the row is the more authoritative of the two.
+ *
+ * ─── the object name is derived, never read ───────────────────────────────
+ *
+ * This function downloads an object and, on a refusal, deletes it — both with
+ * the service role, which no policy applies to. So the string naming that
+ * object is built from the verified token and the row, and `task_media.path`
+ * is not consulted at all.
+ *
+ * That column is constrained to exactly this string by
+ * `20260820020000_task_media_screened.sql`, so reading it would in fact be
+ * safe today. Deriving it keeps this function safe if the constraint is ever
+ * loosened — and a client-chosen name reaching a service-role `remove()` is
+ * precisely how one account would delete another account's photo.
  *
  * ─── three answers, because the row may legitimately not be there yet ─────
  *
@@ -128,7 +142,7 @@ Deno.serve(async (req) => {
   // of the id; it is the whole of the authorisation.
   const { data: row, error: readErr } = await db
     .from('task_media')
-    .select('path, state')
+    .select('task_id, state')
     .eq('id', mediaId)
     .eq('owner_id', userId)
     .maybeSingle();
@@ -141,15 +155,20 @@ Deno.serve(async (req) => {
   if (!row) return json({ state: await absentMeans(db, userId, taskId, mediaId) });
   if (row.state !== 'pending') return json({ state: row.state });
 
-  const path: string = row.path ?? '';
-  if (!path) {
-    // The insert grant names `path` and the column is `not null`, so this pair
-    // is unreachable. It refuses rather than throws, because there is no image
-    // to clear the gate and nothing to delete.
-    console.warn(`screen-task-media: ${mediaId} is pending with no path`);
-    await dropRow(db, mediaId);
-    return json({ state: 'refused' });
-  }
+  // Built here, never read from the row.
+  //
+  // This function holds the service role and both downloads and deletes this
+  // object, so the string that names it must not be one a client chose.
+  // `20260820020000` constrains `task_media.path` to exactly this, which makes
+  // reading the column safe — and deriving it anyway makes the guarantee stand
+  // on its own rather than on that constraint still being there.
+  //
+  // Every part comes from something already checked: `userId` off the verified
+  // token, `task_id` off the row that the query proved belongs to that user,
+  // and `mediaId` from a body that had to match a uuid to get here. The
+  // `taskId` in the request is not used — only `absentMeans` reads it, where
+  // there is no row to be more authoritative.
+  const path = `${userId}/${row.task_id}/${mediaId}.jpg`;
 
   if (await overCap(db, userId)) {
     console.warn(`screen-task-media: ${userId} over the daily cap of ${DAILY_CAP} — refusing`);

@@ -70,6 +70,46 @@ alter table task_media
   add constraint task_media_state_known
   check (state in ('pending', 'ready'));
 
+-- ─── the path has to be the row's own ────────────────────────────────────
+--
+-- `20260819180000` made `path` free-form text, and until now that was
+-- harmless: nothing privileged ever read it. Every reader went the other way
+-- — from an object name to a task — and a row claiming a path it had no
+-- business with was inert.
+--
+-- Screening changes that. `screen-task-media` holds the service role, and it
+-- *downloads* `row.path` and, on a refusal, *deletes* it. A row is easy to
+-- get: the insert policy asks that the owner is you and the task is yours,
+-- and says nothing about `path`. So without the constraint below, anybody
+-- could insert a perfectly legitimate row of their own naming somebody
+-- else's object, and have the screener delete it for them — and getting a
+-- refusal on demand needs no luck at all, because going over the daily cap
+-- refuses before the image is ever looked at.
+--
+-- The path is fully determined by the three ids already on the row, so the
+-- row is made to say exactly that and nothing downstream has to trust it.
+-- The edge function derives the same string rather than reading this column,
+-- which makes the two independent rather than merely agreeing.
+--
+-- Non-conforming rows are deleted rather than left for the constraint to trip
+-- over. Any such row is either a forgery or a client that never existed, it
+-- is `pending` and therefore invisible after this migration anyway, and the
+-- alternative is a deploy that fails partway with the gate half-applied.
+delete from task_media
+  where path is distinct from
+    (owner_id::text || '/' || task_id::text || '/' || id::text || '.jpg');
+
+alter table task_media
+  add constraint task_media_path_is_its_own
+  check (path = owner_id::text || '/' || task_id::text || '/' || id::text || '.jpg');
+
+-- Two jobs. It stops a second row claiming an object that already has one —
+-- impossible for well-formed rows given the constraint above, and cheap
+-- insurance if that constraint is ever relaxed. And it is the index
+-- `can_see_media` needs: that function now looks a row up by `path` on every
+-- storage read, and this table had no index on the column at all.
+create unique index task_media_path_idx on task_media (path);
+
 -- ─── the client may not write it ──────────────────────────────────────────
 --
 -- The shape the avatars migration leans on, arrived at deliberately here
@@ -84,6 +124,31 @@ alter table task_media
 -- what stops the other route to the same column.
 revoke insert on public.task_media from authenticated;
 grant insert (id, task_id, owner_id, path, width, height) on public.task_media to authenticated;
+
+-- ─── the privilege nobody granted, again ──────────────────────────────────
+--
+-- `device_tokens` hit this exact trap and wrote it down; `task_media` walked
+-- into it and nobody noticed, because until this migration no service-role
+-- code had ever touched the table.
+--
+-- `repair_write_paths` granted `all on all tables` to service_role, which is
+-- a statement about the tables that existed that day and does not reach one
+-- created four migrations later. Every table added since has granted itself
+-- explicitly — `goal_ratings`, `llm_usage`, `device_tokens`,
+-- `bot_goal_candidates`, `blocks` — and `20260819180000` is the one that
+-- forgot. It has been sitting there with `REFERENCES, TRIGGER, TRUNCATE` and
+-- no DML at all.
+--
+-- Bypassing RLS is not permission to reach the table. Without this,
+-- `screen-task-media`'s very first query comes back "permission denied for
+-- table task_media", every call answers 503, and every photo stays `pending`
+-- for ever — a gate with nothing behind it that can open it.
+--
+-- `select` to find the row, `delete` to take a refused one away. The
+-- publishing UPDATE goes through `mark_task_media_ready`, which is SECURITY
+-- DEFINER and so runs as its owner; `all` is granted anyway to match every
+-- other table rather than leaving a fourth different shape to remember.
+grant all on public.task_media to service_role;
 
 -- Belt and braces, and not redundant: the grant above is what actually stops a
 -- client naming `state`, but a grant is one line somebody widens in a hurry
@@ -210,6 +275,15 @@ $$;
 
 revoke execute on function private.can_see_media(text) from public, anon;
 grant execute on function private.can_see_media(text) to authenticated;
+
+comment on column public.task_media.path is
+  'The object name, and constrained to be exactly '
+  '<owner_id>/<task_id>/<id>.jpg — the row''s own three ids and nothing else. '
+  'Not decoration: screen-task-media holds the service role and both '
+  'downloads and deletes this object, so a client-chosen string here would be '
+  'a way to have one account''s photo deleted on another account''s say-so. '
+  'The function derives the same name rather than reading this column, so the '
+  'two guarantees stand independently.';
 
 comment on column public.task_media.state is
   'pending | ready. Only `ready` is readable by anyone other than the owner, '

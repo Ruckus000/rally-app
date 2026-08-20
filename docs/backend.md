@@ -315,7 +315,23 @@ object names to tasks before screening arrived, so it now also requires a
 cannot be signed for at all, where an unscreened avatar is merely not
 rendered.
 
-Two consequences worth keeping straight. The **owner is exempt** from the goal
+**Two things the review caught, both invisible until something used them.**
+`task_media.path` was free-form text, which was harmless while every reader
+went the other way (object name → task). The screener holds the service role
+and both downloads *and deletes* that path, so a legitimate row of your own
+naming somebody else's object was a way to have their photo deleted — and a
+refusal is available on demand by going over the daily cap. The column is now
+constrained to `<owner_id>/<task_id>/<id>.jpg`, and the function derives the
+name rather than reading it, so neither guarantee rests on the other. And
+`task_media` had never granted anything to `service_role`: `repair_write_paths`
+granted `all on all tables` on the day it ran, and every table added since has
+granted itself explicitly — `device_tokens` even documents the trap — but
+`20260819180000` did not. It went unnoticed because no service-role code had
+ever touched the table. Without it the screener's first `select` is
+`permission denied` and every photo stays `pending` for ever, with every
+policy test still green.
+
+Two further consequences worth keeping straight. The **owner is exempt** from the goal
 gate, in both the row policy and `can_see_media` — they chose the picture and
 their own card draws it off local disk, so refusing it back to them protects
 nobody and would make the upload itself fail (`upload` returns the created
