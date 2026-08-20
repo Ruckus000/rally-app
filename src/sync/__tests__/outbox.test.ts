@@ -691,6 +691,37 @@ describe('on disk', () => {
     expect(keys()).toEqual(['task:b']);
   });
 
+  /**
+   * A week that closed, then the app was killed before the queue drained.
+   *
+   * `rollup.add` was added to `OutboxOp` and to the transport but not to the
+   * allowlist `entryIsSound` checks, and `hydrateOutbox` filters every restored
+   * entry through it. So the entry came back off disk, failed soundness, and was
+   * dropped without a word — the closed week never reached the server, and
+   * nothing on any screen said a week had gone missing.
+   *
+   * That is the worst possible entry to lose: closed weeks are exactly what
+   * account recovery restores onto a new device, so a week dropped here is a
+   * week the user cannot get back by signing in again.
+   */
+  it('brings a closed week back after a relaunch', async () => {
+    enqueue('rollup.add', 'rollup:2026-08-10', {
+      weekStart: '2026-08-10',
+      points: 21,
+      done: 7,
+      total: 7,
+      perfect: true,
+      streakHeld: true,
+    });
+    await flushOutbox();
+
+    __resetOutboxForTests();
+    await hydrateOutbox();
+
+    expect(keys()).toEqual(['rollup:2026-08-10']);
+    expect(pending()[0].op).toBe('rollup.add');
+  });
+
   it('starts clean on garbage rather than throwing on launch', async () => {
     await AsyncStorage.setItem('rally:outbox:v1', '{ not json');
     await hydrateOutbox();

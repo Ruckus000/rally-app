@@ -4,7 +4,12 @@
  */
 import { Platform, TextStyle, ViewStyle } from 'react-native';
 
-export const color = {
+/**
+ * The light palette — the only one that exists today. `ThemeProvider` serves
+ * this through context so the app can be handed a different one later; until
+ * the dark palette lands, every scheme resolves to exactly these values.
+ */
+export const lightColors = {
   ink: '#191E16',
   lime: '#C3F53C',
   paper: '#F1F2EC',
@@ -47,6 +52,14 @@ export const color = {
   /** A control that is present but not yet earned — fill under `faintInk`. */
   disabledFill: 'rgba(25,30,22,.08)',
 } as const;
+
+/**
+ * The static export, unchanged. 31 files read `color.*` directly and will keep
+ * doing so until each is migrated onto `useColors()`; the two are the same
+ * object for the whole migration, which is what makes every intermediate PR
+ * verifiable by "nothing may look different". Deleted in the last PR.
+ */
+export const color = lightColors;
 
 /** Text on dark. Never go below .45 — that floor passes contrast on small caps. */
 export const onDark = {

@@ -103,12 +103,24 @@ const SCHEMA: Record<string, TableSpec> = {
       // predates the Oz bots is a person.
       is_bot: { default: () => false },
       joined_at: { default: () => now() },
+      // The object name in the private `avatars` bucket, never a URL. Nullable,
+      // and defaulted alongside its state so a seeded profile looks like one the
+      // signup trigger made.
+      avatar_path: { default: () => null },
+      avatar_state: { default: () => 'none' },
     },
     unique: [{ name: 'profiles_handle_key', cols: ['handle'] }],
     checks: [
       {
         name: 'profiles_handle_check',
         ok: (r) => typeof r.handle === 'string' && /^[a-z0-9_.]{3,30}$/.test(r.handle),
+      },
+      {
+        name: 'profiles_avatar_state_known',
+        ok: (r) =>
+          r.avatar_state === null ||
+          r.avatar_state === undefined ||
+          ['none', 'pending', 'ready', 'refused'].includes(r.avatar_state as string),
       },
       {
         name: 'profiles_name_length',
@@ -1083,12 +1095,25 @@ const RPC: Record<string, (args: Row) => unknown> = {
         .map((m) => m.profile_id),
     );
 
+    // The columns the migration's `people`/`bots` CTEs select, and your own
+    // row alongside your circle-mates' — `avatar_state` reaches `ready` only
+    // through `mark_avatar_screened`, which no client may call, so this pull
+    // is the only place the verdict on your own photo arrives. A double that
+    // omitted either would let the fast path and the fallback disagree here
+    // and agree in every test.
+    const person = (p: Row) => ({
+      id: p.id,
+      handle: p.handle,
+      name: p.name,
+      avatar_path: p.avatar_path ?? null,
+      avatar_state: p.avatar_state ?? 'none',
+    });
     const people = rowsOf('profiles')
-      .filter((p) => memberIds.has(p.id))
-      .map((p) => ({ id: p.id, handle: p.handle, name: p.name }));
+      .filter((p) => memberIds.has(p.id) || p.id === caller)
+      .map(person);
     const bots = rowsOf('profiles')
       .filter((p) => p.is_bot === true)
-      .map((p) => ({ id: p.id, handle: p.handle, name: p.name }));
+      .map(person);
     const botIds = new Set(bots.map((b) => b.id));
 
     const firstCircle = rowsOf('circles').find((c) => myCircleIds.includes(c.id));

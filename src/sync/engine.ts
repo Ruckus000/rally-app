@@ -919,12 +919,43 @@ export function createEngine(
   }
 
   /**
+   * The account whose interrupted screening has already been picked back up.
+   * Per account rather than a boolean, so signing in as somebody else asks
+   * again — and per process, so it costs one `select` a launch at most.
+   */
+  let resumedFor: string | null = null;
+
+  /**
+   * Finish an avatar screening this device abandoned, once per session.
+   *
+   * The gap it covers is between the upload and the verdict: kill the app in
+   * there and the row is `pending` over an object that is live in a bucket
+   * every signed-in account can read, with nothing on the client that ever
+   * looks at it again. It rides on the session rather than on a timer because
+   * a session becoming ready is exactly the moment there is an account to ask
+   * about — and it cannot run in a demo mode, because the engine that owns it
+   * is only ever constructed when `syncOn` is true.
+   */
+  function resumeAvatar(): void {
+    const userId = currentUserId();
+    if (!userId || resumedFor === userId) return;
+    resumedFor = userId;
+    void wire.resumePendingAvatar(userId);
+  }
+
+  /**
    * The socket is opened here rather than at `start`, because `start` runs
    * before there is a session to open it for. Idempotent, so calling it on
    * every tick and every kick is how a session that arrives late — or a
    * sign-out — is noticed without another listener to keep in step.
+   *
+   * The abandoned-screening check hangs off the same call for the same reason:
+   * both want "there is a session now", and both are safe to ask again.
    */
-  const attach = (): void => syncRealtime(currentUserId(), () => void pull());
+  const attach = (): void => {
+    syncRealtime(currentUserId(), () => void pull());
+    resumeAvatar();
+  };
 
   async function pull(): Promise<void> {
     attach();
@@ -1230,6 +1261,9 @@ export function createEngine(
       // Unmount, or sync switching off. The channel outliving the engine would
       // be a socket firing refetches at a `pull` nothing is listening to.
       stopRealtime();
+      // So that signing back in as the same account on this process asks about
+      // an interrupted screening again. It costs one `select`.
+      resumedFor = null;
     },
 
     kick(): void {

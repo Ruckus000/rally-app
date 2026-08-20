@@ -22,7 +22,7 @@
  * is involved at all.
  */
 import * as FileSystem from 'expo-file-system';
-import * as ImageManipulator from 'expo-image-manipulator';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { randomUUID } from 'expo-crypto';
 import type { TaskMedia } from '../data/fixtures';
@@ -65,7 +65,7 @@ export async function pickTaskPhoto(ownerId: string, taskId: string): Promise<Pi
     const longest = Math.max(asset.width ?? 0, asset.height ?? 0);
     const scale = longest > MAX_EDGE ? MAX_EDGE / longest : 1;
 
-    const context = ImageManipulator.ImageManipulator.manipulate(asset.uri);
+    const context = ImageManipulator.manipulate(asset.uri);
     if (scale < 1) {
       context.resize({
         width: Math.round((asset.width ?? MAX_EDGE) * scale),
@@ -75,7 +75,7 @@ export async function pickTaskPhoto(ownerId: string, taskId: string): Promise<Pi
     const rendered = await context.renderAsync();
     const shrunk = await rendered.saveAsync({
       compress: QUALITY,
-      format: ImageManipulator.SaveFormat.JPEG,
+      format: SaveFormat.JPEG,
     });
 
     const id = randomUUID();

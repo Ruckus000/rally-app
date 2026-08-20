@@ -847,9 +847,15 @@ describe('pullCircle', () => {
     });
   });
 
-  it('is empty, and asks for no profiles, when you are in no circle', async () => {
-    expect(await transport.pullCircle(ME)).toEqual([]);
-    expect(fakeSupabase.calls.filter((c) => c.table === 'profiles')).toHaveLength(0);
+  it('is just you when you are in no circle', async () => {
+    // Not empty, which is what it used to be. Your own row is asked for by id
+    // rather than arriving as a by-product of sharing a circle with somebody:
+    // it carries `avatar_state`, which only the server can write, so an account
+    // on its own would otherwise never learn that its own photo had been
+    // screened — and Settings would go on offering to add one.
+    const people = await transport.pullCircle(ME);
+
+    expect(people.map((p) => p.id)).toEqual([ME]);
   });
 });
 

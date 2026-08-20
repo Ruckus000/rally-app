@@ -68,10 +68,52 @@ Three ways to make it so:
    inline style objects almost everywhere and has no stylesheet layer to hang it on.
    It would mean inventing one.
 
-**Take option 2.** Note the migration is the bulk of the effort, and it is
-mechanical rather than difficult — which makes it a good candidate for splitting across
-several PRs, one per screen, with the light palette unchanged throughout so nothing
-visibly moves until the last one.
+**Take option 2**, and ship it as **several PRs, one area at a time** — decided
+2026-08-19.
+
+The migration is the bulk of the effort and it is mechanical rather than difficult, which
+is exactly the shape that goes wrong as one sweep: a 470-line diff across 31 files where
+every hunk looks the same is a diff nobody can review, and a single wrong token hides in
+it perfectly.
+
+**The light palette stays byte-identical until the last PR.** Every intermediate PR is
+therefore verifiable by a rule anyone can apply: *nothing may look different*. That is a
+much stronger review property than "these token swaps look right to me".
+
+Measured on `main` at 2026-08-19, after the photos work:
+
+| | |
+|---|---|
+| Files importing `tokens` | 31 |
+| `color.*` reads | 472 |
+| `onDark.*` reads | 62 |
+
+Concentrated: `DetailSheet` 55, `PlanOverlay` 52, `MeScreen` 48, `FeedCards` 44,
+`onboard/kit` 40, and a long tail under 21.
+
+Sequence:
+
+1. **The mechanism** — `ThemeProvider`, `useColors()`, and the smallest leaf files
+   migrated as proof. `color` keeps its current export so unmigrated files compile
+   untouched; the two coexist for the whole migration.
+2. **Shell and screens** — `Header`, `TabBar`, `WeekScreen`, `CircleScreen`, `MeScreen`.
+3. **Overlays** — `DetailSheet`, `PlanOverlay`, `LedgerOverlay`, `NotificationsOverlay`,
+   `SettingsOverlay`, `ReportSheet`, `RolloverOverlay`.
+4. **Onboarding** — `kit` and its six screens.
+5. **Components** — `FeedCards`, `Avatar`, the rest of the tail.
+6. **The dark palette and the control** — the only PR where anything looks different, and
+   the one that needs a device pass in both schemes.
+
+The static `color` export is deleted in PR 6, or kept as the light palette if tests want
+it. A lint rule forbidding raw hex outside `tokens.ts` should land in PR 1, or the 472
+starts growing again while the migration is still in flight.
+
+### Not only `color`
+
+Three other exports in `tokens.ts` carry colour and must eventually move with it:
+`yearLevelColor` (4 levels), `personTints` (7, and the one that needs real design
+thought — see above), and `hairlineGradient`. PR 1 should shape the provider so these can
+join without a second migration, but need not move them.
 
 A lint rule forbidding raw hex outside `tokens.ts` should land in the same work, or the
 441 will start growing again.

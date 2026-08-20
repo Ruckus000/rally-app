@@ -35,6 +35,7 @@ import { Alert, Linking, Platform, ScrollView, TextInput, View } from 'react-nat
 import { color, font, gutter, radius } from '../theme/tokens';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
 import { Icon } from '../components/Icon';
+import { Avatar } from '../components/Avatar';
 import { Overlay } from './Overlay';
 import { closeButton } from './LedgerOverlay';
 import { Trouble } from '../components/Trouble';
@@ -43,16 +44,47 @@ import { NAME_MAX } from '../data/people';
 import { commitSelfName, queueUnblock } from '../sync/engine';
 import { linkApple } from '../sync/session';
 import { appleTrouble } from '../lib/appleCopy';
+import { clearAvatar, pickAndUploadAvatar } from '../lib/avatarUpload';
+// The one line a refused photo is ever told, straight from the module the edge
+// function decides with. Mirrored nowhere: two copies of a sentence about
+// somebody's photograph is one copy that drifts.
+import { IMAGE_BLOCKED_COPY } from '../../supabase/functions/_shared/imageVerdict.mjs';
 import { reminderPermission } from '../lib/reminders';
 import { enableReminders } from '../lib/enableReminders';
 import { stakedPoints } from '../state/selectors';
 import type { AccountMode } from '../data/seed';
 import type { SessionState } from '../sync/session';
-import { canSecure, signOutEnabled, signOutVisible } from './settings/guards';
+import { canSecure, secureUnavailable, signOutEnabled, signOutVisible } from './settings/guards';
 import { attemptSignOut, unsentLine } from './settings/signOut';
 
 /**
  * What this account is, in one sentence, per platform.
+ *
+ * Every state of the session gets its own sentence, because this is the page
+ * somebody opens *because* something looks wrong. One line used to cover all
+ * five non-ready states — "Signed in. Checking this account…" — which is two
+ * claims, and on a build with no Supabase config both of them are false
+ * forever: the session is `off`, nothing is signed in, nothing is being
+ * checked, and that sentence sits there for good. It reassured in exactly the
+ * situations it exists to explain.
+ *
+ * What each line is careful about:
+ *
+ *  - **`signing-in`** is the only one that may say "checking", because it is
+ *    the only one where something is actually in flight.
+ *  - **`off`** on a live account means this build has no server configured.
+ *    That is a fact about the build, not about the person holding the phone,
+ *    so it reads as a plain statement and offers nothing to tap — there is no
+ *    action here that could change it.
+ *  - **`offline`** must not imply loss. The session retries by itself and the
+ *    outbox keeps everything, which is why `SyncBanner` deliberately stays
+ *    quiet for it.
+ *  - **`expired`** says the device is signed out and stops there. The way back
+ *    — "Try again", "Start over" — belongs to `SyncBanner`, and a second copy
+ *    of that offer under a heading would be two doors onto one action.
+ *  - **`error`** never renders `session.message`. That string is banner copy,
+ *    written to sit next to a retry; here it would be a raw fault under a
+ *    heading with nothing to do about it.
  *
  * Honest rather than encouraging. The Android line has to carry two facts at
  * once — no way back, and no sign-out — because on Android the sign-out row is
@@ -78,7 +110,19 @@ export function accountLine(
   if (account !== 'live') {
     return 'Nothing here reaches a server. It’s all made up, and it’s all yours.';
   }
-  if (session.status !== 'ready') return 'Signed in. Checking this account…';
+  if (session.status === 'signing-in') return 'Checking this account…';
+  if (session.status === 'off') {
+    return 'No server is set up for this copy of Rally, so this account never signs in. Everything you do stays on this phone.';
+  }
+  if (session.status === 'offline') {
+    return 'Signed in. No connection right now — this catches up on its own once there is one.';
+  }
+  if (session.status === 'expired') {
+    return 'Signed out on this device. Your week is safe here, but nothing new is reaching the server.';
+  }
+  if (session.status === 'error') {
+    return 'Signing in isn’t working on this phone, and trying again may not be enough.';
+  }
   if (!session.anonymous) return 'Signed in, and this account can be got back with Apple.';
   return platform === 'ios'
     ? 'Signed in, but this account can’t be got back yet. Secure it below and you can sign back in on a new phone.'
@@ -105,7 +149,7 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
         <Bri size={19} weight={800} tracking={-0.3} style={fill}>
           Settings
         </Bri>
-        <Tap onPress={close} accessibilityLabel="Close settings" style={closeButton}>
+        <Tap onPress={close} accessibilityLabel="Close settings" style={closeButton(color)}>
           <Icon name="close" size={16} color={color.ink} />
         </Tap>
       </View>
@@ -149,6 +193,12 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
           </Section>
         ) : null}
 
+        {live ? (
+          <Section title="Your photo">
+            <PhotoRow />
+          </Section>
+        ) : null}
+
         {/* Deliberately not last. Settings keeps its destructive controls apart
             — that is why "Reset app data" is not on this page at all — and an
             Unblock sitting directly above Sign out would read as a pair of
@@ -162,9 +212,12 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
           <RemindersRow />
         </Section>
 
-        {canSecure(account, session, Platform.OS) ? (
+        {/* Offered, or explained. Never silently missing — see
+            `secureUnavailable`. */}
+        {canSecure(account, session, Platform.OS) ||
+        secureUnavailable(account, session, Platform.OS) ? (
           <Section title="Getting back in">
-            <SecureRow />
+            <SecureRow enabled={canSecure(account, session, Platform.OS)} />
           </Section>
         ) : null}
 
@@ -246,6 +299,131 @@ function NameField({ current }: { current: string }) {
         paddingVertical: 12,
       }}
     />
+  );
+}
+
+/**
+ * A face, or the offer of one.
+ *
+ * Four states, and the interesting thing about each is what it does *not*
+ * offer:
+ *
+ *  - **`pending`** says the photo is being checked and offers no control at
+ *    all. There is nothing honest to offer — the bytes are on the server and
+ *    the verdict is not this device's to give — and a "Show it anyway" here
+ *    would be the one hole the rest of the feature is built to close.
+ *  - **`refused`** shows `IMAGE_BLOCKED_COPY` and nothing else. It does not
+ *    say what the model objected to and it does not argue: the model's own
+ *    sentence is diagnostic, stays in the edge function's log, and is not
+ *    available to this file even if somebody wanted to render it. Naming a
+ *    category would accuse somebody over a picture of their kitchen on a false
+ *    positive, and hand out a checklist on a true one.
+ *  - **`ready`** offers Replace and Remove, and Replace passes the current
+ *    `avatarPath` down as `previousPath`. That argument is the difference
+ *    between a replaced photo being deleted and it sitting in a bucket every
+ *    signed-in account can read, under a name nothing points at any more.
+ *  - **`none`** just offers to add one. Initials are not an empty state to be
+ *    apologised for — they are the design.
+ *
+ * The state is read from the directory, which is where the pull puts it, and
+ * written straight back on a completed upload: the next pull is up to a minute
+ * away, and for that minute this row would otherwise offer to *add* a photo
+ * that exists — and hand the replace after it a `previousPath` of `undefined`.
+ */
+function PhotoRow() {
+  const { state, dispatch } = useStore();
+  const me = state.people[state.selfId];
+  const path = me?.avatarPath;
+  const avatarState = me?.avatarState ?? 'none';
+  const [busy, setBusy] = React.useState<'adding' | 'removing' | null>(null);
+  const [trouble, setTrouble] = React.useState<string | null>(
+    avatarState === 'refused' ? IMAGE_BLOCKED_COPY : null,
+  );
+
+  const choose = async () => {
+    setBusy('adding');
+    setTrouble(null);
+    // `previousPath` — the object this profile points at *now*. Dropping it is
+    // not a cosmetic bug: `set_avatar` moves the row to the new name and the
+    // old object stays readable by anyone who learns it.
+    const outcome = await pickAndUploadAvatar(path);
+    setBusy(null);
+    if (outcome.ok) {
+      dispatch({ type: 'SET_AVATAR', path: outcome.path, state: 'ready' });
+      return;
+    }
+    if (outcome.reason === 'blocked') {
+      // The server has already deleted the object and written `refused`, so the
+      // local copy follows it rather than going on believing there is a photo.
+      dispatch({ type: 'SET_AVATAR', path: null, state: 'refused' });
+      setTrouble(IMAGE_BLOCKED_COPY);
+      return;
+    }
+    if (outcome.reason === 'no-permission') {
+      setTrouble('Rally can’t see your photos. You can change that in system settings.');
+      return;
+    }
+    // `cancelled` is somebody changing their mind, and deserves no message.
+    if (outcome.reason === 'failed') setTrouble('That didn’t go through. Try again.');
+  };
+
+  const remove = async () => {
+    setBusy('removing');
+    setTrouble(null);
+    const gone = await clearAvatar(path);
+    setBusy(null);
+    if (gone) dispatch({ type: 'SET_AVATAR', path: null, state: 'none' });
+    // Said plainly rather than shown as removed: `clearAvatar` deletes the
+    // object before it clears the row, so a half-done removal leaves a photo
+    // the next pull would bring straight back.
+    else setTrouble('That photo is still there. Try again.');
+  };
+
+  const checking = avatarState === 'pending';
+  const has = avatarState === 'ready' && !!path;
+
+  const line = checking
+    ? 'Checking your photo… nobody sees it until that’s done — you included.'
+    : has
+      ? 'Everyone who can see your week can see this.'
+      : 'Add one, or keep your initials. Both look fine.';
+
+  return (
+    <View>
+      <View style={{ ...row, gap: 12, ...cardBox }}>
+        <Avatar who={state.selfId} size={40} />
+        <View style={fill}>
+          <Bri size={15} weight={800}>
+            {busy === 'adding' ? 'Adding…' : busy === 'removing' ? 'Removing…' : 'Photo'}
+          </Bri>
+          <Sans size={12.5} lineHeight={17} color={color.muted} style={{ marginTop: 3 }}>
+            {line}
+          </Sans>
+        </View>
+        {/* Nothing to press while the screener has it. */}
+        {checking || busy ? null : (
+          <>
+            <Tap
+              onPress={() => void choose()}
+              accessibilityLabel={has ? 'Replace your photo' : 'Add a photo'}
+              style={rowAction}
+            >
+              <Sans size={12.5} weight={700} color={color.moss}>
+                {has ? 'Replace' : 'Add'}
+              </Sans>
+            </Tap>
+            {has ? (
+              <Tap onPress={() => void remove()} accessibilityLabel="Remove your photo" style={rowAction}>
+                <Sans size={12.5} weight={700} color={color.muted}>
+                  Remove
+                </Sans>
+              </Tap>
+            ) : null}
+          </>
+        )}
+      </View>
+      <Trouble message={trouble} />
+    </View>
   );
 }
 
@@ -418,8 +596,14 @@ function RemindersRow() {
  * session, the store folds it in, `canSecure` turns false and the section is
  * gone. A dismissed sheet says nothing at all — the user cancelled, and telling
  * them so would be the app arguing with them.
+ *
+ * Disabled rather than absent when the session has not resolved, the way
+ * `SignOutRow` already is and for the same reason — `secureUnavailable` carries
+ * the argument. Greyed *and* captioned, because colour is never the only
+ * signal, and the caption is the only place the page says why the one row
+ * somebody came here for is not tappable.
  */
-function SecureRow() {
+function SecureRow({ enabled }: { enabled: boolean }) {
   const [busy, setBusy] = React.useState(false);
   const [trouble, setTrouble] = React.useState<string | null>(null);
 
@@ -437,16 +621,27 @@ function SecureRow() {
   return (
     <View>
       <Tap
-        onPress={busy ? undefined : () => void secure()}
-        accessibilityLabel="Secure this account with Apple, so you can sign back in"
-        style={{ ...row, gap: 12, ...cardBox }}
+        onPress={enabled && !busy ? () => void secure() : undefined}
+        disabled={!enabled}
+        // Same trap as `SignOutRow`: a `Tap`'s `accessibilityLabel` collapses
+        // everything inside it, so the caption below never reaches VoiceOver
+        // and the reason has to travel in the label or not at all.
+        accessibilityState={{ disabled: !enabled, busy }}
+        accessibilityLabel={
+          enabled
+            ? 'Secure this account with Apple, so you can sign back in'
+            : 'Secure this account. Securing needs a connection'
+        }
+        style={{ ...row, gap: 12, ...cardBox, opacity: enabled ? 1 : 0.5 }}
       >
         <View style={fill}>
-          <Bri size={15} weight={800}>
+          <Bri size={15} weight={800} color={enabled ? color.ink : color.muted}>
             {busy ? 'Securing…' : 'Secure this account'}
           </Bri>
           <Sans size={12.5} lineHeight={17} color={color.muted} style={{ marginTop: 3 }}>
-            Continue with Apple, and this account comes back on a new phone.
+            {enabled
+              ? 'Continue with Apple, and this account comes back on a new phone.'
+              : 'Securing this account needs a connection. It’s still here when you get one.'}
           </Sans>
         </View>
       </Tap>

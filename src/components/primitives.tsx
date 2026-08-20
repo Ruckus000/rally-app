@@ -17,7 +17,8 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
-import { capsLabel, color, font, gradientAngle, hairlineGradient, HIT_TARGET } from '../theme/tokens';
+import { capsLabel, font, gradientAngle, hairlineGradient, HIT_TARGET } from '../theme/tokens';
+import { useColors } from '../theme/ThemeProvider';
 
 type Weight = 400 | 500 | 600 | 700 | 800;
 
@@ -48,10 +49,17 @@ export function Bri({
   weight = 800,
   tracking,
   lineHeight,
-  color: c = color.ink,
+  color: c,
   style,
   ...rest
 }: TypeProps) {
+  // The default used to live in the parameter list — `color: c = color.ink` —
+  // which a hook cannot reach, because you cannot call one in a parameter
+  // default. It moves into the body, with `??` rather than `||`: a parameter
+  // default fires only on `undefined`, and `||` would additionally swallow an
+  // empty string. Same behaviour as before, exactly. This is the shape the
+  // rest of the migration follows.
+  const colors = useColors();
   const w = (weight < 500 ? 500 : weight) as 500 | 600 | 700 | 800;
   return (
     <Text
@@ -61,7 +69,7 @@ export function Bri({
         {
           fontFamily: font.bri[w],
           fontSize: size,
-          color: c,
+          color: c ?? colors.ink,
           ...(tracking !== undefined ? { letterSpacing: tracking } : null),
           ...(lineHeight !== undefined ? { lineHeight } : null),
         },
@@ -77,10 +85,11 @@ export function Sans({
   weight = 400,
   tracking,
   lineHeight,
-  color: c = color.ink,
+  color: c,
   style,
   ...rest
 }: TypeProps) {
+  const colors = useColors();
   const w = (weight > 700 ? 700 : weight) as 400 | 500 | 600 | 700;
   return (
     <Text
@@ -90,7 +99,7 @@ export function Sans({
         {
           fontFamily: font.sans[w],
           fontSize: size,
-          color: c,
+          color: c ?? colors.ink,
           ...(tracking !== undefined ? { letterSpacing: tracking } : null),
           ...(lineHeight !== undefined ? { lineHeight } : null),
         },
@@ -104,15 +113,16 @@ export function Sans({
 export function Caps({
   size = 11,
   tracking = 1.4,
-  color: c = color.muted,
+  color: c,
   style,
   ...rest
 }: Omit<TypeProps, 'weight'>) {
+  const colors = useColors();
   return (
     <Text
       maxFontSizeMultiplier={MAX_FONT_SCALE}
       {...rest}
-      style={[capsLabel(size, tracking), { color: c }, style]}
+      style={[capsLabel(size, tracking), { color: c ?? colors.muted }, style]}
     />
   );
 }
@@ -257,13 +267,14 @@ export function GlowBloom({
 }) {
   // Gradient ids share a namespace on web, so each bloom needs its own.
   const id = `bloom-${React.useId().replace(/[^a-zA-Z0-9]/g, '')}`;
+  const colors = useColors();
   return (
     <View pointerEvents="none" style={{ position: 'absolute', top, right, width: size, height: size }}>
       <Svg width={size} height={size}>
         <Defs>
           <RadialGradient id={id} cx="50%" cy="50%" r="50%">
-            <Stop offset="0%" stopColor={color.lime} stopOpacity={opacity} />
-            <Stop offset="68%" stopColor={color.lime} stopOpacity={0} />
+            <Stop offset="0%" stopColor={colors.lime} stopOpacity={opacity} />
+            <Stop offset="68%" stopColor={colors.lime} stopOpacity={0} />
           </RadialGradient>
         </Defs>
         <Rect x={0} y={0} width={size} height={size} fill={`url(#${id})`} />

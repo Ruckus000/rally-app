@@ -124,7 +124,42 @@ describe('when the session has not resolved', () => {
 
   it('says why', async () => {
     await live({ status: 'offline' });
-    expect(screen.getByText(/needs a connection/i)).toBeTruthy();
+    expect(screen.getByText(/Signing out needs a connection/i)).toBeTruthy();
+  });
+
+  /**
+   * The other half of the same absence. `canSecure` needs the `anonymous`
+   * claim, which only a resolved session carries — so the whole "Getting back
+   * in" section used to disappear on an offline phone with nothing said. On the
+   * page somebody opens *because* something is wrong, the one row that fixes
+   * being unrecoverable was silently missing.
+   */
+  it('keeps the Secure row on screen, disabled, rather than removing it', async () => {
+    await live({ status: 'offline' });
+    const row = screen.getByLabelText(/^Secure this account/);
+    expect(row.props.accessibilityState?.disabled).toBe(true);
+  });
+
+  it('says why securing is not available', async () => {
+    await live({ status: 'offline' });
+    expect(screen.getByText(/Securing this account needs a connection/i)).toBeTruthy();
+  });
+
+  it('carries the reason in the label too, where a screen reader will reach it', async () => {
+    await live({ status: 'expired' });
+    // A `Tap`'s label collapses its children, so the caption below is invisible
+    // to VoiceOver — without this the row reads as "Secure this account,
+    // dimmed" and stops.
+    expect(screen.getByLabelText(/Secure this account\. Securing needs a connection/)).toBeTruthy();
+  });
+
+  it('does not offer a disabled Secure row on a build with no server', async () => {
+    // `off` is not a session that failed to resolve — there is no server to
+    // reach, `accountLine` says exactly that, and "needs a connection" would be
+    // a lie about a connection that is never coming.
+    await live({ status: 'off' });
+    expect(screen.queryByLabelText(/^Secure this account/)).toBeNull();
+    expect(screen.getByText(/No server is set up/)).toBeTruthy();
   });
 });
 
@@ -154,9 +189,79 @@ describe('what the page says this account is', () => {
     expect(accountLine('seeded', { status: 'off' }, 'ios')).toMatch(/reaches a server/i);
   });
 
-  it('does not guess while the session is still resolving', () => {
-    expect(accountLine('live', { status: 'offline' }, 'ios')).toBe(
-      'Signed in. Checking this account\u2026',
+  /**
+   * The five non-ready states, one assertion each, and the reason this block is
+   * five tests rather than one.
+   *
+   * They were a single line \u2014 "Signed in. Checking this account\u2026" \u2014 for all
+   * five. On a build with no Supabase config the session is `off`, so that line
+   * claimed an account was signed in and being checked when neither would ever
+   * be true, and it sat there indefinitely. Each of these pins the *distinction*
+   * as much as the words: what each one must not say is asserted alongside what
+   * it does.
+   */
+  it('says it is checking only while it is actually checking', () => {
+    expect(accountLine('live', { status: 'signing-in' }, 'ios')).toBe(
+      'Checking this account\u2026',
+    );
+  });
+
+  it('does not claim a live account is signed in when there is no server at all', () => {
+    const line = accountLine('live', { status: 'off' }, 'ios');
+    expect(line).toMatch(/No server is set up/);
+    expect(line).toMatch(/stays on this phone/);
+    // The two claims the old single line made, and the whole of this bug.
+    expect(line).not.toMatch(/Signed in/);
+    expect(line).not.toMatch(/Checking/i);
+  });
+
+  it('tells an offline account it is signed in and will catch up, without implying loss', () => {
+    const line = accountLine('live', { status: 'offline' }, 'ios');
+    expect(line).toMatch(/^Signed in\./);
+    expect(line).toMatch(/catches up on its own/);
+    // Nothing is in flight, so nothing may say it is.
+    expect(line).not.toMatch(/Checking/i);
+  });
+
+  it('tells an expired session this device is signed out, and leaves the way back to the banner', () => {
+    const line = accountLine('live', { status: 'expired' }, 'ios');
+    expect(line).toMatch(/Signed out on this device/);
+    expect(line).not.toMatch(/Checking/i);
+    // `SyncBanner` owns "Try again" and "Start over". Two doors onto one action
+    // is worse than one.
+    expect(line).not.toMatch(/Try again|Start over/i);
+  });
+
+  it('does not put the error\u2019s own message under a heading', () => {
+    const message = 'Anonymous sign-in is disabled on this Supabase project.';
+    const line = accountLine('live', { status: 'error', message }, 'ios');
+    expect(line).toMatch(/isn\u2019t working/);
+    expect(line).toMatch(/may not be enough/);
+    // That string is banner copy \u2014 written to sit next to a retry, not under a
+    // section title with nothing to do about it.
+    expect(line).not.toContain(message);
+    expect(line).not.toMatch(/Checking/i);
+  });
+
+  it('gives all five unresolved states different sentences', () => {
+    const states: SessionState[] = [
+      { status: 'off' },
+      { status: 'signing-in' },
+      { status: 'offline' },
+      { status: 'expired' },
+      { status: 'error', message: 'nope' },
+    ];
+    const lines = states.map((s) => accountLine('live', s, 'ios'));
+    expect(new Set(lines).size).toBe(5);
+  });
+
+  it('still tells the demo the demo line, whatever the session says', () => {
+    // `account !== 'live'` wins first, and must: a demo account's session is
+    // `off` for a reason that has nothing to do with configuration.
+    expect(accountLine('seeded', { status: 'off' }, 'ios')).toMatch(/reaches a server/i);
+    expect(accountLine('fresh', { status: 'expired' }, 'ios')).toMatch(/reaches a server/i);
+    expect(accountLine(null, { status: 'error', message: 'x' }, 'ios')).toMatch(
+      /reaches a server/i,
     );
   });
 

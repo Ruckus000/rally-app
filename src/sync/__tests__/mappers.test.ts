@@ -178,6 +178,44 @@ describe('rowToPerson', () => {
     expect(rowToPerson({ id: 'u2', handle: 'anon_9f2', name: '  ' }).name).toBe('anon_9f2');
     expect(rowToPerson({ id: 'u3' }).name).toBe('Someone');
   });
+
+  it('carries the avatar across, both halves together', () => {
+    const person = rowToPerson({
+      id: 'u4',
+      handle: 'maya',
+      name: 'Maya Chen',
+      avatar_path: 'u4/photo.jpg',
+      avatar_state: 'ready',
+    });
+    expect(person).toMatchObject({ avatarPath: 'u4/photo.jpg', avatarState: 'ready' });
+  });
+
+  it('leaves both off a row with no photo, so it compares equal to an older one', () => {
+    const person = rowToPerson({ id: 'u5', handle: 'dre', name: 'Dre Okafor', avatar_state: 'none' });
+    expect('avatarPath' in person).toBe(false);
+    expect('avatarState' in person).toBe(false);
+  });
+
+  it('reads a state this build does not know as no photo at all', () => {
+    // Forward compatibility that fails safe: an unrecognised word cannot be
+    // asserted to mean "screened", and initials are the answer for anything
+    // that is not certainly `ready`.
+    const person = rowToPerson({ id: 'u6', name: 'Sofia Park', avatar_state: 'quarantined' });
+    expect(person.avatarState).toBeUndefined();
+  });
+
+  it('drops an absurd path rather than persisting it', () => {
+    // Another account writes this column. It lands in `people`, which is
+    // written to disk, and a payload that fails validation on restore is
+    // discarded whole — a staked week for a string somebody made long.
+    const person = rowToPerson({
+      id: 'u7',
+      name: 'Nana Rosa',
+      avatar_path: 'u7/'.padEnd(500, 'a'),
+      avatar_state: 'ready',
+    });
+    expect(person.avatarPath).toBeUndefined();
+  });
 });
 
 describe('someone else’s task, as the feed renders it', () => {

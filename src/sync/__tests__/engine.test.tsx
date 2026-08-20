@@ -1121,8 +1121,13 @@ describe('the Oz bots', () => {
     await settle(60_000);
 
     // Without this every Global card reads "Someone", which is the state the
-    // feed was in for as long as it was made of real rows.
-    expect(screen.getByTestId('people')).toHaveTextContent(BOT);
+    // feed was in for as long as it was made of real rows. Your own row is in
+    // the directory alongside them, whether or not you are in a circle —
+    // `pullCircle` asks for it by id, because it is where your avatar's state
+    // arrives from.
+    expect(screen.getByTestId('people')).toHaveTextContent(
+      [currentUserId() as string, BOT].sort().join(','),
+    );
     // `withStats` counts their week off the same rows — the card's stat line.
     expect(screen.getByTestId('stats')).toHaveTextContent(`${BOT}:0/1`);
   });
@@ -1139,7 +1144,9 @@ describe('the Oz bots', () => {
 
     await settle(60_000);
 
-    expect(screen.getByTestId('people')).toHaveTextContent(BOT);
+    expect(screen.getByTestId('people')).toHaveTextContent(
+      [currentUserId() as string, BOT].sort().join(','),
+    );
     expect(screen.getByTestId('members')).not.toHaveTextContent(BOT);
   });
 

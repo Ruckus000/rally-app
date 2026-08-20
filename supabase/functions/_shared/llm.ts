@@ -35,6 +35,16 @@
  *
  * So `refused` and `unavailable` are different answers. `verdict.mjs` decides
  * what each one means, and is unit-tested on exactly that pair.
+ *
+ * ── Pictures go through the same door ──────────────────────────────────────
+ *
+ * A third prompt asks about an avatar rather than a sentence (`imageScreening
+ * .mjs`), and it needs the image itself. That is one optional field on the
+ * options object, not a second function: the retry policy (there is none), the
+ * timeout, and above all the refusal detection are the parts worth having once.
+ * The refusal path especially — a blocked *response* is how a hosted model
+ * answers about exactly the images an avatar guard exists to catch, and
+ * `imageVerdict.mjs` reads that answer off the shape this file returns.
  */
 
 /** Gemini's REST surface. Overridable, but there is nowhere else to point it. */
@@ -45,11 +55,17 @@ const DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
  * *day*. Lite's allowance is far larger, and on the twelve-goal screening list
  * it answered all twelve correctly — including the SQL-course false positive
  * above and the two harmful goals the old 3B was recorded as missing.
+ *
+ * It also takes images, which is why the avatar screener did not need a second
+ * model and this constant did not need revisiting: Gemini 3.5 Flash-Lite's
+ * documented inputs are "Text, Image, Video, Audio, and PDF"
+ * (ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite), and inline
+ * base64 image parts are the documented way to send one to `generateContent`.
  */
 const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
 
 /**
- * Hard ceiling on a single call.
+ * Hard ceiling on a single text call.
  *
  * Measured: Gemini answers this prompt in 1.3–2.2s. The old ceiling was 2000ms,
  * set when the model was a local Ollama, and against a hosted one it would
@@ -68,11 +84,39 @@ const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
  */
 const TIMEOUT_MS = 4000;
 
+/**
+ * The same ceiling, for a call carrying an image, and it is deliberately far
+ * looser.
+ *
+ * Two reasons, and they pull the same way. An avatar is up to 2 MB of base64 on
+ * the wire in front of a model that then has to look at it, so the 1.3–2.2s
+ * measured above is not the distribution this call draws from. And nobody is
+ * watching a number on a button: the uploader sees their initials until the
+ * verdict lands, because `pending` renders initials to everyone including them.
+ *
+ * The asymmetry that matters is what a timeout costs. On a goal it costs a
+ * category price. On an image it *blocks* — `imageVerdict.mjs` fails closed —
+ * so a ceiling set too tight is a person told their photo cannot be used
+ * because the network was slow. There is still no retry, for the reason given
+ * below; this is the one attempt, so it is given room.
+ */
+const IMAGE_TIMEOUT_MS = 15000;
+
 export type CompleteOpts = {
   system: string;
   user: string;
   /** JSON Schema. Passed to Gemini as `responseSchema`, unmodified. */
   schema: Record<string, unknown>;
+  /**
+   * One image, inline. `base64` is the raw bytes base64-encoded — no data: URI
+   * prefix — and `mimeType` is the object's real type, not a guess: Gemini is
+   * told what it is being handed and a wrong answer there is a wasted call.
+   *
+   * Inline rather than the Files API because the whole request has to stay
+   * under 20 MB and this bucket caps an object at 2 MB, so there is nothing to
+   * manage a file lifecycle for.
+   */
+  image?: { mimeType: string; base64: string };
 };
 
 /**
@@ -126,6 +170,7 @@ async function callGemini({
   system,
   user,
   schema,
+  image,
 }: CompleteOpts): Promise<Completion<string>> {
   const key = env('GEMINI_API_KEY');
   if (!key) {
@@ -140,6 +185,15 @@ async function callGemini({
   const base = env('LLM_BASE_URL') || DEFAULT_BASE_URL;
   const model = env('LLM_MODEL') || DEFAULT_MODEL;
 
+  // Image first, question second — the order the docs' own examples use, and
+  // the order that reads correctly for a prompt that opens "You are shown one
+  // image". `inline_data`/`mime_type` in snake_case because that is how the
+  // REST reference spells them; Google's JSON mapping accepts either spelling,
+  // and copying the documented one is one less thing to be clever about.
+  const parts = image
+    ? [{ inline_data: { mime_type: image.mimeType, data: image.base64 } }, { text: user }]
+    : [{ text: user }];
+
   const res = await fetch(`${base}/models/${model}:generateContent`, {
     method: 'POST',
     headers: {
@@ -150,7 +204,7 @@ async function callGemini({
     },
     body: JSON.stringify({
       systemInstruction: { role: 'user', parts: [{ text: system }] },
-      contents: [{ role: 'user', parts: [{ text: user }] }],
+      contents: [{ role: 'user', parts }],
       generationConfig: {
         // `schema` goes straight through: Gemini's responseSchema accepts the
         // same JSON Schema objects the callers already build, so there is no
@@ -160,7 +214,7 @@ async function callGemini({
         temperature: 0,
       },
     }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(image ? IMAGE_TIMEOUT_MS : TIMEOUT_MS),
   });
 
   if (!res.ok) {
