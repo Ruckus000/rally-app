@@ -4,7 +4,8 @@
  */
 import React from 'react';
 import { ScrollView, View } from 'react-native';
-import { color, gutter, radius, shadows } from '../theme/tokens';
+import { gutter, radius, shadows } from '../theme/tokens';
+import { useColors } from '../theme/ThemeProvider';
 import { NOTIF_TIERS, Notification, NotifTier } from '../data/fixtures';
 import { EmptyState } from '../components/FeedCards';
 import { useStore, usePeople } from '../state/store';
@@ -34,6 +35,7 @@ export function NotificationsOverlay({
   topInset: number;
   bottomInset?: number;
 }) {
+  const color = useColors();
   const { state, dispatch } = useStore();
   // One slice, every account. The demo's feed is seeded into it and a live
   // account's arrives from the server, so there is no world to read by mistake
@@ -194,6 +196,7 @@ export function NotificationsOverlay({
 }
 
 function NotificationRow({ item, isNeeds }: { item: Notification; isNeeds: boolean }) {
+  const color = useColors();
   const { state, dispatch } = useStore();
   const people = usePeople();
   const isSystem = !item.who && !item.faces;
