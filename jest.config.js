@@ -66,6 +66,13 @@ module.exports = {
       // `aud = 'everyone'` is globally visible by definition, so parallel
       // workers sharing one database would leak rows into each other's
       // negative assertions. Serial is also plenty fast at this size.
+      // Ignored. Like `testTimeout` above, `maxWorkers` is not a valid
+      // per-project option in Jest 29 — it is read from the CLI and the root
+      // config only. Left here because it states the requirement, but the
+      // requirement is actually met by `--runInBand` in the `test:integration`
+      // script, which `test:all` chains rather than duplicating. Bare `jest`
+      // runs these twenty suites in parallel against one database and they
+      // stomp on each other's rows.
       maxWorkers: 1,
       slowTestThreshold: 15,
     },

@@ -21,6 +21,26 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+/**
+ * Read once, here, and this is the one thing in this file that does run at
+ * import time — deliberately, and it is not the kind of thing the note above
+ * rules out. That note is about `createClient`, which opens a gotrue instance
+ * and a socket. This opens nothing; it resolves a reference.
+ *
+ * `URL` is not a plain global under Expo. It is installed as a lazy getter
+ * whose first read `require`s the implementation. `projectRef()` goes through
+ * that getter, and the calls that matter come from the debounced disk writes in
+ * `persistence` and `outbox` — which, in a test, can land after Jest has torn
+ * the environment down. A `require` at that moment throws `You are trying to
+ * import a file after the Jest environment has been torn down`: an error that
+ * printed on every run, green ones included, from four suites, and that no test
+ * could ever fail on.
+ *
+ * Reading it here runs that require while the module system is still alive and
+ * leaves `projectRef` holding an ordinary reference to the constructor.
+ */
+const URLCtor = URL;
+
 const url = () => process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const anonKey = () => process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
@@ -50,7 +70,7 @@ export function projectRef(): string | null {
   const raw = url();
   if (!raw) return null;
   try {
-    return new URL(raw).hostname.split('.')[0] || null;
+    return new URLCtor(raw).hostname.split('.')[0] || null;
   } catch {
     return null;
   }
