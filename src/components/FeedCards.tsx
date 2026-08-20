@@ -5,7 +5,8 @@
 import React from 'react';
 import { View } from 'react-native';
 import { Image } from 'expo-image';
-import { color, onDark, shadows } from '../theme/tokens';
+import { onDark, shadows } from '../theme/tokens';
+import { useColors } from '../theme/ThemeProvider';
 import {
   AUDIENCE_LABEL,
   BIG_CARD_BASE_CHEERS,
@@ -70,6 +71,7 @@ export const MineRow = React.memo(function MineRow({
   onToggle: (id: string) => void;
   onOpen: (id: string) => void;
 }) {
+  const color = useColors();
   const showAud = task.aud !== 'friends';
   return (
     <GradientHairline radius={21} style={{ marginBottom: CARD_GAP, ...shadows.card }}>
@@ -196,6 +198,7 @@ export const BigCard = React.memo(function BigCard({
   onComment: () => void;
   onCosign: () => void;
 }) {
+  const color = useColors();
   // The only card in this file that names a person it wasn't handed a name for:
   // a moment carries an id, and the feed has no display string to pass down.
   const people = usePeople();
@@ -267,6 +270,7 @@ export const BigCard = React.memo(function BigCard({
 });
 
 function Stat({ value, label, accent }: { value: string; label: string; accent?: boolean }) {
+  const color = useColors();
   return (
     <View>
       <Bri size={16} weight={800} color={accent ? color.lime : color.paper}>
@@ -290,6 +294,7 @@ function Stat({ value, label, accent }: { value: string; label: string; accent?:
  * there is one pill in this app rather than two that nearly match.
  */
 function SourceBadge({ label, dark }: { label: string; dark?: boolean }) {
+  const color = useColors();
   return (
     <View
       style={{
@@ -349,6 +354,7 @@ export const SocialCard = React.memo(function SocialCard({
   onComment: () => void;
   cta?: { label: string; onPress: () => void; style: 'lime' | 'inkOnLime' };
 }) {
+  const color = useColors();
   const quoteRule = tint ?? (who ? undefined : color.chip);
 
   return (
@@ -441,6 +447,7 @@ export const QuietRow = React.memo(function QuietRow({
   acted: boolean;
   onAct: () => void;
 }) {
+  const color = useColors();
   return (
     <View style={[row, { gap: 9, paddingVertical: 2, paddingHorizontal: 4, marginBottom: CARD_GAP }]}>
       <Sans size={13} color={color.quietText} style={fill}>
@@ -476,6 +483,7 @@ export const MineWinCard = React.memo(function MineWinCard({
   shared: boolean;
   onShare: () => void;
 }) {
+  const color = useColors();
   return (
     <GradientHairline radius={25} variant="dark" style={{ marginBottom: CARD_GAP }}>
       <View
@@ -561,6 +569,7 @@ export function EmptyState({
   cta?: string;
   onPress?: () => void;
 }) {
+  const color = useColors();
   return (
     <View style={{ alignItems: 'center', paddingVertical: 34, paddingHorizontal: 20 }}>
       <Bri size={18} weight={800} tracking={-0.3} style={{ textAlign: 'center' }}>

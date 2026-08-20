@@ -9,8 +9,8 @@
 import React, { useEffect, useState } from 'react';
 import { Animated, ScrollView, StatusBar, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { color, gutter } from './theme/tokens';
-import { ThemeProvider } from './theme/ThemeProvider';
+import { gutter } from './theme/tokens';
+import { ThemeProvider, useColors } from './theme/ThemeProvider';
 import { sheetEasing, useReducedMotion } from './theme/motion';
 import { StoreProvider, useStore, Config, State } from './state/store';
 import { Header } from './shell/Header';
@@ -109,6 +109,7 @@ export function App({
 }
 
 function Shell() {
+  const color = useColors();
   const { state } = useStore();
   const insets = useSafeAreaInsets();
 
