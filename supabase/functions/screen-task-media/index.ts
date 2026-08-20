@@ -211,6 +211,15 @@ Deno.serve(async (req) => {
     return json({ state: 'ready' });
   }
 
+  // Same as the `mark_task_media_ready` failure above, and for the same reason:
+  // the row is still `pending`, which is unreadable to everyone but its owner,
+  // so saying `waiting` costs a retry and keeps the photo. Deleting here would
+  // destroy a picture the model never actually looked at.
+  if (verdict === 'unproven') {
+    console.warn(`screen-task-media: screener unreachable for ${mediaId} — left pending to retry`);
+    return json({ state: 'waiting' });
+  }
+
   // The model's words stay in the log. The client shows `IMAGE_BLOCKED_COPY`,
   // which does not explain and does not argue — see `imageVerdict.mjs`.
   console.warn(

@@ -185,10 +185,21 @@ Deno.serve(async (req) => {
     return json({ state: 'ready' });
   }
 
+  // Nothing was learned about this picture, so nothing is decided about it.
+  // The row stays `pending`, which renders initials exactly as a refusal does —
+  // the image is no more visible than it would have been — and the object
+  // survives, so there is still something to judge when the screener is back.
+  // `resumePendingAvatar` asks again on the next launch; this is the state its
+  // comment was written for.
+  if (verdict === 'unproven') {
+    console.warn(`screen-image: screener unreachable for ${userId} — left pending to retry`);
+    return json({ state: 'pending' });
+  }
+
   // The model's words, in the log and nowhere else. Empty when the block came
-  // from a refusal or an outage, where nothing was said about the picture at
-  // all — which is worth being able to tell apart when reading these back, so
-  // the status is named alongside it.
+  // from a refusal, where nothing was said about the picture at all — which is
+  // worth being able to tell apart when reading these back, so the status is
+  // named alongside it.
   console.warn(
     `screen-image: blocked for ${userId} — screening ${screened.status}${reason ? `: ${reason}` : ''}`,
   );
