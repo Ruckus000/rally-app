@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { ScrollView, View } from 'react-native';
-import { gutter, radius, shadows } from '../theme/tokens';
+import { gutter, onDark, radius, shadows } from '../theme/tokens';
 import { useColors } from '../theme/ThemeProvider';
 import { NOTIF_TIERS, Notification, NotifTier } from '../data/fixtures';
 import { EmptyState } from '../components/FeedCards';
@@ -115,7 +115,7 @@ export function NotificationsOverlay({
               {f.k !== 'all' && count > 0 ? (
                 <View
                   style={{
-                    backgroundColor: on ? 'rgba(241,242,236,.18)' : color.limeTintChip,
+                    backgroundColor: on ? onDark.fillBold : color.limeTintChip,
                     borderRadius: 999,
                     paddingHorizontal: 6,
                     paddingVertical: 1,

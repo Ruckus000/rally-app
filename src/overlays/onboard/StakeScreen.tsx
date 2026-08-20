@@ -135,7 +135,7 @@ export function StakeScreen({
               height: 46,
               borderRadius: 14,
               borderWidth: 1,
-              borderColor: 'rgba(241,242,236,.14)',
+              borderColor: onDark.hairlineStrong,
               backgroundColor: onDark.fill,
               paddingHorizontal: 15,
               fontFamily: 'InstrumentSans_400Regular',
@@ -153,8 +153,8 @@ export function StakeScreen({
               alignItems: 'center',
               justifyContent: 'center',
               borderWidth: 1,
-              borderColor: 'rgba(195,245,60,.4)',
-              backgroundColor: 'rgba(195,245,60,.1)',
+              borderColor: onDark.limeEdgeSoft,
+              backgroundColor: onDark.limeWash,
             }}
           >
             <Icon name="plus" size={16} color={color.lime} strokeWidth={2.4} />

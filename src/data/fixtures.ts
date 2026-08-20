@@ -6,6 +6,7 @@
  * their week's numbers live in `people.ts`, because live mode has to answer the
  * same questions for ids these fixtures have never heard of.
  */
+import { lightColors } from '../theme/tokens';
 import { SELF_DEMO_ID, type PersonId } from './people';
 import type { DayIndex } from './week';
 
@@ -711,7 +712,7 @@ export const NOTIF_TIERS: { key: NotifTier; title: string; accent: string; blurb
   {
     key: 'needs',
     title: 'NEEDS YOU',
-    accent: '#C3F53C',
+    accent: lightColors.lime,
     blurb: 'Someone is waiting on a word from you.',
   },
   {

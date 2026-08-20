@@ -89,7 +89,7 @@ export function PillButton({
         gap: 9,
         backgroundColor: bg,
         ...(variant === 'outline' && !disabled
-          ? { borderWidth: 1, borderColor: 'rgba(241,242,236,.22)' }
+          ? { borderWidth: 1, borderColor: onDark.hairlineBold }
           : null),
         ...style,
       }}
@@ -174,8 +174,8 @@ export function CommitmentRow({
         paddingVertical: 12,
         borderRadius: 17,
         borderWidth: 1,
-        borderColor: selected ? 'rgba(195,245,60,.5)' : 'rgba(241,242,236,.1)',
-        backgroundColor: selected ? 'rgba(195,245,60,.09)' : onDark.fillFaint,
+        borderColor: selected ? onDark.limeEdge : onDark.hairline,
+        backgroundColor: selected ? onDark.limeWash : onDark.fillFaint,
       }}
     >
       <View
@@ -186,7 +186,7 @@ export function CommitmentRow({
           alignItems: 'center',
           justifyContent: 'center',
           borderWidth: 1.5,
-          borderColor: selected ? color.lime : 'rgba(241,242,236,.25)',
+          borderColor: selected ? color.lime : onDark.hairlineBold,
           backgroundColor: selected ? color.lime : 'transparent',
         }}
       >
@@ -383,7 +383,7 @@ function Dot({ on, done, dark }: { on: boolean; done: boolean; dark: boolean }) 
     ? color.lime
     : done
       ? dark
-        ? 'rgba(195,245,60,.45)'
+        ? onDark.limeEdgeSoft
         : color.dotDone
       : dark
         ? onDark.hairlineStrong
@@ -431,7 +431,7 @@ export function OnboardHeader({
           justifyContent: 'center',
           borderWidth: 1,
           borderColor: dark ? onDark.hairlineStrong : color.divider,
-          backgroundColor: dark ? 'rgba(241,242,236,.06)' : color.card,
+          backgroundColor: dark ? onDark.fill : color.card,
         }}
       >
         <Icon name="chevronLeft" size={15} color={dark ? color.paper : color.ink} />
@@ -607,7 +607,7 @@ function Segment({ on, index, height }: { on: boolean; index: number; height: nu
         height,
         borderRadius: 999,
         overflow: 'hidden',
-        backgroundColor: 'rgba(241,242,236,.12)',
+        backgroundColor: onDark.fillStrong,
       }}
     >
       {on ? (

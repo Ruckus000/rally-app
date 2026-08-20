@@ -63,7 +63,7 @@ export const lightColors = {
   onboardBg: '#101408',
   /** Inset field inside an already-white card, where `card` would disappear. */
   inputFill: '#F7F8F3',
-  /** A step already behind you, on light. Lime at .45 does this on dark. */
+  /** A step already behind you, on light. `onDark.limeEdgeSoft` does it on dark. */
   dotDone: '#B9C2A8',
   /** A control that is present but not yet earned — fill under `faintInk`. */
   disabledFill: 'rgba(25,30,22,.08)',
@@ -77,7 +77,54 @@ export const lightColors = {
  */
 export const color = lightColors;
 
-/** Text on dark. Never go below .45 — that floor passes contrast on small caps. */
+/**
+ * Everything drawn on a ground that is dark in both schemes.
+ *
+ * `planBg`, `planCard`, `onboardBg`, the tab bar and every `ink` card stay
+ * near-black whichever palette is in force, so nothing in here has a light
+ * counterpart and nothing in here comes through a hook. That is the whole
+ * reason this is a plain module export sitting outside the palette: there is
+ * no second value for a scheme to choose between.
+ *
+ * **Text is the handoff's, verbatim.** `.45` tertiary, `.55` secondary, `.62`
+ * body-secondary, `1.0` primary, and never below `.45` — that floor was set to
+ * pass contrast on small caps labels. `bodyStrong` at `.85` is the one rung
+ * that is ours, filling the gap the handoff leaves between body copy and a
+ * heading. Type belongs on one of those five and nowhere between them. The app
+ * had drifted to `.58`, `.60`, `.70`, `.72` and `.75` as well — five invented
+ * steps that made five labels look like five different intentions when all of
+ * them mean the same thing, "quieter than what is beside me".
+ *
+ * **Surfaces are ours.** The handoff names two paper alphas in the whole
+ * document and authors no border, fill, track or rule at all, so this ramp is
+ * a decision rather than a transcription — and the decision it replaces was
+ * fifteen alphas between `.035` and `.25`, most of them within a percentage
+ * point of a neighbour and none of them meaning anything the one beside it did
+ * not. Six do that work now: three edges at `.10 / .16 / .24`, each about half
+ * again the last, and four fills at `.04 / .06 / .10 / .16`, plus `dot`.
+ *
+ * The two ladders share their middle rungs deliberately. At equal alpha a 1px
+ * edge and a filled pill read as completely different weights, because weight
+ * on dark is alpha times area; holding them to the same numbers is what keeps
+ * a pill and the chip it sits inside from drifting apart the way `.08` and
+ * `.12` had, when both were drawing the same audience pill in two files.
+ *
+ * `dot` is named rather than numbered because it is not a surface — it is the
+ * 3px bullet between two runs of text in the points bar, and at 3px it needs
+ * about twice the strongest fill just to be visible. Reading it as text and
+ * snapping it to `.45` would be the opposite mistake: the contrast floor
+ * governs glyphs, and this is punctuation drawn as a box.
+ *
+ * **Lime is ours too**, and had eleven alphas from `.08` to `.75` for what is
+ * really five jobs: a wash over something already spent, the fill of a control
+ * in its after state, and an edge on something at rest, something current, or
+ * something selected right now.
+ *
+ * Every rung below is within two or three points of the values it replaced, so
+ * this is a tightening rather than a re-colouring — but it is a visual change,
+ * and the ordering is what was actually protected: wherever one thing was
+ * heavier than another before, it still is.
+ */
 export const onDark = {
   primary: color.paper,
   /** Body copy that has to hold its own against `primary` beside it. */
@@ -85,13 +132,63 @@ export const onDark = {
   bodySecondary: 'rgba(241,242,236,.62)',
   secondary: 'rgba(241,242,236,.55)',
   tertiary: 'rgba(241,242,236,.45)',
-  hairline: 'rgba(241,242,236,.11)',
-  /** A border that has to be seen, not just felt: buttons, inactive dots. */
+
+  /** An edge you feel rather than see: a rule, a divider, a chip at rest. */
+  hairline: 'rgba(241,242,236,.10)',
+  /** An edge that has to be seen: buttons, inputs, the empty-state dash. */
   hairlineStrong: 'rgba(241,242,236,.16)',
-  /** The two fill steps under a hairline: resting control, and its track. */
-  fill: 'rgba(241,242,236,.05)',
+  /** The loudest edge on dark — an outline button, an unticked checkbox. */
+  hairlineBold: 'rgba(241,242,236,.24)',
+
+  /** An unselected chip, which must not compete with its selected sibling. */
   fillFaint: 'rgba(241,242,236,.04)',
+  /** A control at rest: chip, icon button, list row, a disabled CTA. */
+  fill: 'rgba(241,242,236,.06)',
+  /** A fill that has to read on top of another fill — a small pill, a track. */
+  fillStrong: 'rgba(241,242,236,.10)',
+  /** A fill carrying an element on its own: a wide track, a pill on `ink`. */
+  fillBold: 'rgba(241,242,236,.16)',
+  /** The 3px bullet between two runs of text. Punctuation, not a surface. */
+  dot: 'rgba(241,242,236,.30)',
+
+  /** Lime already spent: a used suggestion, a row you have already picked. */
+  limeWash: 'rgba(195,245,60,.10)',
+  /** A lime control in its after state — posted, staked, chosen. */
+  limeFill: 'rgba(195,245,60,.16)',
+  /** A lime edge at rest: available to press, or done and behind you. */
+  limeEdgeSoft: 'rgba(195,245,60,.40)',
+  /** A lime edge on the thing that is current. */
+  limeEdge: 'rgba(195,245,60,.50)',
+  /** A lime edge on the thing selected right now. */
+  limeEdgeStrong: 'rgba(195,245,60,.72)',
+  /**
+   * The dark end of the Plan hero's progress gradient, whose other stop is
+   * `lime` itself. It is a real design value that never had a name: lime taken
+   * down to roughly two-fifths of its luminance so a bar with one goal on it
+   * still reads as a bar rather than as a lit sliver, while the full lime at
+   * the far end is what a full week arrives at.
+   */
+  limeDeep: '#6E9418',
 } as const;
+
+/**
+ * The same colour at zero alpha — the stop a scrim has to start from.
+ *
+ * `'transparent'` is not that colour. React Native resolves it to black at
+ * zero alpha, so a gradient running from it to a coloured ground darkens
+ * through the middle. A scrim therefore has to name its ground twice, once
+ * solid and once invisible, and the Plan footer did the invisible half by
+ * hand-copying `planBg`'s channels into an `rgba(…)` triplet: two literals
+ * obliged to agree, one of which the palette could not reach. Nudge `planBg`
+ * and the footer silently grows a coloured fringe. This derives the fade from
+ * whatever the ground actually is, so there is only one value to change.
+ */
+export const fadeOut = (hex: string): string => {
+  const h = hex.replace('#', '');
+  const full = h.length < 6 ? h.slice(0, 3).replace(/./g, (c) => c + c) : h.slice(0, 6);
+  const n = parseInt(full, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},0)`;
+};
 
 /**
  * Avatar tints. The demo circle carries its own tint per person, straight from

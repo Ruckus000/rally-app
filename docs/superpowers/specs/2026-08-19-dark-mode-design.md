@@ -147,3 +147,146 @@ adding the override later.
 - The `personTints` question above.
 - Whether the gradient hairline and glow bloom — both tuned against paper — hold on the
   new ground, or need their own dark values.
+
+---
+
+# Addendum — 2026-08-20, after PRs 1–5
+
+The five mechanism PRs are merged. Every source file reads the palette from context;
+the only remaining importer of the static `color` is one test that holds it on purpose
+as the light-palette reference.
+
+What was "PR 6: the dark palette and the control" turns out to be four things. A full
+literal audit — every one of the 87 lint-flagged colours traced to the surface it is
+actually drawn on — is what forced the split.
+
+## The finding that reshaped the plan
+
+**Of 87 flagged literals, 55 sit on surfaces that are dark in both schemes and need no
+dark value at all.** The books close as 91 warnings = 4 in test fixtures + 87 in source,
+and 87 = 55 always-dark + 28 that flip + 4 Google brand hexes. `PlanOverlay` holds 34 of them and every one is on `planBg` or
+`planCard`; the file with the most colour in it needs none of it changed. Only 28
+literals actually flip.
+
+That means the work separates cleanly into "things that must be named" and "things that
+must be decided", and only the second is a design change.
+
+## Three things the audit found that were not on any list
+
+1. **`shadows` is invisible to the linter.** Nine module-level constants built from
+   `rgb(25,30,22)`, `rgb(10,14,6)` and `rgb(0,0,0)`, used 18 times across 12 components.
+   The colour-literal rule exempts `src/theme/` by design, so nothing flags them. An ink
+   shadow at 5% opacity does nothing on a dark ground — every card in the app silently
+   loses its elevation, with no warning and no failing test. **Decided:** elevation on
+   dark becomes a raised surface rather than a cast shadow, and `shadows` joins the
+   `Theme` object so its dark set can go to near-zero.
+
+2. **`ink` and `paper` each do two jobs that dark forces apart.** `ink` is primary text
+   *and* the ink-card fill; `paper` is the app ground *and* `onDark.primary`, the text on
+   those cards. In light both readings coincide, which is why one token has served. In
+   dark they move in opposite directions. **Decided:** split into explicit surface and
+   text keys. 92 `color.ink` reads and 48 `color.paper` reads have to be classified, and
+   the classification is a judgement per site — the two meanings are distinguishable only
+   by reading the surrounding JSX, so this cannot be a codemod.
+
+3. **`personTints` is two palettes, not one.** The seven in `tokens.ts` are byte-identical
+   to the seven demo-circle tints in `data/people.ts`, in the same order — a straight
+   duplication. But `data/people.ts` carries four more for the Oz bots, and two of those
+   are hues (`#D8C9E0` lilac, `#C9DCE0` pale blue) that `personTints` does not contain at
+   all. Ten distinct values across two sets. A hue-agnostic luminance transform covers
+   both; a hand-tuned per-swatch pass would have to be done twice. `#E0E6D3` appears a
+   third time, inlined, at `kit.tsx:311`.
+
+## Decisions taken
+
+- **`personTints`:** darken the discs and lighten the initials. `avatarText` moves with
+  them, as one decision — the tints and the text on them cannot be settled separately.
+- **The control:** follow the system by default, with a System / Light / Dark override in
+  Settings.
+- **`ink`/`paper`:** split into surface and text tokens.
+- **Elevation:** raised surfaces on dark; shadows recede.
+
+## The remaining sequence
+
+PRs 1–5 were all reviewable by one rule: nothing may look different. **6a is the first
+step where that stops being true**, and it is worth being exact about why, because the
+rule is otherwise doing a lot of work.
+
+6b still changes nothing on screen. 6a changes a little, on purpose.
+
+**6a — name the always-dark literals.** Extend the `onDark` ramp and fold in the 55
+literals that sit on always-dark surfaces.
+
+The reason this cannot be a pure rename is `HANDOFF.md` line 52. It authors the on-dark
+alpha ramp **for text only** — `.45` tertiary, `.55` secondary, `.62` body-secondary,
+`1.0` primary — and names just two paper-alpha values in the entire document. So the
+literals divide by whether anyone ever designed them:
+
+- **Text rungs are authored, and the app is off them.** Labels are drawn at `.58`, `.60`,
+  `.70`, `.72` and `.75`, all invented steps between the authored `.62` and `1.0`.
+  Snapping each to the nearest real rung is not a design change; it is removing a
+  deviation. Six sites, one of which moves *up*.
+- **Surface rungs are not authored at all.** Borders, fills and tracks span fifteen values
+  from `.035` to `.25` — incidental, not designed. `PlanOverlay` gives four chip families
+  four different border alphas for the same visual job. Consolidating them into a small
+  set of named steps is straightforwardly correct.
+
+So roughly forty values move, most by one or two points of alpha. **The invariant is
+ordering, not identity:** wherever one thing read heavier than another, it still must.
+That is the property to check, and it is checkable on a device in a way that "is this
+`.07` or `.06`" is not.
+
+Clears 55 of 87 warnings, so the palette PR's diff contains only lines that alter
+appearance. The remaining 32 are the 28 that flip plus the four Google brand hexes, which
+`eslint.config.js` already rules are a lockup rather than theme values and wants
+suppressed at the call site.
+
+**6b — split `ink` and `paper`.** 140 reads, each classified as surface or text. Both new
+keys hold the identical value in the light palette, so this too is verifiable by nothing
+looking different. Doing it *before* the palette is the point: otherwise 6c performs 140
+judgements and a design change at once, which is the mixture that produces silent
+wrongness.
+
+**6c — the dark palette.** The 28 flips, the palette keys, the tints, `yearLevelColor`,
+`hairlineGradient.light`, `shadows`, and the two `StatusBar` sites. The only PR where
+anything is meant to look different, and the one needing a device pass in both schemes.
+
+**6d — the Settings override.** The control and its persistence. Kept separate because
+"does dark mode look right" is a design review and "does the override survive a relaunch"
+is a state review, and they want different scrutiny.
+
+## Two mechanical notes for 6c
+
+- **`hairlineGradient`'s `light`/`dark` keys mean *surface*, not scheme** — which card the
+  hairline is drawn around. Only `light` needs a dark-scheme variant; `dark` and
+  `composer` sit on `ink` and `planCard`, which do not move. Its sole consumer is
+  `GradientHairline` in `primitives.tsx`, which imports the gradient statically; moving it
+  onto the `Theme` object changes that one file and no call site. This is exactly what
+  the ThemeProvider docblock's "extra fields on that object" argument was for.
+- **Three module-level data structures carry colour outside React** and so cannot use a
+  hook: `hashTint`, the `tint:` fields baked into `DEMO_PEOPLE` and `OZ_PEOPLE`, and
+  `NOTIF_TIERS.accent` in `fixtures.ts`. For the tiers the cleanest fix is to drop
+  `accent` from the data entirely and put a key→colour lookup in the overlay, where the
+  hook is available. `NOTIF_TIERS` is also imported by `persistence.ts` and `mappers.ts`,
+  but both read only `.key`.
+
+## Test blast radius for 6c
+
+Two files, and both are legitimate to edit — this is the one PR where the tests are
+supposed to change, because they currently assert that dark *is* light.
+
+`theme/__tests__/theme.test.tsx`: one test dies outright (`resolves dark to the light
+palette, because there is no dark one yet`) and should be inverted into an assertion that
+the palettes genuinely differ, share a key set, and agree on the keys that must not
+move — `lime`, `planBg`, `planCard`, `onboardBg`, `tabbar`. That last part is the test
+that protects the invariant this whole design rests on.
+
+`components/__tests__/themedLeaves.test.tsx` runs every case three times over
+`[undefined, 'light', 'dark']` and asserts against `color.*` in all three. The fix is
+structural rather than per-assertion: parameterise the expected palette alongside the
+wrapping, so the claim becomes "the token the *active* scheme defines" instead of "the
+same token whatever the scheme". That converts five dying assertions into five that
+actually test the mechanism.
+
+Two tests survive only because `lime` is scheme-invariant and should say so, or they
+become a confusing failure the day someone tries a dark-scheme lime.
