@@ -5,6 +5,7 @@ import React from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
+  fadeOut,
   gradientAngle,
   heroGlow,
   onDark,
@@ -115,8 +116,8 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
             height: 38,
             borderRadius: 19,
             borderWidth: 1,
-            borderColor: 'rgba(241,242,236,.16)',
-            backgroundColor: 'rgba(241,242,236,.06)',
+            borderColor: onDark.hairlineStrong,
+            backgroundColor: onDark.fill,
             alignItems: 'center',
             justifyContent: 'center',
           }}
@@ -171,12 +172,12 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
             marginTop: 16,
             height: 9,
             borderRadius: 999,
-            backgroundColor: 'rgba(241,242,236,.09)',
+            backgroundColor: onDark.fillStrong,
             overflow: 'hidden',
           }}
         >
           <LinearGradient
-            colors={['#6E9418', color.lime]}
+            colors={[onDark.limeDeep, color.lime]}
             {...gradientAngle(90)}
             style={{
               height: '100%',
@@ -207,7 +208,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                 paddingVertical: 6,
                 minHeight: 32,
                 justifyContent: 'center',
-                backgroundColor: over ? color.lime : 'rgba(241,242,236,.07)',
+                backgroundColor: over ? color.lime : onDark.fill,
               }}
             >
               <Bri size={10} weight={800} tracking={1} color={over ? color.ink : onDark.secondary}>
@@ -292,14 +293,14 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                       justifyContent: 'center',
                       gap: 3,
                       borderWidth: 1,
-                      borderColor: on ? 'rgba(195,245,60,.75)' : 'rgba(241,242,236,.09)',
-                      backgroundColor: on ? 'rgba(195,245,60,.16)' : 'rgba(241,242,236,.035)',
+                      borderColor: on ? onDark.limeEdgeStrong : onDark.hairline,
+                      backgroundColor: on ? onDark.limeFill : onDark.fillFaint,
                     }}
                   >
-                    <Bri size={11.5} weight={800} lineHeight={12} color={on ? color.lime : 'rgba(241,242,236,.58)'}>
+                    <Bri size={11.5} weight={800} lineHeight={12} color={on ? color.lime : onDark.secondary}>
                       {name.slice(0, 1)}
                     </Bri>
-                    <Bri size={10} weight={700} lineHeight={11} color={on ? color.lime : 'rgba(241,242,236,.45)'}>
+                    <Bri size={10} weight={700} lineHeight={11} color={on ? color.lime : onDark.tertiary}>
                       {count ? String(count) : '·'}
                     </Bri>
                   </Tap>
@@ -324,11 +325,11 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                       minHeight: 36,
                       justifyContent: 'center',
                       borderWidth: 1,
-                      borderColor: on ? 'transparent' : 'rgba(241,242,236,.12)',
-                      backgroundColor: on ? color.lime : 'rgba(241,242,236,.05)',
+                      borderColor: on ? 'transparent' : onDark.hairline,
+                      backgroundColor: on ? color.lime : onDark.fill,
                     }}
                   >
-                    <Sans size={12.5} weight={700} color={on ? color.ink : 'rgba(241,242,236,.70)'}>
+                    <Sans size={12.5} weight={700} color={on ? color.ink : onDark.bodySecondary}>
                       {c}
                     </Sans>
                   </Tap>
@@ -356,11 +357,11 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                         minHeight: 36,
                         justifyContent: 'center',
                         borderWidth: 1,
-                        borderColor: on ? 'transparent' : 'rgba(241,242,236,.14)',
-                        backgroundColor: on ? color.lime : 'rgba(241,242,236,.05)',
+                        borderColor: on ? 'transparent' : onDark.hairlineStrong,
+                        backgroundColor: on ? color.lime : onDark.fill,
                       }}
                     >
-                      <Sans size={11.5} weight={700} color={on ? color.ink : 'rgba(241,242,236,.75)'}>
+                      <Sans size={11.5} weight={700} color={on ? color.ink : onDark.bodyStrong}>
                         {AUDIENCE_WORD[a]}
                       </Sans>
                     </Tap>
@@ -391,15 +392,15 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                       paddingVertical: 5,
                       minHeight: 36,
                       borderWidth: 1,
-                      borderColor: on ? 'rgba(195,245,60,.7)' : 'rgba(241,242,236,.10)',
-                      backgroundColor: on ? 'rgba(195,245,60,.14)' : 'rgba(241,242,236,.04)',
+                      borderColor: on ? onDark.limeEdgeStrong : onDark.hairline,
+                      backgroundColor: on ? onDark.limeFill : onDark.fillFaint,
                     }}
                   >
                     <Avatar who={k} size={20} />
                     <Sans
                       size={12.5}
                       weight={700}
-                      color={on ? color.lime : 'rgba(241,242,236,.72)'}
+                      color={on ? color.lime : onDark.bodySecondary}
                       numberOfLines={1}
                       style={{ maxWidth: 160 }}
                     >
@@ -427,7 +428,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                 marginTop: 16,
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: canStake ? color.lime : 'rgba(241,242,236,.07)',
+                backgroundColor: canStake ? color.lime : onDark.fill,
                 ...(canStake ? shadows.addCta : null),
               }}
             >
@@ -492,9 +493,9 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                   paddingTop: 13,
                   paddingHorizontal: 13,
                   paddingBottom: 12,
-                  backgroundColor: used ? 'rgba(195,245,60,.08)' : 'rgba(241,242,236,.05)',
+                  backgroundColor: used ? onDark.limeWash : onDark.fill,
                   borderWidth: 1,
-                  borderColor: used ? 'rgba(195,245,60,.35)' : 'rgba(241,242,236,.08)',
+                  borderColor: used ? onDark.limeEdgeSoft : onDark.hairline,
                 }}
               >
                 <View style={[row, { gap: 6 }]}>
@@ -519,7 +520,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                     minHeight: 36,
                     alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: used ? 'rgba(195,245,60,.16)' : color.lime,
+                    backgroundColor: used ? onDark.limeFill : color.lime,
                   }}
                 >
                   <Bri size={12.5} weight={800} color={used ? color.lime : color.ink}>
@@ -562,9 +563,9 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                 style={{
                   ...row,
                   gap: 10,
-                  backgroundColor: 'rgba(241,242,236,.05)',
+                  backgroundColor: onDark.fill,
                   borderWidth: 1,
-                  borderColor: 'rgba(241,242,236,.07)',
+                  borderColor: onDark.hairline,
                   borderRadius: 18,
                   paddingVertical: 11,
                   paddingHorizontal: 13,
@@ -609,7 +610,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                     paddingVertical: 8,
                     minHeight: 36,
                     justifyContent: 'center',
-                    backgroundColor: 'rgba(241,242,236,.08)',
+                    backgroundColor: onDark.fillStrong,
                   }}
                 >
                   <Sans size={10.5} weight={700} color={onDark.bodySecondary}>
@@ -640,7 +641,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
               style={{
                 borderWidth: 1,
                 borderStyle: 'dashed',
-                borderColor: 'rgba(241,242,236,.15)',
+                borderColor: onDark.hairlineStrong,
                 borderRadius: 16,
                 paddingVertical: 16,
                 paddingHorizontal: 10,
@@ -656,7 +657,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
 
       {/* footer with gradient scrim */}
       <LinearGradient
-        colors={['rgba(18,23,15,0)', color.planBg]}
+        colors={[fadeOut(color.planBg), color.planBg]}
         locations={[0, 0.38]}
         style={{ paddingTop: 14, paddingHorizontal: planGutter, paddingBottom: Math.max(bottomInset, 20) + 14 }}
       >
@@ -762,7 +763,7 @@ function SectionRule({ label, children }: { label: string; children?: React.Reac
       <Caps size={10} tracking={1.5} color={onDark.secondary}>
         {label}
       </Caps>
-      <View style={{ height: 1, flex: 1, backgroundColor: 'rgba(241,242,236,.08)' }} />
+      <View style={{ height: 1, flex: 1, backgroundColor: onDark.hairline }} />
       {children}
     </View>
   );
