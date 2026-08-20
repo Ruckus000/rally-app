@@ -5,7 +5,8 @@
  */
 import React, { useState } from 'react';
 import { ScrollView, TextInput, View } from 'react-native';
-import { color, shadows } from '../../theme/tokens';
+import { shadows } from '../../theme/tokens';
+import { useColors } from '../../theme/ThemeProvider';
 import { Icon } from '../../components/Icon';
 import { Bri, Caps, Sans, Tap, fill, row } from '../../components/primitives';
 import { Trouble } from '../../components/Trouble';
@@ -29,6 +30,7 @@ export function CircleScreen({
   busy?: boolean;
   error?: string | null;
 }) {
+  const color = useColors();
   const [open, setOpen] = useState<'code' | 'create' | null>(null);
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
@@ -184,6 +186,8 @@ function SmallButton({
   onPress: () => void;
   paddingHorizontal: number;
 }) {
+  const color = useColors();
+
   return (
     <Tap
       onPress={onPress}
