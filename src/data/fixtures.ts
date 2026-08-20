@@ -255,6 +255,14 @@ export type Moment = {
   cat?: Category;
   backers?: PersonId[];
   cmts?: Note[];
+  /**
+   * The photo on the goal behind this, when there is one and you may see it.
+   *
+   * Only ever the `url` half of `TaskMedia` — `localUri` is this device's own
+   * file, and a moment is always somebody else's. Signed per pull and never
+   * persisted; see `lib/mediaUrl.ts`.
+   */
+  media?: TaskMedia;
 };
 
 export const MOMENTS: Moment[] = [

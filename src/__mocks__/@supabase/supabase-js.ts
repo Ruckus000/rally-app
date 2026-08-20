@@ -283,9 +283,33 @@ const SCHEMA: Record<string, TableSpec> = {
       path: { notNull: true },
       width: {},
       height: {},
+      // The screening gate. Defaulted, because a client cannot write it — the
+      // column is outside the INSERT grant and only `mark_task_media_ready`
+      // moves it. Modelled here rather than left out for the reason
+      // `device_tokens` gives: a fake missing a column fails by swallowing, and
+      // this is the column that decides whether anyone but the owner sees the
+      // photo at all.
+      state: { default: () => 'pending' },
       created_at: { default: () => now() },
     },
-    unique: [{ name: 'task_media_task_id_key', cols: ['task_id'] }],
+    unique: [
+      { name: 'task_media_task_id_key', cols: ['task_id'] },
+      { name: 'task_media_path_idx', cols: ['path'] },
+    ],
+    checks: [
+      {
+        name: 'task_media_state_known',
+        ok: (r) => ['pending', 'ready'].includes(String(r.state ?? 'pending')),
+      },
+      {
+        // `<owner>/<task>/<id>.jpg`, the row's own three ids and nothing else.
+        // Not decoration: `screen-task-media` holds the service role and both
+        // downloads and deletes this path, so a client-chosen string here is
+        // how one account would have another account's photo deleted.
+        name: 'task_media_path_is_its_own',
+        ok: (r) => r.path === `${r.owner_id}/${r.task_id}/${r.id}.jpg`,
+      },
+    ],
   },
 
   // The token is the primary key, exactly as in the migration: it names one
@@ -1184,6 +1208,20 @@ const RPC: Record<string, (args: Row) => unknown> = {
       cheerCounts[id] = (cheerCounts[id] ?? 0) + 1;
     }
 
+    // Photos on any goal this pull gathered. Null when there is no week to ask
+    // about, exactly as `my_tasks` is: the client reads empty as "these goals
+    // have none" and acts on it by removing photos, so the two must not be the
+    // same value here either.
+    //
+    // No filtering by `state` and none by audience, for the reason this whole
+    // file gives: there is no RLS here. The real answer is `task_media_select`,
+    // and a test that a `pending` photo or a blocked person's photo stays
+    // hidden belongs in `integration/rls/task_media.test.ts` — asserting it
+    // against this double would pass for the wrong reason.
+    const media = weekStart
+      ? rowsOf('task_media').filter((m) => pulledIds.has(m.task_id))
+      : null;
+
     return {
       people,
       bots,
@@ -1191,6 +1229,7 @@ const RPC: Record<string, (args: Row) => unknown> = {
       notifications,
       my_tasks: myTasks,
       owner_tasks: ownerTasks,
+      media,
       reactions: myReactions,
       notes,
       rollups,
@@ -1302,6 +1341,14 @@ const RPC: Record<string, (args: Row) => unknown> = {
  * same integration file — and `media.detach` leans on it, because a photo
  * taken back seconds after it was picked never reached the bucket at all.
  */
+/**
+ * A URL that is stable for a given name and expiry, so a test can assert that
+ * two pulls handed back the *same* string — which is what the change-detection
+ * downstream actually depends on, and what a `Math.random()` here would hide.
+ */
+const signedFor = (bucket: string, name: string, seconds: number): string =>
+  `https://storage.test/${bucket}/${name}?exp=${seconds}`;
+
 function makeStorage() {
   return {
     from(bucket: string) {
@@ -1323,6 +1370,30 @@ function makeStorage() {
           state.calls.push({ method: 'storage.remove', table: bucket, body: { paths } });
           const gone = paths.filter((p) => bucketNames.delete(p));
           return { data: gone.map((name) => ({ name })), error: null };
+        },
+
+        // Signing does not check that the object exists, and the real one does
+        // not either — a signature is a claim about a name, and a URL for a
+        // missing object 404s when it is followed rather than when it is made.
+        // What it *does* enforce is the shape callers depend on: `seconds`
+        // present, and one entry per path in the order asked.
+        async createSignedUrl(name: string, seconds: number) {
+          if (state.offline) throw new TypeError('Network request failed');
+          state.calls.push({ method: 'storage.sign', table: bucket, body: { name, seconds } });
+          return { data: { signedUrl: signedFor(bucket, name, seconds) }, error: null };
+        },
+
+        async createSignedUrls(names: string[], seconds: number) {
+          if (state.offline) throw new TypeError('Network request failed');
+          state.calls.push({ method: 'storage.signMany', table: bucket, body: { names, seconds } });
+          return {
+            data: names.map((name) => ({
+              path: name,
+              signedUrl: signedFor(bucket, name, seconds),
+              error: null,
+            })),
+            error: null,
+          };
         },
       };
     },

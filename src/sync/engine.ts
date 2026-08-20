@@ -16,7 +16,7 @@
  * is identical is a row that was not touched.
  */
 import type { Dispatch } from 'react';
-import type { Moment, Note, Task } from '../data/fixtures';
+import type { Moment, Note, Task, TaskMedia } from '../data/fixtures';
 import type { Person, PersonId } from '../data/people';
 import type { WeekContext } from '../data/week';
 import type { Action, CircleRef, ServerMerge, State } from '../state/store';
@@ -43,9 +43,11 @@ import {
   dropMediaFor,
   drainMedia,
   onMediaBlocked,
+  pendingMedia,
   type MediaTransport,
 } from './media';
 import { forgetLocalPhotoAt } from '../lib/localPhoto';
+import { signMediaUrls } from '../lib/mediaUrl';
 import { IMAGE_BLOCKED_COPY } from '../../supabase/functions/_shared/imageVerdict.mjs';
 import {
   diffActed,
@@ -55,7 +57,7 @@ import {
   type ReactionRef,
 } from './reactions';
 import { syncRealtime, stopRealtime } from './realtime';
-import { reconcileTasks } from './reconcile';
+import { reconcileMedia, reconcileTasks } from './reconcile';
 import { startScheduler, stopScheduler } from './scheduler';
 import { currentUserId, onSessionChange, reportAuthFailure } from './session';
 import {
@@ -235,6 +237,21 @@ const NOTIFICATION_MAX = 50;
  * and `time` is recomputed from the clock each time — so comparing by reference
  * (or including `time`) would report a change every minute and re-render every
  * screen for nothing.
+ *
+ * The photo is compared by **id and url**, and both halves are needed.
+ *
+ * Without the id, a photo replaced on someone else's phone keeps the old one on
+ * the screen here. Without the url, two things break: a photo attached to a goal
+ * that is otherwise unchanged — which is every photo, since the row syncs when
+ * the goal is staked and the picture arrives minutes later — never reaches the
+ * feed at all; and a url that was signed on the *second* attempt, because the
+ * first pull could not reach Storage, never replaces the one that was missing.
+ *
+ * Comparing the url is only affordable because `lib/mediaUrl.ts` caches: the
+ * string is stable for fifty-five minutes, so this reports a change when the
+ * photo changes and roughly once an hour otherwise. Signing per pull instead
+ * would make every card differ on every pull, which is the exact thing the
+ * paragraph above exists to prevent.
  */
 const sameMoments = (a: Moment[], b: Moment[]): boolean =>
   a.length === b.length &&
@@ -247,7 +264,9 @@ const sameMoments = (a: Moment[], b: Moment[]): boolean =>
       m.title === other.title &&
       m.pts === other.pts &&
       m.day === other.day &&
-      m.cheers === other.cheers
+      m.cheers === other.cheers &&
+      m.media?.id === other.media?.id &&
+      m.media?.url === other.media?.url
     );
   });
 
@@ -305,6 +324,37 @@ export function dirtyTaskIds(): ReadonlySet<string> {
   for (const entry of pending()) {
     if (entry.key.startsWith(TASK_KEY)) ids.add(entry.key.slice(TASK_KEY.length));
   }
+  return ids;
+}
+
+/** `media:<uuid>` — what both media ops coalesce under. */
+const MEDIA_KEY = 'media:';
+
+/**
+ * The goals whose photo this device is still in the middle of changing.
+ *
+ * `dirtyTaskIds` cannot answer this. It reads the `task:` prefix, and an attach
+ * or a detach is keyed by the *media* id — so a goal with a photo half-way to
+ * the server reads as perfectly clean, and `reconcileMedia`'s clear-branch
+ * deletes the very photo that is on its way up.
+ *
+ * The union of two queues, and the second half is the load-bearing one. The
+ * upload lane writes `media.attach` into the outbox **after** the bytes land,
+ * so for the whole upload — and the whole screening wait after it — the outbox
+ * has never heard of that goal. A dirty set built from the outbox alone leaves
+ * exactly that window unguarded, which is most of a photo's life.
+ *
+ * Keyed by *task* rather than media id because that is the question being
+ * asked: not "is this photo in flight" but "may a pull speak for this goal".
+ */
+export function dirtyMediaTaskIds(): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const entry of pending()) {
+    if (!entry.key.startsWith(MEDIA_KEY)) continue;
+    const taskId = entry.payload.taskId;
+    if (typeof taskId === 'string' && taskId) ids.add(taskId);
+  }
+  for (const entry of pendingMedia()) ids.add(entry.taskId);
   return ids;
 }
 
@@ -1078,7 +1128,13 @@ export function createEngine(
             userId,
           );
 
-          return { people, bots, circle: myCircle, notifications, myTasks, ownerTasks, reactions, notes, rollups, cheerCounts };
+          // `null`, and never `[]`. This fallback exists for a server too old
+          // to have `pull_world` — which is a server older than `task_media`
+          // itself, so there is no table here to ask and no fourth wave worth
+          // writing. Empty would mean "these goals have no photos", which the
+          // merge treats as authoritative and acts on by deleting every photo
+          // this device holds, on every pull, for ever.
+          return { people, bots, circle: myCircle, notifications, myTasks, ownerTasks, media: null, reactions, notes, rollups, cheerCounts };
         })()),
       };
 
@@ -1089,6 +1145,7 @@ export function createEngine(
         notifications,
         myTasks: rows,
         ownerTasks: ownerRows,
+        media: mediaRows,
         reactions,
         notes,
         rollups,
@@ -1147,10 +1204,36 @@ export function createEngine(
       // who share a circle with you, plus the bots — so a feed of `everyone`
       // rows from *human* strangers would still be a list of people all called
       // "Someone", and is still not attempted.
+      // Photos, by the goal they hang off, with a URL on each.
+      //
+      // Signed here rather than in the transport so that `pullWorld` stays one
+      // round trip per method: a storage hiccup answering `{}` must not be
+      // mistakable for `pullWorld` returning null, which is remembered and
+      // permanently disables the fast path. `signMediaUrls` holds a cache, so
+      // in the steady state this makes no request at all — which matters,
+      // because realtime pulls far more often than `PULL_MS` suggests.
+      const byTask = new Map<string, TaskMedia>();
+      if (mediaRows) {
+        const urls = await signMediaUrls(mediaRows.map((m) => m.media.path));
+        for (const { taskId, media } of mediaRows) {
+          const url = urls[media.path];
+          // A path that would not sign is a goal with no photo this cycle, not
+          // a goal whose photo is broken: `TaskPhoto` renders nothing without a
+          // source, and the next pull asks again.
+          if (url) byTask.set(taskId, { ...media, url });
+        }
+      }
+
       const asMoment = (row: Record<string, unknown>) =>
-        taskRowToMoment(row, undefined, cheers[String(row.id)] ?? 0);
+        taskRowToMoment(row, undefined, cheers[String(row.id)] ?? 0, byTask.get(String(row.id)));
       const moments = friendRows.map(asMoment);
-      const globalPosts = botRows.map(asMoment);
+      // Bots get no photo, and the omission is deliberate. They do not attach
+      // one today, and the Global tab is the one feed with no audience behind
+      // it — rendering media there would be public image hosting by the back
+      // door, which is the thing `PhotoChip` refuses `everyone` goals to avoid.
+      const globalPosts = botRows.map((row) =>
+        taskRowToMoment(row, undefined, cheers[String(row.id)] ?? 0),
+      );
       // Your feed. Compared on ids alone: `time` is recomputed from the clock
       // on every pull, so comparing the rendered shape would report a change
       // every minute and re-render every screen for nothing.
@@ -1208,9 +1291,26 @@ export function createEngine(
       // list the reducer is about to fold them into, so this asks the reducer's
       // question rather than a stale version of it.
       const local = lastTasks;
-      if (rows && local && week === lastWeek) {
-        if (reconcileTasks(local, rows, dirtyTaskIds(), ackedTaskIds()) !== local) merge.tasks = rows;
-      }
+      // Reconciled once and reused: the media question below has to be asked
+      // about the list this merge will *produce*, not the one it started from.
+      // A goal staked on another phone arrives in the same pull as its photo,
+      // and testing the photo against the old list would find no such goal and
+      // hold the picture back until the pull after — which is the first launch
+      // on a new device, every time.
+      const tasksAfter = rows && local && week === lastWeek
+        ? reconcileTasks(local, rows, dirtyTaskIds(), ackedTaskIds())
+        : local;
+      if (tasksAfter && local && tasksAfter !== local) merge.tasks = rows ?? undefined;
+
+      // Photos on your own goals, asked separately for the reason `ServerMerge`
+      // gives: the picture is news on a beat the task row is not, so folding it
+      // into the test above would hide it exactly when it matters. Sent as the
+      // map, only when applying it would move something, and only when the
+      // pull could speak for media at all — `mediaRows` null is silence, and
+      // silence must never take a photo away.
+      const mineAfterMedia =
+        tasksAfter && mediaRows ? reconcileMedia(tasksAfter, byTask, dirtyMediaTaskIds()) : tasksAfter;
+      if (tasksAfter && mediaRows && mineAfterMedia !== tasksAfter) merge.media = byTask;
 
       // Asked against `lastActed`, which is `state.acted` as of the last
       // observation: if reconciling would leave it untouched there is nothing
@@ -1247,6 +1347,7 @@ export function createEngine(
         !merge.notes &&
         !merge.moments &&
         !merge.globalPosts &&
+        merge.media === undefined &&
         !merge.notifications &&
         merge.cheersReceived === undefined &&
         merge.circle === undefined
@@ -1263,6 +1364,23 @@ export function createEngine(
       // diff. So the tasks a merged note touches are adopted too.
       for (const note of merge.notes ?? []) {
         if ('taskId' in note.target) touched.add(note.target.taskId);
+      }
+      // And the goals whose photo this merge is about to change, for exactly
+      // the same reason as the notes above: `reconcileMedia` mints a new task
+      // object, and a new object is a local edit as far as the reference diff
+      // can tell. Left out, every photo the pull delivers is answered with a
+      // `task.upsert` — which writes nothing (`taskToRow` carries no media) but
+      // does bump `updated_at`, which is a realtime event, which makes the
+      // other device pull, merge, and upsert back. Two phones and one photo is
+      // then a loop at the realtime debounce rather than the poll interval.
+      if (mineAfterMedia && tasksAfter && mineAfterMedia !== tasksAfter) {
+        // Only the ones that actually moved. `reconcileMedia` returns the same
+        // object for a goal it did not change, so identity is the test — and
+        // naming a goal here suppresses the next genuine edit to it, so the set
+        // is kept as small as it is true.
+        mineAfterMedia.forEach((task, i) => {
+          if (task !== tasksAfter[i]) touched.add(task.id);
+        });
       }
       if (touched.size > 0) merging = touched;
 

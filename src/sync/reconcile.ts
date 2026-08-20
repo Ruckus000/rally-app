@@ -9,7 +9,7 @@
  * enqueue, so a freshly-built copy of an unchanged task would read as a local
  * edit and be pushed straight back to the server that just sent it.
  */
-import type { Task } from '../data/fixtures';
+import type { Task, TaskMedia } from '../data/fixtures';
 
 /**
  * The fields a `tasks` row can actually answer for — the ones `taskToRow`
@@ -38,6 +38,13 @@ const adopt = (local: Task, server: Task): Task => ({
   pairStatus: local.pairStatus,
   cmts: local.cmts,
   fromSuggestion: local.fromSuggestion,
+  // The photo is `task_media`'s, not `tasks`'. `rowToTask` cannot invent it any
+  // more than it can invent comments, so letting the empty win would take the
+  // picture off the screen on the first pull after it was attached — the same
+  // failure the comment above describes, with the same cause. What replaces it
+  // is `reconcileMedia`, which is answering a different question with a
+  // different set of rows.
+  media: local.media,
 });
 
 /**
@@ -111,4 +118,76 @@ export function reconcileTasks(
   // engine sees no change to enqueue.
   if (next.length === local.length && next.every((task, i) => task === local[i])) return local;
   return next;
+}
+
+/**
+ * Folding the pull's photos into your own week.
+ *
+ * A separate pass from `reconcileTasks` because it is a separate question over
+ * a separate table. `adopt` above only guarantees a pull cannot *take* a photo
+ * away; this decides when one arrives, changes or goes.
+ *
+ * ─── null is not empty ────────────────────────────────────────────────────
+ *
+ * `server` is null when this pull could not say anything about media — no week
+ * was asked for, or the server is too old to know the key. Empty means the
+ * server says these goals have no photos, which is authoritative and is how a
+ * photo removed on another device disappears here. Conflating them deletes
+ * every photo on the device on every pull.
+ *
+ * ─── the clear-branch is for devices that do not own the file ─────────────
+ *
+ * It is tempting to gate the removal on `localUri` — "if I hold the file, the
+ * photo is mine and still uploading". That is wrong, and quietly: the local
+ * file is never deleted on success (`media.ts` keeps it precisely because it is
+ * what the owner's own card draws), so `localUri` stays set for the whole life
+ * of the photo. Gating on it means a removal on another device *never* reaches
+ * this one. Not a window — for ever.
+ *
+ * What guards the race is `dirtyIds`, and it must be the media dirty set rather
+ * than the task one: media ops are keyed `media:<id>`, so `dirtyTaskIds` reads
+ * a task with an attach in flight as perfectly clean. It also has to include
+ * the upload lane, because the outbox does not learn about an attach until the
+ * bytes have already landed.
+ */
+export function reconcileMedia(
+  local: Task[],
+  server: ReadonlyMap<string, TaskMedia> | null,
+  dirtyIds: ReadonlySet<string>,
+): Task[] {
+  if (!server) return local;
+
+  let changed = false;
+  const next = local.map((task) => {
+    // Something of ours is in flight for this goal: an upload part-way through,
+    // an attach the server has not seen, a detach it has not processed. The
+    // pull is answering about a state we are in the middle of leaving.
+    if (dirtyIds.has(task.id)) return task;
+
+    const row = server.get(task.id);
+
+    if (!row) {
+      if (!task.media) return task;
+      changed = true;
+      const { media: _gone, ...rest } = task;
+      return rest;
+    }
+
+    // Same photo, so keep this device's object — `localUri` lives on it and the
+    // server has never heard of it — and take the URL, which is the half only
+    // the pull can answer for and which is re-signed as it ages.
+    if (task.media?.id === row.id) {
+      if (task.media.url === row.url) return task;
+      changed = true;
+      return { ...task, media: { ...task.media, url: row.url } };
+    }
+
+    // A different photo, or the first news of one. This is what puts the
+    // owner's own picture back after a reinstall, and what carries a goal
+    // staked-and-photographed on another device.
+    changed = true;
+    return { ...task, media: row };
+  });
+
+  return changed ? next : local;
 }

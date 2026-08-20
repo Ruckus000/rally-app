@@ -19,7 +19,9 @@ import type {
   Notification,
   NotifTier,
   Task,
+  TaskMedia,
 } from '../data/fixtures';
+import type { PulledMedia } from './transport';
 import { NOTIF_TIERS, weekSummary } from '../data/fixtures';
 import {
   avatarPathOf,
@@ -217,6 +219,45 @@ export function rowToPerson(row: Record<string, unknown>): Person {
 }
 
 /**
+ * The longest object name kept. `<uuid>/<uuid>/<uuid>.jpg` is 114 characters
+ * and the column is constrained to exactly that shape, so this is a bound on
+ * a row that is already bounded — carried for the same reason
+ * `AVATAR_PATH_MAX` is, since this one is persisted too.
+ */
+export const MEDIA_PATH_MAX = 160;
+
+/**
+ * A `task_media` row as a card can draw it, or nothing.
+ *
+ * Dropped rather than defaulted, which is the opposite of `rowToPerson`'s
+ * choice and right for the opposite reason. An unreadable `avatar_state` still
+ * has to render *something*, and initials are that something. A photo is
+ * optional: there is no fallback picture, and the honest answer to a row this
+ * build cannot read is a goal with no photo on it.
+ *
+ * `w` and `h` must be positive, not merely finite. They reach an `aspectRatio`,
+ * and a zero height is an infinite one — which is a card that takes the screen
+ * rather than a photo that looks wrong.
+ *
+ * `url` is deliberately absent here. The row carries an object name; the URL is
+ * signed later, per pull, by `lib/mediaUrl.ts`, and a signed URL has no
+ * business being minted inside a mapper.
+ */
+export function rowToPulledMedia(row: Record<string, unknown>): PulledMedia[] {
+  const id = str(row.id);
+  const taskId = str(row.task_id);
+  const path = str(row.path);
+  const w = Number(row.width);
+  const h = Number(row.height);
+
+  if (!id || !taskId) return [];
+  if (!path || path.length > MEDIA_PATH_MAX) return [];
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return [];
+
+  return [{ taskId, media: { id, path, w, h } }];
+}
+
+/**
  * How long ago, in the shape the feed sorts and renders: `"6h"`, `"2d"`.
  *
  * The feed's only clock is `parseHours`, which reads exactly this format — so
@@ -243,6 +284,7 @@ export function taskRowToMoment(
   row: Record<string, unknown>,
   now?: number,
   cheers?: number,
+  media?: TaskMedia,
 ): Moment {
   const task = rowToTask(row);
   return {
@@ -263,6 +305,11 @@ export function taskRowToMoment(
     // Notes on someone else's task are not pulled — `pullNotes` answers for
     // your own rows and your own inbox. What is here is what this device wrote.
     cmts: [],
+    // Omitted rather than set to undefined when there is none. `momentsAreSound`
+    // rejects a `media` key it cannot read, and a rejected payload does not
+    // lose the photo — it loses the whole persisted state, week included. A
+    // key that is absent is never read.
+    ...(media ? { media } : null),
   };
 }
 

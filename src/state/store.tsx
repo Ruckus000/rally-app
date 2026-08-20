@@ -75,13 +75,14 @@ import {
   onOutboxChange,
   unsavedCount,
 } from '../sync/outbox';
-import { reconcileTasks } from '../sync/reconcile';
+import { reconcileMedia, reconcileTasks } from '../sync/reconcile';
 // The queue's key format is the engine's business, not the reducer's; it hands
 // back the ids, and the type-only edge means this adds no import cycle.
 // `reconcileActed` and `mergeNotes` live there for the same reason
 // `reconcileTasks` lives in reconcile.ts: folding a pull is sync's judgement,
 // and the reducer only has to apply the answer.
 import {
+  dirtyMediaTaskIds,
   dirtyProfile,
   dirtyReactionKeys,
   dirtyTaskIds,
@@ -492,6 +493,17 @@ export type ServerMerge = {
    */
   tasks?: Task[];
   /**
+   * The photos on your own goals, by goal id — a **map**, not a list, and null
+   * rather than absent when the pull could not answer.
+   *
+   * Its own key rather than riding on `tasks` because it answers a different
+   * question over a different table, and because the two arrive on different
+   * beats: a photo lands on a goal whose row synced minutes earlier, so the
+   * task diff is the identity case exactly when the photo is news. Folded by
+   * `reconcileMedia`.
+   */
+  media?: ReadonlyMap<string, TaskMedia> | null;
+  /**
    * Every reaction the server holds *for this user* — which is all `acted` can
    * mean. Authoritative rather than additive: a cheer taken back on another
    * phone is an absence here, and a union would leave it lit forever. What that
@@ -655,11 +667,23 @@ const carryThreads = (prev: Moment[], next?: Moment[]): Moment[] => {
     const kept = threads.get(m.id);
     return kept?.length ? { ...m, cmts: kept } : m;
   });
+  // Returning `prev` keeps the *old* objects, so anything this test does not
+  // mention is discarded even when the engine decided the pull was worth
+  // dispatching. The photo is mentioned for that reason: it lands on a moment
+  // whose title and thread have not moved, which is every photo — the goal syncs
+  // when it is staked and the picture follows minutes later.
   const unchanged =
     merged.length === prev.length &&
     merged.every((m, i) => {
       const was = prev[i];
-      return !!was && was.id === m.id && was.title === m.title && was.cmts === m.cmts;
+      return (
+        !!was &&
+        was.id === m.id &&
+        was.title === m.title &&
+        was.cmts === m.cmts &&
+        was.media?.id === m.media?.id &&
+        was.media?.url === m.media?.url
+      );
     });
   return unchanged ? prev : merged;
 };
@@ -1530,6 +1554,15 @@ export function reducer(state: State, action: Action): State {
       let myTasks = action.merge.tasks
         ? reconcileTasks(state.myTasks, action.merge.tasks, dirtyTaskIds(), ackedTaskIds())
         : state.myTasks;
+
+      // The photos, after the rows and against the same freshly-derived queue —
+      // a different set, because a media op is keyed by media id and so is
+      // invisible to `dirtyTaskIds`. `undefined` means this merge carries no
+      // answer about photos at all and is not the same as an empty map, which
+      // says these goals have none and is how a removal elsewhere arrives.
+      if (action.merge.media !== undefined) {
+        myTasks = reconcileMedia(myTasks, action.merge.media, dirtyMediaTaskIds());
+      }
 
       // The same shape one slice over, and the same reason for asking the queue
       // rather than state: a cheer tapped a second ago is in `acted` and is not
