@@ -205,10 +205,25 @@ describe('your own row, for an account in no circle', () => {
 });
 
 describe('signed out', () => {
-  it('is refused outright — execute is granted to authenticated only', async () => {
+  it('is refused at the function, not three joins later at a table', async () => {
+    // This test passed before EXECUTE was revoked from PUBLIC, and passed for
+    // the wrong reason: `anon` could call the function perfectly well and died
+    // at the first table it has no SELECT on. Same 42501, entirely different
+    // guarantee — one that would quietly stop holding the day somebody granted
+    // `anon` a read on any table these CTEs touch. So the message is asserted
+    // too, because the message is the part that says which layer refused.
     const { error } = await asAnon().rpc('pull_world', { p_week_start: WEEK });
     expect(error).not.toBeNull();
     expect(error!.code).toBe('42501');
+    expect(error!.message).toContain('pull_world');
+  });
+
+  it('still lets a signed-in caller through', async () => {
+    // The other half, and not a formality: `revoke ... from public` takes the
+    // permission away from everyone, and only the explicit grant beside it
+    // hands it back. Get that pair wrong and the app stops pulling entirely.
+    const { error } = await asUser('maya').rpc('pull_world', { p_week_start: WEEK });
+    expect(error).toBeNull();
   });
 });
 
