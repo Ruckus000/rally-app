@@ -17,22 +17,23 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
-import { capsLabel, font, gradientAngle, hairlineGradient, HIT_TARGET } from '../theme/tokens';
+import {
+  capsLabel,
+  font,
+  gradientAngle,
+  hairlineGradient,
+  HIT_TARGET,
+  MAX_FONT_SCALE,
+} from '../theme/tokens';
 import { useColors } from '../theme/ThemeProvider';
 
 type Weight = 400 | 500 | 600 | 700 | 800;
 
-/**
- * How far the OS text-size setting may inflate this app's type.
- *
- * Scaling is left on — turning it off is the wrong answer to a dense layout —
- * but this app draws a lot of fixed-height chrome: 44pt pills, a 46pt input,
- * the 54pt CTA. Past about a third larger, the label stops fitting the control
- * it names and starts being clipped by it, which is worse for the person who
- * turned the setting on than a slightly smaller label. Every face here shares
- * the cap so one number governs the whole scale.
- */
-export const MAX_FONT_SCALE = 1.35;
+// Moved to `tokens.ts`, because `displayLeading` has to apply the same cap and
+// tokens cannot import from here — this file already imports from tokens, so
+// the other direction would be a cycle. Re-exported so the name still resolves
+// where it always did.
+export { MAX_FONT_SCALE };
 
 type TypeProps = TextProps & {
   size?: number;

@@ -2,7 +2,23 @@
  * Design tokens, read directly from the design reference.
  * Nothing in the app hardcodes a colour or a type size — it comes from here.
  */
-import { Platform, TextStyle, ViewStyle } from 'react-native';
+import { PixelRatio, Platform, TextStyle, ViewStyle } from 'react-native';
+
+/**
+ * How far the OS text-size setting may inflate this app's type.
+ *
+ * Scaling is left on — turning it off is the wrong answer to a dense layout —
+ * but this app draws a lot of fixed-height chrome: 44pt pills, a 46pt input,
+ * the 54pt CTA. Past about a third larger, the label stops fitting the control
+ * it names and starts being clipped by it, which is worse for the person who
+ * turned the setting on than a slightly smaller label. Every face here shares
+ * the cap so one number governs the whole scale.
+ *
+ * It lives here rather than beside the faces in `primitives.tsx` because
+ * `displayLeading` below has to apply the identical cap, and that file already
+ * imports from this one.
+ */
+export const MAX_FONT_SCALE = 1.35;
 
 /**
  * The light palette — the only one that exists today. `ThemeProvider` serves
@@ -201,14 +217,52 @@ export const heroGlow: TextStyle = Platform.select({
  *
  * The reference sets these line boxes *below* the font size on purpose — 48/41
  * on Me, 76/61 on Plan — because that is what makes a hero number sit tight to
- * its label. On iOS the glyphs overflow the box and draw in full; on Android
- * the text is clipped to the line box, so the tops and bottoms of the numerals
- * are literally sliced off. `includeFontPadding: false` removes Android's own
- * extra leading, and the line box goes back to the font size — the optical
- * tightness is then recovered with the negative margin the caller passes.
+ * its label. CSS can do that safely: a short line box decides only how much
+ * room the line takes up, and the glyph is free to overflow it and still draw
+ * whole. React Native has no such split. `lineHeight` sets the paragraph
+ * style's minimum *and* maximum, the line is clamped to it, and the ascent is
+ * what gets squeezed out — so the tops of the numerals are sliced off.
+ *
+ * That is true on both platforms, which this used to get wrong: it treated the
+ * clipping as an Android quirk and left iOS asking for `lineHeight: tight`.
+ * React Native's iOS text code is explicit that nothing rescues it — the
+ * half-leading correction in `RCTAttributedTextUtils.mm` opens with
+ * `if (maximumLineHeight < maximumFontLineHeight) return;`, so below the font's
+ * natural line height (1.2em for Bricolage) the clamp is applied with no
+ * compensating baseline offset at all. At 76/61 that cost the Plan hero 9.7pt
+ * off the top of a 50.2pt digit: the zero rendered as a U.
+ *
+ * So the tightness cannot live in `lineHeight`. The line box goes back to the
+ * font size — enough for a numeral, whose cap height is 0.66em, to clear the
+ * 0.27em descent the clamp reserves below the baseline — and the optical
+ * tightness is recovered with a negative margin, which pulls the next thing up
+ * without touching the glyph's own box. Both platforms now compute the same
+ * two numbers; `includeFontPadding: false`, which removes Android's own extra
+ * leading so its box is exactly `lineHeight`, is the only part still per-
+ * platform.
+ *
+ * Sized for digits and their separators. A caller wanting tall ascenders here
+ * would need the line box raised towards 1.2em to match.
+ *
+ * The margin is scaled by hand because React Native will not do it. It scales
+ * `lineHeight` with the OS text-size multiplier — literally
+ * `lineHeight * RCTEffectiveFontSizeMultiplierFromTextAttributes(…)` — but
+ * `marginBottom` is a layout property and is never touched, so a fixed margin
+ * would hold 15pt back from a line box that had grown to 102.6pt and the ratio
+ * the reference asked for would drift as the setting goes up. Multiplying the
+ * difference restores it: the line occupies `tight * scale` at every size.
+ *
+ * The multiplier is the same one the text gets, so it is clamped the same way:
+ * `Bri` caps its faces at `MAX_FONT_SCALE`, and past that point the glyphs stop
+ * growing while an unclamped margin would keep pulling. Clamped below at 1 as
+ * well, because `getFontScale()` falls back to the *pixel* density when the
+ * font scale is missing, and a margin multiplied by 3 is not a tightening.
  */
-export const displayLeading = (fontSize: number, tight: number): TextStyle =>
-  Platform.select({
-    ios: { lineHeight: tight },
-    default: { lineHeight: fontSize, includeFontPadding: false, marginBottom: tight - fontSize },
-  }) as TextStyle;
+export const displayLeading = (fontSize: number, tight: number): TextStyle => {
+  const scale = Math.min(Math.max(PixelRatio.getFontScale(), 1), MAX_FONT_SCALE);
+  return {
+    lineHeight: fontSize,
+    marginBottom: (tight - fontSize) * scale,
+    ...Platform.select({ android: { includeFontPadding: false }, default: null }),
+  };
+};
