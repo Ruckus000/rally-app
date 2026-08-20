@@ -92,10 +92,25 @@ Every current finding, and why it stands:
 
 | Finding | Level | Why it is there |
 |---|---|---|
-| `rls_enabled_no_policy` ×5 | INFO | The four server-only tables above, plus `reports`. Deny-everything is the intent. |
-| `authenticated_security_definer_function_executable` ×4 | WARN | `create_circle`, `join_circle_by_code`, `register_device`, `unregister_device`. This is the RPC surface — `authenticated` calling them is the whole point, and each scopes its writes to `auth.uid()`. |
-| `auth_allow_anonymous_sign_ins` ×10 | WARN | Every account in the app **is** an anonymous sign-in. The advisor is flagging the design, not a slip. |
+| `rls_enabled_no_policy` ×6 | INFO | The server-only tables — `bot_goal_candidates`, `device_tokens`, `goal_ratings`, `llm_usage`, `reports`, `media_gc`. Deny-everything is the intent. |
+| `authenticated_security_definer_function_executable` ×8 | WARN | The RPC surface: `create_circle`, `join_circle_by_code`, `register_device`, `unregister_device`, `block_person`, `unblock_person`, `report_content`, `set_avatar`. `authenticated` calling them is the whole point, and each scopes its writes to `auth.uid()`. |
+| `auth_allow_anonymous_sign_ins` ×13 | WARN | Every account in the app **is** an anonymous sign-in. The advisor is flagging the design, not a slip. |
 | `auth_leaked_password_protection` | WARN | There are no passwords. Nothing to protect. |
+
+Twenty-eight in total, none of them ERROR.
+
+**The CI step does not see this list, and cannot be made to.** `npm run
+test:integration` runs `supabase db advisors --local`, and the local linter
+emits INFO and nothing else — six of them, the `rls_enabled_no_policy` rows
+above. Handed a table with RLS disabled in `public` and a `security definer`
+view, both of which the hosted linter calls ERROR, it reported those as INFO
+too. So `--fail-on error` there is a gate that can never fire, which is worse
+than no gate because it reads like one. (`--fail-on` is not self-consistent
+either: alone it returns 0 with six findings present; with `--level warn` it
+returns 1 with nothing displayed.) A real gate has to run against the linked
+project and baseline the twenty-two known WARNs first — worth doing the day one
+of these findings is ever acted on, and not before. `.github/workflows/ci.yml`
+carries the same note next to the step.
 
 Two advisor WARNs once pointed at `public.rls_auto_enable()`, the event trigger
 function that auto-enables RLS on new tables. It was described here as a
@@ -528,6 +543,20 @@ Each phase leaves the app working.
   the same as moderation: `report_content` fills a queue nobody reads yet,
   because there is no moderation team. Opening the feed to real strangers
   before one exists is still out of scope, and not a small annexe.
+- **Orphans in the `avatars` bucket.** `task_media` has collection now — a
+  trigger records the path when the row goes, and `collect-media` sweeps for
+  objects no row names (`20260820163000_collect_orphaned_media.sql`). `avatars`
+  has no equivalent, and it is the bucket where an orphan would actually
+  matter: `avatars_objects_select` is `bucket_id = 'avatars'` for every
+  authenticated account, so a file that outlives its row is readable by anyone
+  who learns the name, where an orphaned `task-media` object is inert because
+  `can_see_media` refuses anything no `ready` row claims. Today it is covered by
+  three best-effort client paths — `clearAvatar`, `discard()` and
+  `screen-image`'s delete-on-refusal — and nothing behind them. Deliberately not
+  built: **no avatar has ever been uploaded to this project**, so there is no
+  orphan to collect and no evidence those paths fail. Revisit when one is
+  actually observed, or when avatars reach real users. Adding it is a bucket
+  parameter on `public.orphaned_media`, which hardcodes `task-media` today.
 - **Cost.** The project sits in a separate Free-plan organisation, so it costs
   nothing. Free projects pause after 7 days of inactivity and restore within
   90; that is fine for development and is the thing to revisit before anyone

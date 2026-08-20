@@ -10,17 +10,22 @@ on:
     # unstarted and the PR could never go green.
     types: [opened, synchronize, reopened, ready_for_review]
 
-# A second push to the same PR branch makes the first run's answer irrelevant,
-# and the integration job holds a Docker-heavy runner for minutes. Cancel it.
+# On a PR branch: one group per ref. A second push makes the first run's answer
+# irrelevant, and the integration job holds a Docker-heavy runner for minutes,
+# so cancelling it is the right trade.
 #
-# Not on `main`, though, and the difference matters. On a branch the two runs
-# are two answers about the same work in progress; on `main` they are two
-# different commits, each of which is something someone can check out. Killing
-# the older one leaves a merge commit that nothing ever verified — which is
-# exactly what happened three times in one evening, when each merge cancelled
-# the run belonging to the merge before it.
+# On `main`: one group *per commit*, which is the same as no grouping at all,
+# and it has to be. `cancel-in-progress: false` alone was not enough, which is
+# worth spelling out because it looked like it was. It stops an in-progress run
+# being killed — but GitHub keeps at most one *pending* run per group and
+# cancels the older one when a newer arrives. Three merges inside three minutes
+# is enough to trigger that, and it did: #84's merge commit was queued behind
+# #83's run, a third merge arrived, and it was cancelled having never started a
+# single job. Every commit on `main` is something somebody can check out, so
+# every commit gets its own verdict rather than a place in a queue it can be
+# evicted from.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'branch' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
@@ -75,6 +80,26 @@ jobs:
           node-version: 20
           cache: npm
 
+      # Before `npm ci`, and that ordering is the whole point.
+      #
+      # The ports in `supabase/config.toml` are 55320-55329, and Linux's default
+      # ephemeral range is 32768-60999 — the range the kernel hands out as the
+      # *source* port for outbound connections. So a registry fetch during
+      # `npm ci` can be given 55322, and `supabase start` three minutes later
+      # then fails with "address already in use" on a runner where nothing is
+      # listening on it. That is exactly what happened, and the stop-and-retry
+      # below could not help: whatever holds the port goes on holding it.
+      #
+      # `ip_local_reserved_ports` is the knob for this. It tells the kernel to
+      # never hand these out as ephemeral ports, without shrinking the range for
+      # everything else. Set here rather than before `supabase start`, because by
+      # then the port is already gone.
+      #
+      # Not a quirk of these particular numbers: Supabase's own defaults (54321
+      # upwards) sit in the same range, so any pinned local stack has this.
+      - name: Reserve the Supabase ports
+        run: sudo sysctl -w net.ipv4.ip_local_reserved_ports="55320-55329"
+
       # Deliberately NO supabase/setup-cli action. `@supabase/cli-linux-x64` is
       # an optionalDependency in package-lock.json, so `npm ci` already installs
       # the CLI at exactly the version that wrote and verified these migrations.
@@ -100,13 +125,39 @@ jobs:
       - name: Apply migrations and seed
         run: npx supabase db reset --local
 
-      # Not a gate yet: the advisor's exit-code behaviour on WARN-only findings
-      # is unconfirmed, and a job that fails for an unread reason trains people
-      # to ignore it. Read the output of one real run, then drop
-      # continue-on-error so security advisories become a hard gate.
+      # Informational, and now deliberately so rather than pending. The note
+      # here used to say "read the output of one real run, then drop
+      # continue-on-error". That was done, and the answer is that this step
+      # cannot become a gate, because the thing it runs is not the linter whose
+      # findings matter.
+      #
+      # `--local` emits INFO and nothing else. On this schema it returns six,
+      # all `rls_enabled_no_policy` for the tables that are readable by nobody
+      # on purpose — `reports`, `device_tokens`, `media_gc` and friends. It was
+      # given a table with RLS disabled in `public` and a `security definer`
+      # view, both of which the hosted linter calls ERROR, and it reported them
+      # as INFO too. There is no arrangement of this schema that makes it emit
+      # an ERROR, so `--fail-on error` is a gate that cannot fail — which is
+      # worse than no gate, because it reads like one.
+      #
+      # `--fail-on` is also not self-consistent: on its own it returns 0 with
+      # six findings present, and combined with `--level warn` it returns 1
+      # with nothing displayed at all. Not a flag to build a gate on.
+      #
+      # The findings that matter come from the hosted advisor, which sees a
+      # different set entirely — twenty-eight on the same schema, twenty-two of
+      # them WARN. Almost all are decisions this repo argued for in writing:
+      # the intentional `SECURITY DEFINER` RPCs, and the anonymous-access
+      # policies that exist because anonymous sign-in *is* the account model.
+      # Gating on those would fail every build on day one and teach everyone to
+      # ignore the colour, which is the failure this note has always been about.
+      #
+      # So: a real gate means running against the linked project, which needs a
+      # token here, and baselining the twenty-two known WARNs first. Worth doing
+      # the day a finding is ever acted on. Not before.
       - name: Security advisors
         continue-on-error: true
-        run: npx supabase db advisors --local --type security
+        run: npx supabase db advisors --local --type security --level info
 
       - name: Integration tests
         run: npm run test:integration -- --ci

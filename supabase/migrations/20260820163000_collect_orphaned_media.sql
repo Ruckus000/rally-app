@@ -32,6 +32,23 @@
 -- so that a row never points at a file that is not there. Hence the age bound:
 -- an object is only a candidate once it is old enough that any row it was
 -- going to get would have arrived.
+--
+-- ─── which half is load-bearing, if this ever has to shrink ───────────────
+--
+-- The sweep is. It finds every orphan there is, including the kinds nobody
+-- enumerated, because "no row names this object" is the definition rather than
+-- a list of causes. The queue finds a strict subset of the same objects sooner.
+--
+-- Which means there are three things deleting one file — the client's
+-- `media.detach`, this queue, and the sweep — and only the last of them is
+-- necessary. The other two buy latency, and latency is invisible for garbage:
+-- the row is gone the moment the goal is, and the row is what governs whether
+-- anyone can see the picture. The bytes lingering an hour cost storage and
+-- nothing else.
+--
+-- Kept anyway, because it exists, it is tested, and rewriting working code to
+-- satisfy a principle after the fact is its own kind of mess. But if this ever
+-- needs changing, change the sweep and delete the queue — not the reverse.
 
 -- ─── 1. The queue ─────────────────────────────────────────────────────────
 --
