@@ -19,12 +19,13 @@ import { Sans, Tap, row } from './primitives';
  * The shared shape of the two engagement buttons, taking the palette rather
  * than closing over it.
  *
- * It has to. This is module scope, so a `color` read up here would be resolved
- * once when the module first loads and then never again — freezing whichever
- * palette happened to be active at that instant, which is invisible today and
- * wrong the moment a scheme can change under a mounted tree. Passing it in
- * keeps the body of the function byte-identical and moves the decision to the
- * call site, which is inside a component and can ask the context.
+ * It has to. This is module scope, where there is no context to ask: a hook
+ * cannot be called out here, and the static `color` import is the light
+ * palette permanently, whichever scheme the tree above is actually rendering
+ * in. Not because the read is cached — the body runs per call — but because
+ * the thing it reads never becomes anything else. Passing the palette in keeps
+ * the body byte-identical and moves the decision to the call site, which is
+ * inside a component and can ask.
  *
  * `onDark` stays a plain import: the dark cards this styles are dark in both
  * schemes, so that ramp is not scheme-dependent.
