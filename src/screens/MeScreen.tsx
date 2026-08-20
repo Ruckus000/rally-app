@@ -38,6 +38,15 @@ export function MeScreen() {
    */
   const storedName = live ? (state.people[state.selfId]?.name ?? '') : ME.name;
   /**
+   * `myName` falls back to "Someone" — right for a stranger's row, wrong for
+   * your own: the app knows exactly who this is, it just doesn't have a name
+   * for them yet. Uncommon rather than routine — onboarding requires a name
+   * before Continue unlocks, so this only shows up before a live account's
+   * first pull lands, on a profile row the server never wrote, or via the
+   * dev-only "Go live" path.
+   */
+  const nameMissing = live && !storedName;
+  /**
    * Demo: the fixture handle, and its circle once there is one. Live: the
    * circle's real name, or nothing. No handle — a live one is `anon_6e8dd5641ace`,
    * which is machine noise rather than an identity worth showing.
@@ -197,11 +206,22 @@ export function MeScreen() {
             ) : (
               <Tap
                 onPress={live ? startRename : undefined}
-                accessibilityLabel={live ? `${myName}. Change your name.` : undefined}
+                accessibilityLabel={
+                  live
+                    ? nameMissing
+                      ? 'Add your name'
+                      : `${myName}. Change your name.`
+                    : undefined
+                }
                 style={{ alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' }}
               >
-                <Bri size={22} weight={800} tracking={-0.5} color={color.paper}>
-                  {myName}
+                <Bri
+                  size={22}
+                  weight={800}
+                  tracking={-0.5}
+                  color={nameMissing ? onDark.tertiary : color.paper}
+                >
+                  {nameMissing ? 'Add your name' : myName}
                 </Bri>
               </Tap>
             )}
