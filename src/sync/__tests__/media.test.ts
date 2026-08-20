@@ -15,9 +15,11 @@ import {
   drainMedia,
   dropMediaFor,
   enqueueMedia,
+  onMediaBlocked,
   pendingMedia,
   type MediaEntry,
   type MediaTransport,
+  type ScreenOutcome,
 } from '../media';
 import { __resetOutboxForTests, pending } from '../outbox';
 import { supabaseTransport } from '../transport';
@@ -35,18 +37,38 @@ const photo = (over: Partial<MediaEntry> = {}) => ({
   ...over,
 });
 
-/** Records what it was asked to upload and answers however the test says. */
-const uploader = (answers: Awaited<ReturnType<MediaTransport['upload']>>[] = []) => {
+/**
+ * Records what it was asked to do and answers however the test says.
+ *
+ * Both halves default to success, so a test that only cares about uploading
+ * says nothing about screening and vice versa.
+ */
+const uploader = (
+  answers: Awaited<ReturnType<MediaTransport['upload']>>[] = [],
+  verdicts: ScreenOutcome[] = [],
+) => {
   const seen: string[] = [];
+  const screened: string[] = [];
   const transport: MediaTransport = {
     ownerId: () => OWNER,
     async upload(entry) {
       seen.push(entry.id);
       return answers.shift() ?? { ok: true };
     },
+    async screen(entry) {
+      screened.push(entry.id);
+      return verdicts.shift() ?? { state: 'ready' };
+    },
   };
-  return { transport, seen };
+  return { transport, seen, screened };
 };
+
+/**
+ * Far enough ahead that an entry which has just landed its bytes is due for
+ * its verdict. `SCREEN_AFTER_MS` is 2.5s; this clears it without pretending to
+ * know the exact number.
+ */
+const afterScreenDelay = (from: number = Date.now()) => from + 10_000;
 
 const realEnv = { ...process.env };
 
@@ -76,7 +98,6 @@ describe('upload first, record second', () => {
     const { transport } = uploader();
     await drainMedia(transport);
 
-    expect(pendingMedia()).toHaveLength(0);
     expect(attachOps()).toHaveLength(1);
     expect(attachOps()[0]!.payload).toMatchObject({
       mediaId: 'media-1',
@@ -84,6 +105,10 @@ describe('upload first, record second', () => {
       width: 1600,
       height: 1200,
     });
+    // Still in the lane, on the other half of the journey: the bytes are in
+    // the bucket and no one but the owner may read them until a model has
+    // looked.
+    expect(pendingMedia().map((e) => e.phase)).toEqual(['screen']);
   });
 
   it('records nothing when the upload fails, and keeps the photo', async () => {
@@ -111,11 +136,9 @@ describe('upload first, record second', () => {
 
   it('treats a thrown uploader as retryable rather than losing the photo', async () => {
     enqueueMedia(photo());
-    const transport: MediaTransport = {
-      ownerId: () => OWNER,
-      upload: async () => {
-        throw new Error('socket hang up');
-      },
+    const { transport } = uploader();
+    transport.upload = async () => {
+      throw new Error('socket hang up');
     };
 
     await drainMedia(transport);
@@ -144,7 +167,8 @@ describe('the lane holds nothing up', () => {
 
   it('does not send anything before there is somebody to send it as', async () => {
     enqueueMedia(photo());
-    const transport: MediaTransport = { ownerId: () => null, upload: async () => ({ ok: true }) };
+    const { transport } = uploader();
+    transport.ownerId = () => null;
 
     await drainMedia(transport);
 
@@ -195,13 +219,148 @@ describe('when the account does', () => {
     await drainMedia(uploader().transport);
 
     enqueueMedia(photo({ id: 'media-9', taskId: 'task-9' }));
-    const other: MediaTransport = {
-      ownerId: () => '22222222-2222-4222-8222-222222222222',
-      upload: async () => ({ ok: true }),
-    };
+    const { transport: other } = uploader();
+    other.ownerId = () => '22222222-2222-4222-8222-222222222222';
     await drainMedia(other);
 
     expect(pendingMedia()).toEqual([]);
+  });
+});
+
+/**
+ * The gate, from this side of it.
+ *
+ * The server's half — that an unscreened photo is unreadable to everybody but
+ * its owner — is a policy, and belongs in `integration/rls/`. What is provable
+ * here is the client's half, and the claim worth defending is narrow: **only
+ * the word `refused` destroys anything.** Everything else the screener can
+ * say, including nothing at all, has to leave the photo alone.
+ */
+describe('the screening gate', () => {
+  it('asks for a verdict once the bytes have landed', async () => {
+    enqueueMedia(photo());
+    const { transport, screened } = uploader();
+
+    await drainMedia(transport);
+    // Not in the same pass: the row is written by the outbox, which drains on
+    // its own schedule, so asking immediately would reach the server first.
+    expect(screened).toEqual([]);
+
+    await drainMedia(transport, afterScreenDelay());
+    expect(screened).toEqual(['media-1']);
+    // Cleared the gate, and the lane is done with it.
+    expect(pendingMedia()).toHaveLength(0);
+  });
+
+  it('takes a refused photo off this device and says which one', async () => {
+    const blocked: MediaEntry[] = [];
+    onMediaBlocked((e) => blocked.push(e));
+
+    enqueueMedia(photo());
+    const { transport } = uploader([], [{ state: 'refused' }]);
+
+    await drainMedia(transport);
+    await drainMedia(transport, afterScreenDelay());
+
+    expect(pendingMedia()).toHaveLength(0);
+    // The task id, because that is what the card is keyed by, and the local
+    // uri, because somebody has to delete the file.
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0]).toMatchObject({ taskId: 'task-1', localUri: 'file:///tmp/photo.jpg' });
+  });
+
+  it('keeps the photo when the screener has not answered yet', async () => {
+    const blocked: MediaEntry[] = [];
+    onMediaBlocked((e) => blocked.push(e));
+
+    enqueueMedia(photo());
+    // `waiting` on the wire: the row is not there yet, which is ordinary.
+    const { transport } = uploader([], [{ state: 'retry', error: 'waiting' }]);
+
+    await drainMedia(transport);
+    await drainMedia(transport, afterScreenDelay());
+
+    // Nothing destroyed, and it will be asked again.
+    expect(blocked).toEqual([]);
+    expect(pendingMedia().map((e) => e.phase)).toEqual(['screen']);
+  });
+
+  it('treats a thrown screener as a retry rather than a refusal', async () => {
+    const blocked: MediaEntry[] = [];
+    onMediaBlocked((e) => blocked.push(e));
+
+    enqueueMedia(photo());
+    const { transport } = uploader();
+    transport.screen = async () => {
+      throw new Error('socket hang up');
+    };
+
+    await drainMedia(transport);
+    await drainMedia(transport, afterScreenDelay());
+
+    expect(blocked).toEqual([]);
+    expect(pendingMedia()).toHaveLength(1);
+  });
+
+  it('starts the screening backoff fresh after a hard-won upload', async () => {
+    enqueueMedia(photo());
+    // Three failures, then it lands. Were `tries` carried over, the first
+    // screening attempt would sit behind an eight-second backoff it did
+    // nothing to earn.
+    const { transport } = uploader([
+      { ok: false, permanent: false, error: 'offline' },
+      { ok: false, permanent: false, error: 'offline' },
+      { ok: false, permanent: false, error: 'offline' },
+    ]);
+
+    const t0 = Date.now();
+    await drainMedia(transport, t0);
+    await drainMedia(transport, t0 + 60_000);
+    await drainMedia(transport, t0 + 120_000);
+    await drainMedia(transport, t0 + 180_000);
+
+    const [entry] = pendingMedia();
+    expect(entry!.phase).toBe('screen');
+    expect(entry!.tries).toBe(0);
+  });
+
+  it('stops asking a question that will never have a different answer', async () => {
+    // `waiting` forever is what a dead-lettered `media.attach` looks like from
+    // here: the row is never written, so the screener has nothing to judge.
+    // Left unbounded this is one edge-function call a minute, for good.
+    const blocked: MediaEntry[] = [];
+    onMediaBlocked((e) => blocked.push(e));
+
+    enqueueMedia(photo());
+    const { transport } = uploader();
+    transport.screen = async () => ({ state: 'retry', error: 'waiting' });
+
+    let t = Date.now();
+    for (let i = 0; i < 40; i += 1) {
+      t += 120_000;
+      await drainMedia(transport, t);
+    }
+
+    expect(pendingMedia()).toHaveLength(0);
+    expect(deadMedia()).toHaveLength(1);
+    // Given up on, not judged — nothing gets deleted off the device for a
+    // question the server never answered.
+    expect(blocked).toEqual([]);
+  });
+
+  it('screens one photo while another is still uploading', async () => {
+    // The lane's whole point, restated for the second phase: a photo waiting
+    // on a model must not hold up a photo waiting on a radio.
+    enqueueMedia(photo({ id: 'media-1', taskId: 'task-1' }));
+    const { transport, seen, screened } = uploader();
+
+    await drainMedia(transport);
+    enqueueMedia(photo({ id: 'media-2', taskId: 'task-2' }));
+
+    await drainMedia(transport, afterScreenDelay());
+
+    expect(seen).toEqual(['media-1', 'media-2']);
+    expect(screened).toContain('media-1');
   });
 });
 

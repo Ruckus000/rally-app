@@ -25,6 +25,7 @@ import * as FileSystem from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { randomUUID } from 'expo-crypto';
+import { forgetLocalPhotoAt } from './localPhoto';
 import type { TaskMedia } from '../data/fixtures';
 
 /** The longest edge we keep. A 402pt card at 3x is 1206px; 1600 has room. */
@@ -107,16 +108,10 @@ export async function pickTaskPhoto(ownerId: string, taskId: string): Promise<Pi
 /**
  * Forget the local copy of a photo that has been taken back.
  *
- * Best-effort on purpose: the row and the object are removed by the queue and
- * the server, and a file left behind costs a few hundred KB in this app's own
- * sandbox. Failing loudly here would be a warning about the least important
- * of the three.
+ * The work is `localPhoto.ts`'s — see that file for why it lives apart — and
+ * this is the overload that speaks in `TaskMedia`, which is what every caller
+ * on the UI side is already holding.
  */
 export async function forgetLocalPhoto(media: TaskMedia | undefined): Promise<void> {
-  if (!media?.localUri) return;
-  try {
-    await new FileSystem.File(media.localUri).delete();
-  } catch {
-    // Already gone, or never written. Either way there is nothing to do.
-  }
+  return forgetLocalPhotoAt(media?.localUri);
 }

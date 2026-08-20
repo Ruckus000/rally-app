@@ -38,7 +38,9 @@ import {
   type OutboxOp,
   type QueueTransport,
 } from './outbox';
-import { dropMediaFor, drainMedia, type MediaTransport } from './media';
+import { dropMediaFor, drainMedia, onMediaBlocked, type MediaTransport } from './media';
+import { forgetLocalPhotoAt } from '../lib/localPhoto';
+import { IMAGE_BLOCKED_COPY } from '../../supabase/functions/_shared/imageVerdict.mjs';
 import {
   diffActed,
   parseActedKey,
@@ -54,6 +56,7 @@ import {
   isAuthExpired,
   supabaseTransport,
   uploadMedia,
+  screenMedia,
   type PulledNote,
   type ReportReason,
   type ReportSubject,
@@ -84,6 +87,14 @@ export type EngineOptions = {
   transport?: Transport;
   /** The media lane's uploader. Injected so a test needs no bucket. */
   upload?: MediaTransport['upload'];
+  /** Its screener. Injected so a test needs no edge function or model. */
+  screen?: MediaTransport['screen'];
+  /**
+   * How a refused photo leaves this device. Injected because the real one
+   * imports `expo-file-system`, and nothing else in the sync layer should
+   * make a test load a native module to check a queue.
+   */
+  forgetPhoto?: (uri: string) => void;
   pushEveryMs?: number;
   pullEveryMs?: number;
 };
@@ -198,11 +209,14 @@ function queueTransport(wire: Transport): QueueTransport {
 
 /**
  * The media lane's own transport. The same identity question asked the same
- * way, and an upload that reports rather than throws — the queue behind it can
+ * way, and calls that report rather than throw — the queue behind them can
  * only retry or retire, exactly as the outbox's can.
  */
-function mediaTransport(upload: (e: Parameters<MediaTransport['upload']>[0]) => ReturnType<MediaTransport['upload']>): MediaTransport {
-  return { ownerId: () => currentUserId(), upload };
+function mediaTransport(
+  upload: MediaTransport['upload'],
+  screen: MediaTransport['screen'],
+): MediaTransport {
+  return { ownerId: () => currentUserId(), upload, screen };
 }
 
 /** The bell shows a list, not a history. */
@@ -689,11 +703,40 @@ function placedNotes(state: State): PlacedNote[] {
 
 export function createEngine(
   dispatch: Dispatch<Action>,
-  { transport, upload, pushEveryMs = PUSH_MS, pullEveryMs = PULL_MS }: EngineOptions = {},
+  {
+    transport,
+    upload,
+    screen,
+    forgetPhoto,
+    pushEveryMs = PUSH_MS,
+    pullEveryMs = PULL_MS,
+  }: EngineOptions = {},
 ): Engine {
   const wire = transport ?? supabaseTransport();
   const queue = queueTransport(wire);
-  const media = mediaTransport(upload ?? uploadMedia);
+  const media = mediaTransport(upload ?? uploadMedia, screen ?? screenMedia);
+  const forget = forgetPhoto ?? ((uri: string) => void forgetLocalPhotoAt(uri));
+
+  /**
+   * A photo the screener refused, undone on this device.
+   *
+   * The server has already deleted the object and the row by the time this
+   * runs — see `screen-task-media` — so all three of these are local, and all
+   * three are needed. Without the dispatch the card goes on showing a picture
+   * that exists nowhere else; without the file delete the bytes sit in the
+   * sandbox forever; without the toast the photo simply vanishes and the
+   * person is left to wonder whether they imagined attaching it.
+   *
+   * `IMAGE_BLOCKED_COPY` is the same line the avatar flow uses, and for the
+   * reason argued where it is defined: it does not name what the model
+   * objected to, because that is either an accusation over a picture of
+   * somebody's kitchen or a checklist for getting the next one through.
+   */
+  const unsubscribeBlocked = onMediaBlocked((entry) => {
+    dispatch({ type: 'REMOVE_MEDIA', id: entry.taskId });
+    dispatch({ type: 'TOAST', message: IMAGE_BLOCKED_COPY });
+    forget(entry.localUri);
+  });
 
   /**
    * What the last observation saw, by id. `null` until the first one, which is
@@ -1258,6 +1301,10 @@ export function createEngine(
       mediaTimer = null;
       unsubscribeSession?.();
       unsubscribeSession = null;
+      // The lane is a module, so a subscription left behind would dispatch
+      // into a store this engine no longer speaks for — and on a sign-out,
+      // into one belonging to somebody else.
+      unsubscribeBlocked();
       // Unmount, or sync switching off. The channel outliving the engine would
       // be a socket firing refetches at a `pull` nothing is listening to.
       stopRealtime();

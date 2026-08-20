@@ -297,13 +297,49 @@ and it is not free.
 ## Avatars: a face behind a screening gate
 
 Added in `20260819194501_avatars.sql`: two columns on `profiles`, a private
-`avatars` bucket, four storage policies, and two RPCs. If `task_media` (photos
-on goals, an unmerged branch at the time of writing) has also landed by the
-time you read this, that is a second private bucket following the same shape
-— private, signed reads, path rooted at the owner, client-minted object names,
-no update policy on the row. This section only writes down where an avatar is
-*not* like a goal photo; it does not assume it is the only bucket in the
-project.
+`avatars` bucket, four storage policies, and two RPCs. `task_media` (photos on
+goals) is a second private bucket following the same shape — private, signed
+reads, path rooted at the owner, client-minted object names, no update policy
+on the row — and since `20260820020000_task_media_screened.sql` it is behind a
+screening gate too. This section writes down where an avatar is *not* like a
+goal photo.
+
+**Where the two gates differ, and why.** The avatar gate lives in
+`profiles.avatar_state` and the bucket's select policy stays open to every
+signed-in account: storage cannot ask about `avatar_state` without a
+SECURITY DEFINER helper joining objects to rows by name, and the screener
+itself has to read the pending bytes. The goal-photo gate goes further,
+because that helper already exists — `private.can_see_media` was resolving
+object names to tasks before screening arrived, so it now also requires a
+`ready` row claiming that exact path. An unscreened goal photo therefore
+cannot be signed for at all, where an unscreened avatar is merely not
+rendered.
+
+**Two things the review caught, both invisible until something used them.**
+`task_media.path` was free-form text, which was harmless while every reader
+went the other way (object name → task). The screener holds the service role
+and both downloads *and deletes* that path, so a legitimate row of your own
+naming somebody else's object was a way to have their photo deleted — and a
+refusal is available on demand by going over the daily cap. The column is now
+constrained to `<owner_id>/<task_id>/<id>.jpg`, and the function derives the
+name rather than reading it, so neither guarantee rests on the other. And
+`task_media` had never granted anything to `service_role`: `repair_write_paths`
+granted `all on all tables` on the day it ran, and every table added since has
+granted itself explicitly — `device_tokens` even documents the trap — but
+`20260819180000` did not. It went unnoticed because no service-role code had
+ever touched the table. Without it the screener's first `select` is
+`permission denied` and every photo stays `pending` for ever, with every
+policy test still green.
+
+Two further consequences worth keeping straight. The **owner is exempt** from the goal
+gate, in both the row policy and `can_see_media` — they chose the picture and
+their own card draws it off local disk, so refusing it back to them protects
+nobody and would make the upload itself fail (`upload` returns the created
+row, so the select policy runs on it). And there is **no `refused` state**:
+`task_media.state` is `pending | ready`, because `unique (task_id)` means a
+kept refusal would occupy the goal's only photo slot forever. A blocked goal
+photo loses its object *and* its row; a blocked avatar keeps a row, because
+there the row is the profile.
 
 **The state machine.** `avatar_state` is `none | pending | ready | refused`,
 checked by a constraint. A goal photo is scoped to the goal's audience; an
