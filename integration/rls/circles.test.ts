@@ -491,17 +491,25 @@ describe('the invariants, not just the error codes', () => {
       join pg_namespace n on n.oid = c.relnamespace
       cross join (select rolname from pg_roles where rolname in ('anon','authenticated')) r
       where n.nspname = 'public' and c.relkind = 'r'`);
-    // 16 tables × 2 roles. The count is pinned so that adding a table without
-    // thinking about its grants fails here rather than shipping — which is what
-    // it did for `goal_ratings` and `llm_usage`, and again for `device_tokens`,
-    // which arrived holding TRUNCATE that nobody had granted it (see below).
-    // It fired a fourth time for `blocks` and `reports`; both were revoked in
-    // the migration that added them, and this is the count catching up.
-    // A fifth for `task_media`, which is granted `select, insert, delete` to
-    // `authenticated` and nothing at all to `anon` — no TRUNCATE, and no
-    // UPDATE either, since a photo is replaced by removing it and attaching
-    // another rather than by rewriting the row.
-    expect(rows.length).toBe(34);
+    // Every table in `public`, both roles. The count is derived from the same
+    // catalog rather than written down, because a written-down one has to be
+    // edited by hand in every migration that adds a table — and it was, five
+    // times: `goal_ratings`, `llm_usage`, `device_tokens`, `blocks`+`reports`,
+    // and `task_media`, the last of which turned three separate branches red in
+    // eight minutes over a number rather than over a defect.
+    //
+    // Deriving it keeps the one thing the pinned number actually bought: proof
+    // that the query above swept every table, so the loop below cannot pass by
+    // quietly covering none of them. What the pinned number was *said* to buy —
+    // catching a table that arrives holding TRUNCATE — is the loop's job, and
+    // the loop does it for every table without having to be told they exist.
+    const [{ n }] = await sql<{ n: number }>(`
+      select count(*)::int as n
+      from pg_class c
+      join pg_namespace ns on ns.oid = c.relnamespace
+      where ns.nspname = 'public' and c.relkind = 'r'`);
+    expect(n).toBeGreaterThan(0);
+    expect(rows.length).toBe(n * 2);
     for (const r of rows) expect(r.trunc).toBe(false);
   });
 

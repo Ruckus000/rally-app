@@ -4,15 +4,38 @@ on:
   push:
     branches: [main]
   pull_request:
+    # `ready_for_review` is load-bearing, not decoration. The jobs below skip
+    # draft PRs, so without this type nothing would ever run for a branch that
+    # was opened as a draft and later marked ready — the checks would sit
+    # unstarted and the PR could never go green.
+    types: [opened, synchronize, reopened, ready_for_review]
 
-# A second push to the same branch makes the first run's answer irrelevant, and
-# the integration job holds a Docker-heavy runner for minutes. Cancel it.
+# A second push to the same PR branch makes the first run's answer irrelevant,
+# and the integration job holds a Docker-heavy runner for minutes. Cancel it.
+#
+# Not on `main`, though, and the difference matters. On a branch the two runs
+# are two answers about the same work in progress; on `main` they are two
+# different commits, each of which is something someone can check out. Killing
+# the older one leaves a merge commit that nothing ever verified — which is
+# exactly what happened three times in one evening, when each merge cancelled
+# the run belonging to the merge before it.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   check:
+    # Draft PRs do not run CI. Agents push work in progress many times before a
+    # branch is finished, and a run against a half-written commit is a red X
+    # that means nothing except "not done yet" — while still sending a "PR run
+    # failed" notification to a human who cannot act on it. Marking the PR ready
+    # for review fires `ready_for_review` above and this runs for real.
+    #
+    # Note for anyone tempted to drop the draft check: a required status check
+    # skipped by an `if:` counts as *passing* to branch protection. This is only
+    # safe because GitHub refuses to merge a draft PR at all. Remove the draft
+    # gate here and you have removed the merge gate on main with it.
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -39,6 +62,9 @@ jobs:
   # step here runs against the local stack on the runner, nothing touches the
   # hosted Supabase project.
   integration:
+    # Same reasoning as `check` above, and more of it: this is the job that
+    # holds a runner for minutes pulling Docker images.
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
