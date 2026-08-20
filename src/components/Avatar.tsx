@@ -25,7 +25,7 @@
 import React from 'react';
 import { Image, StyleProp, View, ViewStyle } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import { color } from '../theme/tokens';
+import { useColors } from '../theme/ThemeProvider';
 import { PersonId } from '../data/people';
 import { useAvatarUrl } from '../lib/avatarUrl';
 import { usePeople } from '../state/store';
@@ -47,6 +47,7 @@ export function Avatar({
   label?: string;
   style?: StyleProp<ViewStyle>;
 }) {
+  const color = useColors();
   const people = usePeople();
   const person = who ? people.get(who) : undefined;
   const ini = initials ?? (who ? people.initials(who) : '?');
@@ -106,7 +107,7 @@ export function Avatar({
 export function FaceStack({
   people,
   size = 20,
-  ringColor = color.paper,
+  ringColor,
   ringWidth = 2,
   onPressPerson,
 }: {
@@ -117,7 +118,16 @@ export function FaceStack({
   /** When set, each face becomes a route to that person's profile. */
   onPressPerson?: (who: PersonId) => void;
 }) {
+  const color = useColors();
   const dir = usePeople();
+  // `ringColor` used to default to `color.paper` in the parameter list. A
+  // parameter default is evaluated at call time but the palette now comes from
+  // a hook, and a hook cannot be called out there, so the default moves in
+  // here. `??` and not `||`: a parameter default fires only on `undefined`,
+  // and `||` would also treat an empty string as "unset" — a caller passing
+  // one would silently get paper instead of nothing. That is a behaviour
+  // change, and this migration is not allowed one.
+  const ring = ringColor ?? color.paper;
   return (
     <View style={{ flexDirection: 'row' }}>
       {people.map((k, i) => {
@@ -131,7 +141,7 @@ export function FaceStack({
             style={{
               padding: ringWidth,
               borderRadius: (size + ringWidth * 2) / 2,
-              backgroundColor: ringColor,
+              backgroundColor: ring,
               marginLeft: i ? -(size * 0.28 + ringWidth) : 0,
             }}
           >
@@ -168,7 +178,7 @@ export function ProgressRing({
   size,
   pct,
   stroke = 7,
-  ringColor = color.lime,
+  ringColor,
   trackColor = 'rgba(25,30,22,.08)',
 }: {
   size: number;
@@ -183,6 +193,11 @@ export function ProgressRing({
   ringColor?: string;
   trackColor?: string;
 }) {
+  const color = useColors();
+  // Same `??` rewrite as `FaceStack` above, and for the same reason. Note that
+  // `trackColor` keeps its parameter default: it is a literal, not a palette
+  // read, so nothing forces it in here.
+  const ring = ringColor ?? color.lime;
   // A dashed track and no arc: legibly "nothing to show" rather than "nothing
   // achieved". The text beside it already says "No week synced yet".
   const unknown = pct === null;
@@ -208,7 +223,7 @@ export function ProgressRing({
           cy={50}
           r={43}
           fill="none"
-          stroke={ringColor}
+          stroke={ring}
           strokeWidth={stroke}
           strokeLinecap="round"
           strokeDasharray={RING_CIRCUMFERENCE}
