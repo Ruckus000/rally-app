@@ -182,7 +182,7 @@ export function ProgressRing({
   pct,
   stroke = 7,
   ringColor,
-  trackColor = 'rgba(25,30,22,.08)',
+  trackColor,
 }: {
   size: number;
   /**
@@ -197,10 +197,13 @@ export function ProgressRing({
   trackColor?: string;
 }) {
   const color = useColors();
-  // Same `??` rewrite as `FaceStack` above, and for the same reason. Note that
-  // `trackColor` keeps its parameter default: it is a literal, not a palette
-  // read, so nothing forces it in here.
+  // Same `??` rewrite as `FaceStack` above, and now for both. `trackColor`
+  // used to keep its parameter default on the grounds that it was a literal
+  // rather than a palette read — true of the syntax and false of the effect,
+  // since the track is ink at 8% on a ground that inverts. It is `disabledFill`
+  // in every scheme: the shape of a thing that exists and has not happened yet.
   const ring = ringColor ?? color.lime;
+  const track = trackColor ?? color.disabledFill;
   // A dashed track and no arc: legibly "nothing to show" rather than "nothing
   // achieved". The text beside it already says "No week synced yet".
   const unknown = pct === null;
@@ -216,7 +219,7 @@ export function ProgressRing({
         cy={50}
         r={43}
         fill="none"
-        stroke={trackColor}
+        stroke={track}
         strokeWidth={stroke}
         strokeDasharray={unknown ? '10 9' : undefined}
       />

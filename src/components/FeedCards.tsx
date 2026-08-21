@@ -96,7 +96,7 @@ export const MineRow = React.memo(function MineRow({
             borderRadius: 18,
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: task.done ? color.lime : '#FAFBF7',
+            backgroundColor: task.done ? color.lime : color.checkboxFill,
             ...(task.done
               ? null
               : { borderWidth: 2, borderStyle: 'dashed' as const, borderColor: color.dash }),

@@ -21,9 +21,14 @@ import { Platform, TextStyle, useWindowDimensions, ViewStyle } from 'react-nativ
 export const MAX_FONT_SCALE = 1.35;
 
 /**
- * The light palette — the only one that exists today. `ThemeProvider` serves
- * this through context so the app can be handed a different one later; until
- * the dark palette lands, every scheme resolves to exactly these values.
+ * The light palette. `ThemeProvider` serves it through context, and `darkColors`
+ * below is the other answer that context can now give.
+ *
+ * This one is the shape: `Palette` is derived from its key set, so a token added
+ * here fails to compile until the dark palette answers for it. Its values are
+ * pinned exactly, by an inline snapshot in `theme/__tests__/theme.test.tsx` —
+ * dark mode was five PRs of "nothing may look different", and light is still
+ * byte-for-byte what it was before any of it started.
  */
 export const lightColors = {
   /**
@@ -88,16 +93,58 @@ export const lightColors = {
   inputFill: '#F7F8F3',
   /** A step already behind you, on light. `onDark.limeEdgeSoft` does it on dark. */
   dotDone: '#B9C2A8',
-  /** A control that is present but not yet earned — fill under `faintInk`. */
+  /**
+   * A control that is present but not yet earned — fill under `faintInk`, and
+   * the unrun part of a `ProgressRing`. Those are the same idea drawn twice:
+   * the shape of something that exists and has not happened yet.
+   */
   disabledFill: 'rgba(25,30,22,.08)',
+
+  // ── The last twelve, inline literals in seven files until 6d. Every one
+  //    of them draws on a surface that flips, which is why none of them could
+  //    stay where it was: a literal is a colour the palette cannot answer for.
+  /** An unticked checkbox inside a `card`: inset, the way `inputFill` is. */
+  checkboxFill: '#FAFBF7',
+  /** The wash under a modal sheet. Sheet and app are both `paper` beneath it. */
+  scrim: 'rgba(16,20,8,.42)',
+  /** The drag handle at the top of a sheet. */
+  sheetGrip: 'rgba(25,30,22,.18)',
+  /** The edge of an outline control whose fill is `card` — a chip, a button. */
+  outline: 'rgba(25,30,22,.14)',
+  /** The note composer's own bar, floating over the sheet it is docked in. */
+  composerBar: 'rgba(255,255,255,.96)',
+  /** The hairline along its top edge — quieter than `divider`, on purpose. */
+  composerEdge: 'rgba(25,30,22,.07)',
+  /** A rule between rows *inside* one card, quieter still. */
+  rowDivider: 'rgba(25,30,22,.06)',
+  /** The lime edge on an unread "needs you" row, drawn on `askTint`. */
+  needsEdge: 'rgba(195,245,60,.75)',
+  /** The "waiting {n}" pill. Fill and text are one decision, not two. */
+  waitingChip: '#F6E6C8',
+  waitingText: '#8A6218',
+  /** The "R" app-icon tile in the simulated push notification onboarding shows. */
+  previewTile: '#E0E6D3',
+  /**
+   * The follow-through ring on the second and third podium places. Quieter
+   * than `lime`, which is what makes first place read as first.
+   */
+  ringQuiet: '#C6DDA0',
+
+  // ── And one that was never a literal, only the wrong token. ─────────────
+  /**
+   * The rounded tile behind a system notification's glyph, which carries
+   * `onDark.primary` and so has to be dark in **both** schemes — a seventh
+   * non-moving token, alongside the six the emphasis grammar rests on.
+   *
+   * It was spelled `avatarText` until 6d, and that was fine while `avatarText`
+   * was `#3B4630`. It is a light colour in the dark palette, because the discs
+   * under those initials went dark — which would have made this tile a bright
+   * white square carrying a near-white icon. Same hex, its own name, and now
+   * nothing can move it by accident.
+   */
+  systemTile: '#3B4630',
 } as const;
 
-/**
- * The static export, unchanged. 31 files read `color.*` directly and will keep
- * doing so until each is migrated onto `useColors()`; the two are the same
- * object for the whole migration, which is what makes every intermediate PR
- * verifiable by "nothing may look different". Deleted in the last PR.
- */
 /**
  * The dark palette.
  *
@@ -149,6 +196,11 @@ export const lightColors = {
  * mid-lime the year grid already uses for a good week. `inputFill` inverts
  * direction rather than lightness: an inset field inside a card is *darker*
  * than its card on dark, where on paper it was lighter.
+ *
+ * The twelve tokens 6d moved in from inline literals are the same story at
+ * smaller scale, and four of them could not be flipped either — the scrim, the
+ * "waiting" pill's cream-and-amber pair, the podium's second-place ring and the
+ * lime edge on an unread row. Each says why beside its own value below.
  */
 /**
  * The shape every scheme must supply: the exact key set of `lightColors`, with
@@ -199,8 +251,69 @@ export const darkColors: Palette = {
   dash: 'rgba(241,242,236,.22)',
   disabledFill: 'rgba(241,242,236,.06)',
   dotDone: 'rgba(195,245,60,.45)',
+  sheetGrip: 'rgba(241,242,236,.22)',
+  outline: 'rgba(241,242,236,.16)',
+  composerEdge: 'rgba(241,242,236,.10)',
+  /** Below `divider`, as on paper: a rule inside a card, not between cards. */
+  rowDivider: 'rgba(241,242,236,.08)',
+  /** Inset in a card, so it goes the same way `inputFill` does — down. */
+  checkboxFill: '#0C1009',
+
+  // ── The four that could not be flipped, only re-decided. ────────────────
+  /**
+   * Deeper, because it has more to do. On paper a 42% wash separates a light
+   * sheet from a light app. On dark the sheet is `paper` over `paper` and the
+   * only thing telling them apart is how much darker the ground behind has
+   * gone, so the wash carries the whole separation rather than half of it.
+   */
+  scrim: 'rgba(4,6,2,.74)',
+  /**
+   * The composer bar is `card` at the same 96%, not white at 96% — it is a
+   * raised bar over the sheet, and raised on dark means lighter.
+   */
+  composerBar: 'rgba(18,23,15,.96)',
+  /**
+   * Down from .75. On `askTint` a three-quarter lime edge is a soft outline;
+   * on a near-black one it is the brightest thing on the screen, competing
+   * with the lime CTA it is meant to point at. `.50` is `onDark.limeEdge` —
+   * the edge on the thing that is current — which is exactly what this row is.
+   */
+  needsEdge: 'rgba(195,245,60,.50)',
+  /**
+   * The pair inverts together or not at all: a cream chip with amber text
+   * becomes an amber chip with cream text. Flipping one alone leaves either
+   * dark-on-dark or a cream slab brighter than anything around it. 8.1:1.
+   */
+  waitingChip: '#3A2E12',
+  waitingText: '#E8C77A',
+  /**
+   * Index 0 of `darkPersonTints` by value, and a separate key by intent. This
+   * is Rally's own mark in a fake iOS notification, not a person — but it does
+   * share the constraint that decided that array, because it carries
+   * `avatarText` on it and has to hold that text on a dark ground. Its own key
+   * so that re-ordering `personTints`, which that array's docblock warns costs
+   * nothing to do accidentally, cannot re-tint the app icon.
+   */
+  previewTile: '#2C3325',
+  /**
+   * Not a pale green. `#C6DDA0` was chosen to be *quieter* than `lime` on
+   * paper; the same hue on a near-black ground is louder than `lime`, and
+   * ranks two and three would out-shout first place. So it goes the other way:
+   * this is `onDark.limeDeep`'s value — lime at roughly two-fifths of its
+   * luminance — written out rather than referenced, because `onDark` is
+   * declared below this object.
+   */
+  ringQuiet: '#6E9418',
+  /** Unmoved, for the reason in its light docblock: it carries light content. */
+  systemTile: '#3B4630',
 };
 
+/**
+ * The static export, unchanged. The files still reading `color.*` directly get
+ * the light palette whatever the device says — which was invisible while dark
+ * resolved to light and is a bug from this PR onwards. Deleted in the last PR
+ * of the sequence; until then, a `color.` in a component is a thing to migrate.
+ */
 export const color = lightColors;
 
 /**

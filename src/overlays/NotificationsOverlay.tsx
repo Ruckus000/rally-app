@@ -37,6 +37,11 @@ const TIER_ICON: Partial<Record<Notification['kind'], IconName>> = {
  * and these three have to move with the scheme: two of them are palette tokens
  * and would have gone on saying `#191E16` on a dark ground forever.
  *
+ * `textPrimary` and not `ink` for the week dot, which is the same `#191E16` on
+ * paper and the point of the split: this is a 7px mark drawn *on* the ground,
+ * not a surface, so it inverts with the ground. `ink` would have left it at
+ * 1.3:1 against `#070A06` — a dot that is there and cannot be seen.
+ *
  * A factory taking what it reads, which is the convention settled in
  * `ThemeProvider`'s docblock and worked in `LedgerOverlay`'s `closeButton` —
  * not a hook, because the caller is already inside a `.map()` and there is
@@ -51,7 +56,7 @@ const TIER_ICON: Partial<Record<Notification['kind'], IconName>> = {
  * being the right source for it, this line is where that argument happens.
  */
 const tierAccent = (key: NotifTier, color: Palette, personTints: PersonTints): string =>
-  key === 'needs' ? color.lime : key === 'week' ? color.ink : personTints[1];
+  key === 'needs' ? color.lime : key === 'week' ? color.textPrimary : personTints[1];
 
 export function NotificationsOverlay({
   topInset,
@@ -267,7 +272,7 @@ function NotificationRow({ item, isNeeds }: { item: Notification; isNeeds: boole
           minHeight: 64,
           backgroundColor: isNeeds && !read ? color.askTint : color.card,
           borderWidth: isNeeds && !read ? 1.5 : 0,
-          borderColor: 'rgba(195,245,60,.75)',
+          borderColor: color.needsEdge,
         },
         isNeeds && !read ? shadows.needsRow : shadows.card,
       ]}
@@ -280,7 +285,12 @@ function NotificationRow({ item, isNeeds }: { item: Notification; isNeeds: boole
             borderRadius: 13,
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: item.kind === 'streak' || item.kind === 'due' ? color.ink : color.avatarText,
+            // Both branches are dark in both schemes, because the glyph on
+            // top of them is `onDark.primary` either way. `avatarText` used to
+            // spell the second one and no longer can: it went light when the
+            // avatar discs went dark, which would have put a near-white icon
+            // on a near-white tile.
+            backgroundColor: item.kind === 'streak' || item.kind === 'due' ? color.ink : color.systemTile,
           }}
         >
           <Icon
@@ -320,8 +330,8 @@ function NotificationRow({ item, isNeeds }: { item: Notification; isNeeds: boole
             {item.time}
           </Sans>
           {item.aging ? (
-            <View style={{ backgroundColor: '#F6E6C8', borderRadius: 999, paddingHorizontal: 7, paddingVertical: 2 }}>
-              <Bri size={10} weight={800} color="#8A6218">
+            <View style={{ backgroundColor: color.waitingChip, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 2 }}>
+              <Bri size={10} weight={800} color={color.waitingText}>
                 waiting {item.aging}
               </Bri>
             </View>

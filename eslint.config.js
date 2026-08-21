@@ -17,19 +17,13 @@ const expoConfig = require("eslint-config-expo/flat");
  * mechanism is two PRs pretending to be one. It becomes an error in PR 6, once
  * the list is empty.
  *
- * 91 violations when this landed. Most are plainly colours that belong in
- * tokens.ts, but two clusters are not, and are written down here so the next
- * person does not have to work out which of the 91 are real:
- *
- * - `src/overlays/onboard/WelcomeScreen.tsx` (#4285F4, #34A853, #FBBC05,
- *   #EA4335) is the Google logo. Those are a brand lockup, not theme values —
- *   they must not follow the palette, in either scheme. They want an
- *   `eslint-disable-next-line` with that as the reason, not a token.
- * - `src/data/people.ts` (11) and `src/data/fixtures.ts` (3) are demo fixture
- *   data carrying per-person avatar tints. Those are the `personTints`
- *   question the dark-mode spec flags as needing real design thought rather
- *   than a batch swap — dark initials on a pastel disc become the loudest
- *   thing on a near-black ground. Do not move them until that is decided.
+ * 91 violations when this landed, and none now. The one cluster that was never
+ * going to become tokens is gone too: `src/overlays/onboard/WelcomeScreen.tsx`
+ * drew the Google logo (#4285F4, #34A853, #FBBC05, #EA4335), a brand lockup
+ * rather than theme values, and it carries an `eslint-disable-next-line` saying
+ * so. Anything else that looks like an exception is not one — the last twelve
+ * held out on the same "it is only a border" grounds and every one of them was
+ * on a surface that inverts.
  */
 const hex = 'Literal[value=/^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/]';
 const rgb = 'Literal[value=/rgba?\\(/]';
