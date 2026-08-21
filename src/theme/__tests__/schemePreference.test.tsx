@@ -22,7 +22,7 @@
  * are asserted, from one tap, in the same test.
  */
 import React from 'react';
-import { Text } from 'react-native';
+import { Appearance, Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
@@ -295,5 +295,103 @@ describe('choosing', () => {
     expect(shown()).toBe('dark');
     await act(async () => {});
     await expect(AsyncStorage.getItem(KEY)).resolves.toBe('system');
+  });
+});
+
+/**
+ * The surfaces this app does not draw.
+ *
+ * `Alert.alert`, the image picker and the Apple sign-in sheet come from iOS,
+ * and they read the window's interface style rather than anything in
+ * `tokens.ts`. `Appearance.setColorScheme` is the only lever on that, and under
+ * jest there is no native module behind it — the call is a no-op — so these
+ * watch the lever rather than its effect.
+ */
+describe('the platform is told too', () => {
+  let told: jest.SpyInstance;
+
+  beforeEach(() => {
+    told = jest.spyOn(Appearance, 'setColorScheme').mockImplementation(() => {});
+  });
+  afterEach(() => told.mockRestore());
+
+  it.each([
+    ['light', 'light'],
+    ['dark', 'dark'],
+  ] as const)('hands %s straight to the platform', async (pick, expected) => {
+    render(
+      <ThemeProvider preference="system">
+        <Control />
+      </ThemeProvider>,
+    );
+    fireEvent.press(screen.getByLabelText(`pick ${pick}`));
+    expect(told).toHaveBeenCalledWith(expected);
+    await act(async () => {});
+  });
+
+  /**
+   * The release, which matters more than either override. `setColorScheme`
+   * also changes what `getColorScheme()` reports, so a preference of 'system'
+   * that never cleared a previous override would keep resolving to it and the
+   * phone's own setting would stop reaching the app.
+   */
+  it('releases the override when the choice goes back to system', async () => {
+    render(
+      <ThemeProvider preference="dark">
+        <Control />
+      </ThemeProvider>,
+    );
+    told.mockClear();
+    fireEvent.press(screen.getByLabelText('pick system'));
+    expect(told).toHaveBeenCalledWith('unspecified');
+    await act(async () => {});
+  });
+
+  it('applies a preference that arrived from disk rather than from a tap', () => {
+    render(
+      <ThemeProvider preference="dark">
+        <Probe />
+      </ThemeProvider>,
+    );
+    // Nobody touched the control; this is the launch path.
+    expect(told).toHaveBeenCalledWith('dark');
+  });
+
+  /**
+   * The ordering, which is the whole reason this is not an effect.
+   *
+   * `setColorScheme` emits no change event, so `useColorScheme()` only sees the
+   * new value on its next render. Called after the state update instead, the
+   * render reacting to that update would read the stale override — resolving
+   * dark on a light phone — and nothing would re-render to correct it.
+   *
+   * So: the platform must hear about it before React re-renders. Counting
+   * renders at the moment of the call is what says so.
+   */
+  it('tells the platform before the tree re-renders, not after', async () => {
+    render(
+      <ThemeProvider preference="dark">
+        <Control />
+      </ThemeProvider>,
+    );
+
+    // What the tree was showing each time the platform was told. Two calls are
+    // expected and correct: the setter's, then the effect's backstop. What is
+    // being asserted is the *first* one — if the setter got there before React
+    // re-rendered, the tree still reads 'dark' at that instant. Were the setter
+    // an effect, the only call would come after the render and read 'system',
+    // which is precisely the ordering bug this guards.
+    const showing: unknown[] = [];
+    told.mockClear();
+    told.mockImplementation(() => {
+      showing.push(screen.getByTestId('preference').props.children);
+    });
+
+    fireEvent.press(screen.getByLabelText('pick system'));
+
+    expect(showing[0]).toBe('dark');
+    expect(showing).toEqual(['dark', 'system']);
+    expect(screen.getByTestId('preference').props.children).toBe('system');
+    await act(async () => {});
   });
 });
