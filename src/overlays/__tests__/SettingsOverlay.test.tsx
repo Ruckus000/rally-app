@@ -26,7 +26,7 @@ import { Alert, Linking } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { StoreProvider, useStore } from '../../state/store';
-import { accountLine, SettingsOverlay } from '../SettingsOverlay';
+import { accountHeading, accountLine, SettingsOverlay } from '../SettingsOverlay';
 import * as signOutModule from '../settings/signOut';
 import { fakeNotifications, __resetForTests } from '../../__mocks__/expo-notifications';
 import * as sessionModule from '../../sync/session';
@@ -92,7 +92,8 @@ describe('what a demo account sees', () => {
 
   it('still gets a page, and it says what kind of account this is', async () => {
     await mount({ account: 'seeded' });
-    expect(screen.getByText(/Demo/i)).toBeTruthy();
+    expect(screen.getByText(/Just looking around/i)).toBeTruthy();
+    expect(screen.getByText(/reaches a server/i)).toBeTruthy();
   });
 });
 
@@ -185,6 +186,18 @@ describe('what the page says this account is', () => {
   const READY = { status: 'ready', userId: ME, anonymous: false } as const;
   const ANON = { status: 'ready', userId: ME, anonymous: true } as const;
 
+  /**
+   * The heading and the line, read together, which is how they appear.
+   *
+   * They used to be one string. The heading could only say "Live", so every
+   * line opened by naming its own state; now the heading names it and the line
+   * says what follows. Asserting on the pair keeps every distinction below
+   * exactly where it was, and makes the negative assertions stronger — a
+   * forbidden word is now forbidden in both halves rather than one.
+   */
+  const said = (session: SessionState, platform: 'ios' | 'android' = 'ios') =>
+    `${accountHeading('live', session, platform)} ${accountLine('live', session, platform)}`;
+
   it('tells the demo that none of it is real', () => {
     expect(accountLine('seeded', { status: 'off' }, 'ios')).toMatch(/reaches a server/i);
   });
@@ -201,46 +214,46 @@ describe('what the page says this account is', () => {
    * it does.
    */
   it('says it is checking only while it is actually checking', () => {
-    expect(accountLine('live', { status: 'signing-in' }, 'ios')).toBe(
-      'Checking this account\u2026',
-    );
+    expect(said({ status: 'signing-in' })).toMatch(/Signing in/);
+    expect(said({ status: 'signing-in' })).toMatch(/Checking this account/);
   });
 
   it('does not claim a live account is signed in when there is no server at all', () => {
-    const line = accountLine('live', { status: 'off' }, 'ios');
-    expect(line).toMatch(/No server is set up/);
-    expect(line).toMatch(/stays on this phone/);
+    const both = said({ status: 'off' });
+    expect(both).toMatch(/On this phone only/);
+    expect(both).toMatch(/No server is set up/);
     // The two claims the old single line made, and the whole of this bug.
-    expect(line).not.toMatch(/Signed in/);
-    expect(line).not.toMatch(/Checking/i);
+    expect(both).not.toMatch(/Signed in/);
+    expect(both).not.toMatch(/Checking/i);
   });
 
   it('tells an offline account it is signed in and will catch up, without implying loss', () => {
-    const line = accountLine('live', { status: 'offline' }, 'ios');
-    expect(line).toMatch(/^Signed in\./);
-    expect(line).toMatch(/catches up on its own/);
+    const both = said({ status: 'offline' });
+    // "Signed in" moved to the heading when the line stopped opening with it.
+    expect(accountHeading('live', { status: 'offline' }, 'ios')).toMatch(/^Signed in/);
+    expect(both).toMatch(/catches up on its own/);
     // Nothing is in flight, so nothing may say it is.
-    expect(line).not.toMatch(/Checking/i);
+    expect(both).not.toMatch(/Checking/i);
   });
 
   it('tells an expired session this device is signed out, and leaves the way back to the banner', () => {
-    const line = accountLine('live', { status: 'expired' }, 'ios');
-    expect(line).toMatch(/Signed out on this device/);
-    expect(line).not.toMatch(/Checking/i);
+    const both = said({ status: 'expired' });
+    expect(both).toMatch(/Signed out on this device/);
+    expect(both).not.toMatch(/Checking/i);
     // `SyncBanner` owns "Try again" and "Start over". Two doors onto one action
     // is worse than one.
-    expect(line).not.toMatch(/Try again|Start over/i);
+    expect(both).not.toMatch(/Try again|Start over/i);
   });
 
   it('does not put the error\u2019s own message under a heading', () => {
     const message = 'Anonymous sign-in is disabled on this Supabase project.';
-    const line = accountLine('live', { status: 'error', message }, 'ios');
-    expect(line).toMatch(/isn\u2019t working/);
-    expect(line).toMatch(/may not be enough/);
+    const both = said({ status: 'error', message });
+    expect(both).toMatch(/isn\u2019t working/);
+    expect(both).toMatch(/may not be enough/);
     // That string is banner copy \u2014 written to sit next to a retry, not under a
     // section title with nothing to do about it.
-    expect(line).not.toContain(message);
-    expect(line).not.toMatch(/Checking/i);
+    expect(both).not.toContain(message);
+    expect(both).not.toMatch(/Checking/i);
   });
 
   it('gives all five unresolved states different sentences', () => {
@@ -251,8 +264,12 @@ describe('what the page says this account is', () => {
       { status: 'expired' },
       { status: 'error', message: 'nope' },
     ];
-    const lines = states.map((s) => accountLine('live', s, 'ios'));
-    expect(new Set(lines).size).toBe(5);
+    // The pair, not the line: two states could now share a consequence while
+    // still being told apart by the heading, and that would be fine. What must
+    // never happen is two of them reading identically.
+    const both = states.map((s) => said(s));
+    expect(new Set(both).size).toBe(5);
+    expect(new Set(states.map((s) => accountHeading('live', s, 'ios'))).size).toBe(5);
   });
 
   it('still tells the demo the demo line, whatever the session says', () => {
@@ -266,19 +283,18 @@ describe('what the page says this account is', () => {
   });
 
   it('tells a secured account it can be got back', () => {
-    expect(accountLine('live', READY, 'ios')).toBe(
-      'Signed in, and this account can be got back with Apple.',
-    );
+    expect(accountHeading('live', READY, 'ios')).toBe('Signed in with Apple');
+    expect(accountLine('live', READY, 'ios')).toBe('This account can be got back on a new phone.');
   });
 
   it('points an anonymous iOS account at the row that fixes it', () => {
-    const line = accountLine('live', ANON, 'ios');
-    expect(line).toMatch(/can\u2019t be got back yet/);
-    expect(line).toMatch(/Secure it below/);
+    expect(accountHeading('live', ANON, 'ios')).toMatch(/not secured yet/);
+    expect(accountLine('live', ANON, 'ios')).toMatch(/Secure it below/);
   });
 
   it('tells an anonymous Android account why there is no sign-out either', () => {
     const line = accountLine('live', ANON, 'android');
+    expect(accountHeading('live', ANON, 'android')).toMatch(/not secured/);
     // Both halves, and the second is the load-bearing one: without it the page
     // silently offers an Android account neither a way to secure itself nor a
     // way to leave, and says nothing about either.
