@@ -16,6 +16,13 @@
  * and a row of it directly below Sign out would make two destructive controls
  * read as siblings. It stays in `MeScreen`'s `__DEV__` block.
  *
+ * Appearance (6e) is the first row on this page that is about the *phone*
+ * rather than the account, along with the Monday reminder it sits above. It
+ * reads and writes `useSchemePreference()`, not the store — the palette is
+ * owned by a provider above `StoreProvider` and stored under a key of its own,
+ * so it outlives a sign-out and a reset. Which is the point: wiping your
+ * account data should not change how your phone renders.
+ *
  * `zIndex` 59. The ladder is Plan 45, Sheet 50, Ledger 55, Notifications 58,
  * **this**, Rollover 60, Onboard 70. Above Notifications, because the bell is
  * reachable from the same chrome and this is the more specific place to be.
@@ -33,7 +40,13 @@
 import React from 'react';
 import { Alert, Linking, Platform, ScrollView, TextInput, View } from 'react-native';
 import { font, gutter, radius } from '../theme/tokens';
-import { useColors, useKeyboardAppearance, type Palette } from '../theme/ThemeProvider';
+import {
+  useColors,
+  useKeyboardAppearance,
+  useSchemePreference,
+  type Palette,
+  type SchemePreference,
+} from '../theme/ThemeProvider';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
 import { Icon } from '../components/Icon';
 import { Avatar } from '../components/Avatar';
@@ -208,6 +221,18 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
             between them. */}
         <Section title="Blocked">
           <BlockedList />
+        </Section>
+
+        {/* Between Blocked and Notifications, and not in the you-cluster above.
+            Name and photo are identity — they are about you, they go to the
+            server, and everyone in your circle sees them. This is neither: it
+            is a fact about this phone, it never leaves it, and it survives
+            signing out. So it sits with the other thing on this page that is
+            about how the app behaves on this device rather than about the
+            account, which is the Monday reminder. It also keeps the gap the
+            comment above wants between Blocked and Leaving. */}
+        <Section title="Appearance">
+          <AppearanceRows />
         </Section>
 
         <Section title="Notifications">
@@ -431,6 +456,122 @@ function PhotoRow() {
       </View>
       <Trouble message={trouble} />
     </View>
+  );
+}
+
+/**
+ * Light, dark, or whatever the phone is doing.
+ *
+ * A radio group, and built as one rather than as a toggle with a third state:
+ * `accessibilityRole="radiogroup"` on the container, `"radio"` on each option,
+ * and `accessibilityState={{ selected }}` so VoiceOver says which one is on.
+ * Each label reads as a whole sentence on its own, because a `Tap` collapses
+ * everything inside it into one element and the caption below the title never
+ * reaches a screen reader otherwise — the same trap `SignOutRow` documents.
+ *
+ * No confirm and no Save. The tap repaints the entire tree behind this overlay
+ * and writes the choice to disk in the same call, which is `setPreference`'s
+ * whole job — see `theme/ThemeProvider.tsx`. Preview *is* the confirmation: you
+ * can see what you picked, and picking again costs one tap.
+ *
+ * Offered to every account, demo included, for the reason the section comment
+ * gives: this is not an account fact. It is also the reason it is not `live`-
+ * gated the way name and photo are.
+ *
+ * What each option ticks is the *preference*, never the resolved scheme. Under
+ * System on a dark phone the app is dark and the ticked row is still System,
+ * because that is what was chosen; ticking Dark there would be the control
+ * telling you it is set to something it is not.
+ */
+function AppearanceRows() {
+  const { preference, setPreference } = useSchemePreference();
+
+  return (
+    <View style={{ gap: 8 }} accessibilityRole="radiogroup">
+      {APPEARANCE_OPTIONS.map((option) => (
+        <AppearanceRow
+          key={option.value}
+          option={option}
+          selected={preference === option.value}
+          onPress={() => setPreference(option.value)}
+        />
+      ))}
+    </View>
+  );
+}
+
+/**
+ * The three, in the order they are worth reading: the default first, then the
+ * two ways to overrule it.
+ *
+ * "System" says what following the system actually does, rather than naming a
+ * setting somewhere else and leaving you to guess. The two pinned options say
+ * the consequence — that the phone's own switch stops moving Rally — because
+ * that is the part somebody comes back confused about.
+ */
+const APPEARANCE_OPTIONS: {
+  value: SchemePreference;
+  title: string;
+  line: string;
+  label: string;
+}[] = [
+  {
+    value: 'system',
+    title: 'System',
+    line: 'Rally follows your phone. When it goes dark, this goes dark.',
+    label: 'Follow the system. Rally goes dark when your phone does',
+  },
+  {
+    value: 'light',
+    title: 'Light',
+    line: 'Always light, whatever your phone is set to.',
+    label: 'Always light, whatever your phone is set to',
+  },
+  {
+    value: 'dark',
+    title: 'Dark',
+    line: 'Always dark, whatever your phone is set to.',
+    label: 'Always dark, whatever your phone is set to',
+  },
+];
+
+/**
+ * One option. Same card as every other row on this page, with the tick where a
+ * row's trailing action would be.
+ *
+ * The tick is not the only signal — the title above it is `textPrimary` when
+ * selected and `muted` when not — because a single small glyph in one colour is
+ * exactly the thing somebody misses.
+ */
+function AppearanceRow({
+  option,
+  selected,
+  onPress,
+}: {
+  option: (typeof APPEARANCE_OPTIONS)[number];
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const color = useColors();
+
+  return (
+    <Tap
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      accessibilityLabel={option.label}
+      style={{ ...row, gap: 12, ...cardBox(color) }}
+    >
+      <View style={fill}>
+        <Bri size={15} weight={800} color={selected ? color.textPrimary : color.muted}>
+          {option.title}
+        </Bri>
+        <Sans size={12.5} lineHeight={17} color={color.muted} style={{ marginTop: 3 }}>
+          {option.line}
+        </Sans>
+      </View>
+      {selected ? <Icon name="check" size={17} color={color.moss} /> : null}
+    </Tap>
   );
 }
 
