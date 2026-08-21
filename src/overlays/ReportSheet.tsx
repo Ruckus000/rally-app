@@ -140,7 +140,7 @@ export function ReportSheet() {
   return (
     <Overlay
       zIndex={57}
-      background="rgba(16,20,8,.42)"
+      background={color.scrim}
       onRequestClose={close}
       style={{ justifyContent: 'flex-end' }}
     >

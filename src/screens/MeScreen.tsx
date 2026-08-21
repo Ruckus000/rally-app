@@ -4,7 +4,7 @@
 import React from 'react';
 import { Alert, Platform, TextInput, View } from 'react-native';
 import { onDark, onLight, radius, useDisplayLeading } from '../theme/tokens';
-import { useColors, useShadows, useTheme } from '../theme/ThemeProvider';
+import { useColors, useKeyboardAppearance, useShadows, useTheme } from '../theme/ThemeProvider';
 import { CIRCLE_NAME, ME, weekPointsLabel } from '../data/fixtures';
 import { NAME_MAX, type PersonId } from '../data/people';
 import { commitSelfName } from '../sync/engine';
@@ -20,6 +20,7 @@ import { Bri, Caps, GlowBloom, Sans, Tap, fill, row } from '../components/primit
 
 export function MeScreen() {
   const color = useColors();
+  const keyboard = useKeyboardAppearance();
   const shadows = useShadows();
   const { state, dispatch, demo, people, config } = useStore();
   // Up here rather than inline on the `<Bri>` below because it is a hook, and
@@ -199,6 +200,7 @@ export function MeScreen() {
                 autoCapitalize="words"
                 autoCorrect={false}
                 returnKeyType="done"
+                keyboardAppearance={keyboard}
                 selectionColor={color.lime}
                 accessibilityLabel="Your name"
                 style={{
@@ -276,10 +278,11 @@ export function MeScreen() {
           </Tap>
         </View>
 
-        {/* Under the control that failed, which is `Trouble`'s whole remit — the
-            light chip reads against the card's ink the same way it reads against
-            paper elsewhere, so this needs no dark variant. */}
-        <Trouble message={secureTrouble} />
+        {/* Under the control that failed, which is `Trouble`'s whole remit. It
+            is told it is on an ink card: that card is near-black in both
+            schemes, so the chip `Trouble` draws by default would flip out from
+            under it and leave an invisible rectangle here. */}
+        <Trouble message={secureTrouble} dark />
 
         {/* 2 · points */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 11, marginTop: 22 }}>

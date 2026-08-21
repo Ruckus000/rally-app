@@ -315,7 +315,7 @@ export function NotificationPreview({
           borderRadius: 11,
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: dark ? color.lime : '#E0E6D3',
+          backgroundColor: dark ? color.lime : color.previewTile,
         }}
       >
         <Bri size={19} weight={800} color={dark ? onLight : color.avatarText}>

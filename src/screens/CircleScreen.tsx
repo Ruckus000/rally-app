@@ -109,7 +109,7 @@ export function CircleScreen() {
               minHeight: 58,
               backgroundColor: people.isSelf(r.k) ? color.askTint : 'transparent',
               borderTopWidth: i === 0 ? 0 : 1,
-              borderTopColor: 'rgba(25,30,22,.06)',
+              borderTopColor: color.rowDivider,
             }}
           >
             {/* Rank is a number, not only a position — colour is never the only signal. */}
@@ -221,7 +221,7 @@ function PodiumMember({
       style={{ alignItems: 'center' }}
     >
       <View style={{ width: size, height: size }}>
-        <ProgressRing size={size} pct={member.pct} ringColor={isFirst ? color.lime : '#C6DDA0'} />
+        <ProgressRing size={size} pct={member.pct} ringColor={isFirst ? color.lime : color.ringQuiet} />
         <View
           style={{
             position: 'absolute',

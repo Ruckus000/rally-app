@@ -18,7 +18,7 @@ import {
   View,
 } from 'react-native';
 import { onLight, radius } from '../theme/tokens';
-import { useColors, usePersonTints, type Palette } from '../theme/ThemeProvider';
+import { useColors, useKeyboardAppearance, usePersonTints, type Palette } from '../theme/ThemeProvider';
 import {
   AUDIENCE_LABEL,
   ME,
@@ -77,7 +77,7 @@ export function DetailSheet({ bottomInset }: { bottomInset: number }) {
   const hasComposer = sheet.type === 'task' || sheet.type === 'person';
 
   return (
-    <Overlay zIndex={50} background="rgba(16,20,8,.42)" onRequestClose={close} style={{ justifyContent: 'flex-end' }}>
+    <Overlay zIndex={50} background={color.scrim} onRequestClose={close} style={{ justifyContent: 'flex-end' }}>
       {/* Tap-outside-to-dismiss. Hidden from the accessibility tree: it would
           otherwise announce as a second, identical "Close" control, and screen
           reader users have the real button below plus back/Escape. */}
@@ -107,7 +107,7 @@ export function DetailSheet({ bottomInset }: { bottomInset: number }) {
                 width: 38,
                 height: 4,
                 borderRadius: 999,
-                backgroundColor: 'rgba(25,30,22,.18)',
+                backgroundColor: color.sheetGrip,
                 alignSelf: 'center',
                 marginLeft: 40,
               }}
@@ -576,7 +576,7 @@ function PersonSheet({ who }: { who: PersonId }) {
                 accessibilityLabel={`Stake "${t.title}" with ${people.first(who)}`}
                 style={{
                   borderWidth: 1,
-                  borderColor: 'rgba(25,30,22,.14)',
+                  borderColor: color.outline,
                   backgroundColor: color.card,
                   borderRadius: 999,
                   paddingHorizontal: 11,
@@ -635,6 +635,7 @@ function PersonSheet({ who }: { who: PersonId }) {
  */
 function StartCircle() {
   const color = useColors();
+  const keyboard = useKeyboardAppearance();
   const { dispatch } = useStore();
   const [name, setName] = React.useState('');
   const [busy, setBusy] = React.useState(false);
@@ -676,6 +677,7 @@ function StartCircle() {
           onChangeText={setName}
           onSubmitEditing={() => void create()}
           maxLength={CIRCLE_NAME_MAX}
+          keyboardAppearance={keyboard}
           editable={!busy}
           placeholder="e.g. The Basement"
           placeholderTextColor={color.faintInk}
@@ -1099,6 +1101,7 @@ function NoteBubble({ note }: { note: Note }) {
 
 function NoteComposer({ bottomInset }: { bottomInset: number }) {
   const color = useColors();
+  const keyboard = useKeyboardAppearance();
   const { state, dispatch, people } = useStore();
   const sheet = state.sheet;
   // Buffered locally while typing: a keystroke used to dispatch `SET_NOTE`,
@@ -1129,9 +1132,9 @@ function NoteComposer({ bottomInset }: { bottomInset: number }) {
           paddingTop: 10,
           paddingHorizontal: 16,
           paddingBottom: Math.max(bottomInset, 16) + 22,
-          backgroundColor: 'rgba(255,255,255,.96)',
+          backgroundColor: color.composerBar,
           borderTopWidth: 1,
-          borderTopColor: 'rgba(25,30,22,.07)',
+          borderTopColor: color.composerEdge,
         }}
       >
         <TextInput
@@ -1142,6 +1145,7 @@ function NoteComposer({ bottomInset }: { bottomInset: number }) {
           placeholderTextColor={color.muted}
           accessibilityLabel={placeholder}
           returnKeyType="send"
+          keyboardAppearance={keyboard}
           style={{
             flex: 1,
             height: 46,

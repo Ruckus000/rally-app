@@ -5,7 +5,7 @@
 import React from 'react';
 import { TextInput, View } from 'react-native';
 import { onDark, onLight, radius } from '../theme/tokens';
-import { useColors, useShadows } from '../theme/ThemeProvider';
+import { useColors, useKeyboardAppearance, useShadows } from '../theme/ThemeProvider';
 import { Moment, TITLE_MAX } from '../data/fixtures';
 import { useStore } from '../state/store';
 import {
@@ -142,6 +142,7 @@ function PersonalHeader() {
  */
 function QuickLogInput() {
   const color = useColors();
+  const keyboard = useKeyboardAppearance();
   const shadows = useShadows();
   const { dispatch } = useStore();
   const [text, setText] = React.useState('');
@@ -169,6 +170,7 @@ function QuickLogInput() {
         }}
         autoFocus
         returnKeyType="done"
+        keyboardAppearance={keyboard}
         // The same cap the Plan composer carries. Without it this field was
         // the one way to mint a title no row in the app can lay out.
         maxLength={TITLE_MAX}

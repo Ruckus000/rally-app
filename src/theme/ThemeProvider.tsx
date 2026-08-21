@@ -19,13 +19,14 @@
  * the worst possible moment to discover it. Context re-renders. That is the
  * entire argument.
  *
- * ## Why `dark` resolves to the light palette here
+ * ## `dark` resolves to a dark palette now
  *
- * There is no dark palette yet — it is designed (see the spec) but not built,
- * and half of it invented in a mechanism PR is how a PR that promises to
- * change no pixels starts changing pixels. So both schemes resolve to
- * `lightColors`, and the tests pin that down rather than leaving it as a
- * comment somebody trusts.
+ * For five PRs it did not: the palette was designed but not built, and half of
+ * one invented inside a mechanism PR is how a PR that promises to change no
+ * pixels starts changing pixels. 6d built it. Both `theme.test.tsx` and
+ * `themeStructures.test.tsx` turned over with it — what they pin now is that
+ * the two palettes differ, that they carry the identical key set, and that the
+ * six tokens the emphasis grammar rests on are the same in both.
  *
  * ## Why the context value is an object rather than the colour map
  *
@@ -114,9 +115,15 @@
 import React, { createContext, useContext, useMemo } from 'react';
 import { useColorScheme } from 'react-native';
 import {
+  darkColors,
+  darkHairlineGradient,
+  darkPersonTints,
+  darkShadows,
+  darkYearLevelColor,
   hairlineGradient,
   HairlineGradient,
   lightColors,
+  Palette,
   personTints,
   PersonTints,
   shadows,
@@ -128,14 +135,11 @@ import {
 /**
  * Re-exported so a consumer needing one of these as a *type* — a factory
  * taking what it reads, in the convention below — has one import to reach for
- * rather than two. `Palette` is defined here; these four come from `tokens`.
+ * rather than two. All five live in `tokens`, beside the values they describe.
  */
-export type { HairlineGradient, PersonTints, Shadows, YearLevelColor };
+export type { HairlineGradient, Palette, PersonTints, Shadows, YearLevelColor };
 
 export type Scheme = 'light' | 'dark';
-
-/** The colour map a component reads. One shape, whichever scheme is active. */
-export type Palette = typeof lightColors;
 
 /**
  * What the context carries: everything in the app that is a colour and could
@@ -164,20 +168,26 @@ const lightTheme: Theme = {
 };
 
 /**
- * Dark, holding the light structures — all five, by reference to the very
- * objects the light theme names.
+ * Dark, at last holding a palette of its own.
  *
- * Not an oversight and not a placeholder to be filled in casually: the palette
- * swap is the next PR, and the test suite asserts that both schemes still hand
- * back the identical object for every field until then.
+ * Five fields, and only `scheme` is shared with the light theme — but a great
+ * deal *inside* those objects is deliberately identical. `ink`, `planBg`,
+ * `planCard`, `onboardBg`, `tabbar` and `lime` are byte-for-byte what they are
+ * on paper, because the surfaces they name were already dark and the accent was
+ * never a function of the ground. `darkShadows` and `darkHairlineGradient` are
+ * spreads of their light counterparts for the same reason: most of what they
+ * carry sits on a surface that does not move.
+ *
+ * `theme.test.tsx` pins those invariants, so a later hand that "finishes" the
+ * dark palette by giving `lime` a dark variant finds out immediately.
  */
 const darkTheme: Theme = {
   scheme: 'dark',
-  colors: lightColors,
-  shadows,
-  personTints,
-  hairlineGradient,
-  yearLevelColor,
+  colors: darkColors,
+  shadows: darkShadows,
+  personTints: darkPersonTints,
+  hairlineGradient: darkHairlineGradient,
+  yearLevelColor: darkYearLevelColor,
 };
 
 /**
@@ -240,4 +250,34 @@ export function useShadows(): Shadows {
  */
 export function usePersonTints(): PersonTints {
   return useContext(ThemeContext).personTints;
+}
+
+/**
+ * The iOS keyboard, which is the one surface this app puts on screen without
+ * drawing it.
+ *
+ * No `TextInput` in the app set `keyboardAppearance`, so every field got
+ * `UIKeyboardAppearanceDefault`. Under a dark sheet that is a light slab across
+ * the bottom half of the screen — brighter than anything the palette is allowed
+ * to draw, and the only part of a dark app that stayed light.
+ *
+ * It follows the **scheme**, not the surface the field sits on. The keyboard is
+ * not *on* the sheet, it is in front of it, and half the fields in this app
+ * already sit on grounds that are dark in both schemes — `planCard`, the ink
+ * profile card, the onboarding stake screen. Keying off those would give a
+ * light-mode user a dark keyboard on three screens and a light one everywhere
+ * else, which is a second theme nobody asked for.
+ *
+ * `Scheme` is `'light' | 'dark'`, which is exactly `KeyboardAppearance` minus
+ * `'default'` — so the scheme *is* the answer and there is nothing to map. In
+ * the light scheme `'light'` is what `'default'` was already resolving to, so
+ * nothing about light mode changes.
+ *
+ * Android has no equivalent and ignores the prop; its keyboard follows the OS.
+ *
+ * A named hook rather than `useTheme().scheme` at each site, by the rule above:
+ * ten reads across eight files, and one grep for who has been given a keyboard.
+ */
+export function useKeyboardAppearance(): Scheme {
+  return useContext(ThemeContext).scheme;
 }

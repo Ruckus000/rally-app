@@ -18,7 +18,7 @@
  */
 import React, { useState } from 'react';
 import { StatusBar, View } from 'react-native';
-import { useColors } from '../theme/ThemeProvider';
+import { useTheme } from '../theme/ThemeProvider';
 import { CIRCLE_NAME, Category } from '../data/fixtures';
 import { OnboardStake, useStore } from '../state/store';
 import { Overlay } from './Overlay';
@@ -105,14 +105,20 @@ export function OnboardOverlay({
   topInset: number;
   bottomInset: number;
 }) {
-  const color = useColors();
+  const { colors: color, scheme } = useTheme();
   const { state, dispatch, effectiveAudience } = useStore();
   const [flow, setFlow] = useState<Flow>(INITIAL_FLOW);
   const [trouble, setTrouble] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const { step } = flow;
-  const dark = DARK_STEPS.includes(step);
+  /**
+   * "This step is drawn on an intentionally dark ground" — a fact about the
+   * step, not about the palette. Named `dark` until the dark scheme existed to
+   * be confused with; `darkStep` beside `scheme === 'dark'` below says which
+   * question each is answering.
+   */
+  const darkStep = DARK_STEPS.includes(step);
   const patch = (next: Partial<Flow>) => setFlow((f) => ({ ...f, ...next }));
   const go = (to: number) => {
     setTrouble(null);
@@ -279,18 +285,23 @@ export function OnboardOverlay({
   return (
     <Overlay
       zIndex={70}
-      background={dark ? (step === 3 ? color.planBg : color.onboardBg) : color.paper}
+      background={darkStep ? (step === 3 ? color.planBg : color.onboardBg) : color.paper}
       onRequestClose={back}
     >
       {/* The overlay covers the app's own StatusBar, and four of the seven
           screens are paper — so the bar is set from the step rather than from
-          "onboarding is open". Last mounted wins, which is this one. */}
-      <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} />
+          "onboarding is open". Last mounted wins, which is this one.
+
+          Two reasons for light glyphs, same as the shell: the step is one of
+          the three drawn dark, or the whole scheme is. Those four paper steps
+          are only paper in the light scheme; in the dark one they are `paper`
+          at #070A06 and `dark-content` would erase the clock. */}
+      <StatusBar barStyle={darkStep || scheme === 'dark' ? 'light-content' : 'dark-content'} />
 
       <View style={{ flex: 1, paddingTop: Math.max(topInset, 20), paddingBottom: bottomInset }}>
         <OnboardHeader
           step={step}
-          dark={dark}
+          dark={darkStep}
           onBack={back}
           onSkip={skippable ? next : undefined}
         />

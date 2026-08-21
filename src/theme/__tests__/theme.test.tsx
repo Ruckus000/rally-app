@@ -12,6 +12,12 @@
  * a second source of truth that drifts the moment somebody edits one of them,
  * and a test that has drifted proves nothing while looking like it proves
  * everything.
+ *
+ * PR 6d is where that promise ends, and the tests below turn over with it: dark
+ * is no longer light, and what is pinned now is the *shape* of the difference —
+ * that the two palettes differ, that they carry the identical key set, and that
+ * the six tokens the emphasis grammar rests on are byte-for-byte the same in
+ * both. The light palette is still pinned exactly, by the inline snapshot.
  */
 import React from 'react';
 import { StyleSheet, Text } from 'react-native';
@@ -20,7 +26,7 @@ import { render, screen } from '@testing-library/react-native';
 import { App, Root } from '../../App';
 import { BootScreen } from '../../screens/BootScreen';
 import { StoreProvider } from '../../state/store';
-import { color } from '../tokens';
+import { color, darkColors } from '../tokens';
 import { Scheme, ThemeProvider, useColors, useTheme } from '../ThemeProvider';
 
 /**
@@ -91,7 +97,10 @@ describe('the default palette', () => {
   "askTint": "#F7FBE4",
   "avatarText": "#3B4630",
   "card": "#FFFFFF",
+  "checkboxFill": "#FAFBF7",
   "chip": "#EAEDE2",
+  "composerBar": "rgba(255,255,255,.96)",
+  "composerEdge": "rgba(25,30,22,.07)",
   "dash": "#C6CDB8",
   "disabledFill": "rgba(25,30,22,.08)",
   "divider": "rgba(25,30,22,.12)",
@@ -104,14 +113,24 @@ describe('the default palette', () => {
   "limeTintChip": "#EDF7D2",
   "moss": "#4B6A0B",
   "muted": "#6E7663",
+  "needsEdge": "rgba(195,245,60,.75)",
   "onboardBg": "#101408",
+  "outline": "rgba(25,30,22,.14)",
   "paper": "#F1F2EC",
   "planBg": "#12170F",
   "planCard": "#1B2116",
+  "previewTile": "#E0E6D3",
   "quietText": "#6E7663",
   "quoteInk": "#5A6350",
+  "ringQuiet": "#C6DDA0",
+  "rowDivider": "rgba(25,30,22,.06)",
+  "scrim": "rgba(16,20,8,.42)",
+  "sheetGrip": "rgba(25,30,22,.18)",
+  "systemTile": "#3B4630",
   "tabbar": "rgba(19,24,13,.94)",
   "textPrimary": "#191E16",
+  "waitingChip": "#F6E6C8",
+  "waitingText": "#8A6218",
 }
 `);
   });
@@ -130,11 +149,58 @@ describe('an explicit scheme', () => {
     expect(schemeUnder('dark')).toBe('dark');
   });
 
-  it('resolves dark to the light palette, because there is no dark one yet', () => {
-    // Deliberate, not unfinished: the dark palette is PR 6. Until then this
-    // test is what stops half of one being invented in a migration PR.
-    expect(paletteUnder('dark')).toEqual(color);
-    expect(paletteUnder('dark')).toEqual(paletteUnder('light'));
+  it('resolves dark to a palette of its own', () => {
+    // The inverse of what this asserted for five PRs. Until now the promise was
+    // that dark *was* light, and this test is what stopped half a dark palette
+    // being invented inside a mechanism PR. The palette exists, so the promise
+    // flips: these are two different sets of values now, and a regression that
+    // pointed `darkTheme` back at `lightColors` would otherwise be silent.
+    expect(paletteUnder('dark')).not.toEqual(paletteUnder('light'));
+    expect(paletteUnder('dark')).not.toEqual(color);
+  });
+
+  it('gives dark exactly the keys light has, so nothing renders undefined', () => {
+    // The assertion that earns its keep every time a token is added. A key
+    // present in `lightColors` and missing from `darkColors` is `undefined` at
+    // the call site, which React Native does not complain about — it just draws
+    // nothing, in dark mode only, on whatever surface that token was for.
+    // `Palette` catches a missing key at compile time; this catches the case
+    // where the value is there and the *serialised* palette has lost it.
+    expect(Object.keys(paletteUnder('dark')).sort()).toEqual(Object.keys(color).sort());
+  });
+
+  it('holds the six tokens the whole design rests on identical in both', () => {
+    // Rally uses dark as an emphasis device: the ink cards, the Plan sheet, the
+    // tab bar and four onboarding steps are dark surfaces on a paper ground.
+    // The dark palette drops the ground *below* ink rather than inverting, and
+    // these six are byte-identical between the schemes because of it — the
+    // surfaces were already dark and the accent was never a function of the
+    // ground. Give `lime` a dark variant and the app loses its signature; give
+    // `ink` one and the emphasis card stops being the thing people recognise.
+    //
+    // Pinned as an equality against light rather than as hexes, so the two
+    // stay welded: the light values themselves are pinned by the inline
+    // snapshot above, and between the two there is nowhere for either to move.
+    const dark = paletteUnder('dark');
+    const light = paletteUnder('light');
+    for (const key of ['lime', 'ink', 'planBg', 'planCard', 'onboardBg', 'tabbar'] as const) {
+      expect(dark[key]).toBe(light[key]);
+    }
+  });
+
+  it('has no dark token that is missing, undefined or blank', () => {
+    // Read off `darkColors` rather than out of the rendered tree, because
+    // `JSON.stringify` drops an `undefined` value entirely and the key-set test
+    // above would report it as a missing key rather than as an empty one. An
+    // empty string is the worse of the two: it type-checks as a `string`, and
+    // React Native resolves it to transparent without a word.
+    for (const [key, value] of Object.entries(darkColors)) {
+      expect(typeof value).toBe('string');
+      expect(value).not.toBe('');
+      // Every value in this palette is a hex or an `rgb(a)` triplet. A token
+      // that is neither is a typo that would draw as transparent.
+      expect(key + ': ' + value).toMatch(/: (#[0-9A-Fa-f]{3,8}|rgba?\()/);
+    }
   });
 });
 

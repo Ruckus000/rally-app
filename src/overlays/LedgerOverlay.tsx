@@ -140,7 +140,7 @@ export function LedgerOverlay({ topInset, bottomInset }: { topInset: number; bot
             minHeight: 52,
             borderRadius: radius.chip,
             borderWidth: 1,
-            borderColor: 'rgba(25,30,22,.14)',
+            borderColor: color.outline,
             backgroundColor: color.card,
             alignItems: 'center',
             justifyContent: 'center',

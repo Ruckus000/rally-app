@@ -164,8 +164,9 @@ export function WelcomeScreen({
 
         {/* The failure line sits with the control that failed, which is the whole
             distinction between this and `SyncBanner`. A dismissed Apple sheet
-            leaves `trouble` null and so renders nothing at all. */}
-        <Trouble message={trouble} />
+            leaves `trouble` null and so renders nothing at all. `dark` because
+            this screen is `onboardBg` in both schemes — see `Trouble`. */}
+        <Trouble message={trouble} dark />
 
         <PillButton label="Look around first" variant="text" dark onPress={onLookAround} />
       </View>

@@ -21,9 +21,14 @@ import { Platform, TextStyle, useWindowDimensions, ViewStyle } from 'react-nativ
 export const MAX_FONT_SCALE = 1.35;
 
 /**
- * The light palette — the only one that exists today. `ThemeProvider` serves
- * this through context so the app can be handed a different one later; until
- * the dark palette lands, every scheme resolves to exactly these values.
+ * The light palette. `ThemeProvider` serves it through context, and `darkColors`
+ * below is the other answer that context can now give.
+ *
+ * This one is the shape: `Palette` is derived from its key set, so a token added
+ * here fails to compile until the dark palette answers for it. Its values are
+ * pinned exactly, by an inline snapshot in `theme/__tests__/theme.test.tsx` —
+ * dark mode was five PRs of "nothing may look different", and light is still
+ * byte-for-byte what it was before any of it started.
  */
 export const lightColors = {
   /**
@@ -88,15 +93,226 @@ export const lightColors = {
   inputFill: '#F7F8F3',
   /** A step already behind you, on light. `onDark.limeEdgeSoft` does it on dark. */
   dotDone: '#B9C2A8',
-  /** A control that is present but not yet earned — fill under `faintInk`. */
+  /**
+   * A control that is present but not yet earned — fill under `faintInk`, and
+   * the unrun part of a `ProgressRing`. Those are the same idea drawn twice:
+   * the shape of something that exists and has not happened yet.
+   */
   disabledFill: 'rgba(25,30,22,.08)',
+
+  // ── The last twelve, inline literals in seven files until 6d. Every one
+  //    of them draws on a surface that flips, which is why none of them could
+  //    stay where it was: a literal is a colour the palette cannot answer for.
+  /** An unticked checkbox inside a `card`: inset, the way `inputFill` is. */
+  checkboxFill: '#FAFBF7',
+  /** The wash under a modal sheet. Sheet and app are both `paper` beneath it. */
+  scrim: 'rgba(16,20,8,.42)',
+  /** The drag handle at the top of a sheet. */
+  sheetGrip: 'rgba(25,30,22,.18)',
+  /** The edge of an outline control whose fill is `card` — a chip, a button. */
+  outline: 'rgba(25,30,22,.14)',
+  /** The note composer's own bar, floating over the sheet it is docked in. */
+  composerBar: 'rgba(255,255,255,.96)',
+  /** The hairline along its top edge — quieter than `divider`, on purpose. */
+  composerEdge: 'rgba(25,30,22,.07)',
+  /** A rule between rows *inside* one card, quieter still. */
+  rowDivider: 'rgba(25,30,22,.06)',
+  /** The lime edge on an unread "needs you" row, drawn on `askTint`. */
+  needsEdge: 'rgba(195,245,60,.75)',
+  /** The "waiting {n}" pill. Fill and text are one decision, not two. */
+  waitingChip: '#F6E6C8',
+  waitingText: '#8A6218',
+  /** The "R" app-icon tile in the simulated push notification onboarding shows. */
+  previewTile: '#E0E6D3',
+  /**
+   * The follow-through ring on the second and third podium places. Quieter
+   * than `lime`, which is what makes first place read as first.
+   */
+  ringQuiet: '#C6DDA0',
+
+  // ── And one that was never a literal, only the wrong token. ─────────────
+  /**
+   * The rounded tile behind a system notification's glyph, which carries
+   * `onDark.primary` and so has to be dark in **both** schemes — a seventh
+   * non-moving token, alongside the six the emphasis grammar rests on.
+   *
+   * It was spelled `avatarText` until 6d, and that was fine while `avatarText`
+   * was `#3B4630`. It is a light colour in the dark palette, because the discs
+   * under those initials went dark — which would have made this tile a bright
+   * white square carrying a near-white icon. Same hex, its own name, and now
+   * nothing can move it by accident.
+   */
+  systemTile: '#3B4630',
 } as const;
 
 /**
- * The static export, unchanged. 31 files read `color.*` directly and will keep
- * doing so until each is migrated onto `useColors()`; the two are the same
- * object for the whole migration, which is what makes every intermediate PR
- * verifiable by "nothing may look different". Deleted in the last PR.
+ * The dark palette.
+ *
+ * ## Why this is not an inversion
+ *
+ * Rally already uses dark as an *emphasis device*. The perfect-week cards, the
+ * points bar, the profile card, the Plan sheet, the tab bar and four of the
+ * seven onboarding steps are dark surfaces sitting on a paper ground, and
+ * `onDark` is a whole second ramp for the text on them. Invert the palette and
+ * the ink card — the thing people recognise — stops being dark, and the
+ * design's signature goes with it.
+ *
+ * So the ground drops *below* ink, and everything that was already dark stays
+ * exactly where it was. `ink`, `planBg`, `planCard`, `onboardBg` and `tabbar`
+ * are byte-identical to the light palette on purpose, and a test holds them
+ * there.
+ *
+ * ## What replaces "darkest means important"
+ *
+ * On paper an ink card is the most extreme thing on screen, and that is what
+ * makes it read as emphasis. On a near-black ground that mechanism is gone —
+ * the ground owns "darkest" now. So the ladder inverts: an ink card becomes
+ * the most *elevated* surface rather than the deepest one.
+ *
+ *     paper #070A06  →  card #12170F  →  ink #191E16
+ *
+ * Ground, then an ordinary card, then the emphasis card on top. Same role,
+ * opposite mechanism, and it agrees with the decision that elevation on dark
+ * is carried by a lighter surface rather than a cast shadow — see `darkShadows`.
+ *
+ * The steps are small: about 1.07:1 between ink and card. That is not slack in
+ * these values, it is the medium — there is no room for large ratios between
+ * near-blacks. It is also why the ink cards need the hairline they never
+ * needed on paper, which they already have: `GradientHairline variant="dark"`
+ * is lime-based and survives the flip untouched.
+ *
+ * ## Two keys whose dark values were written down years ago
+ *
+ * `dotDone`'s own docblock in the light palette says "Lime at .45 does this on
+ * dark", and `kit.tsx` has been drawing exactly that literal in its dark
+ * branch. `disabledFill` is ink at 8%, and `kit.tsx` documents `onDark.fill`
+ * as its dark-ground equivalent. Both are transcribed here rather than
+ * invented.
+ *
+ * ## What could not be flipped, only replaced
+ *
+ * `moss` is a dark green — accent text, positive points, "you got". Lightening
+ * it yields a muddy olive that fails against the ground, so it becomes the
+ * mid-lime the year grid already uses for a good week. `inputFill` inverts
+ * direction rather than lightness: an inset field inside a card is *darker*
+ * than its card on dark, where on paper it was lighter.
+ *
+ * The twelve tokens 6d moved in from inline literals are the same story at
+ * smaller scale, and four of them could not be flipped either — the scrim, the
+ * "waiting" pill's cream-and-amber pair, the podium's second-place ring and the
+ * lime edge on an unread row. Each says why beside its own value below.
+ */
+/**
+ * The shape every scheme must supply: the exact key set of `lightColors`, with
+ * the values widened to `string`.
+ *
+ * It has to be a mapped type rather than `typeof lightColors`. That object is
+ * `as const`, so its type says `paper` is the literal `'#F1F2EC'` — a promise
+ * only the light palette can keep, and one that made a second palette
+ * impossible to declare. Widening the values keeps the half that matters: add
+ * a key to `lightColors` and every other scheme fails to compile until it
+ * answers for it.
+ */
+export type Palette = { readonly [K in keyof typeof lightColors]: string };
+
+export const darkColors: Palette = {
+  // ── Fixed. The ink-card system and the accent do not move. ──────────────
+  ink: '#191E16',
+  lime: '#C3F53C',
+  planBg: '#12170F',
+  planCard: '#1B2116',
+  onboardBg: '#101408',
+  tabbar: 'rgba(19,24,13,.94)',
+
+  // ── The ground, and the surfaces that step up from it. ──────────────────
+  paper: '#070A06',
+  card: '#12170F',
+  /** A pill on a card, so it answers to `card` rather than to the ground. */
+  chip: '#1D231A',
+  /** Inset in a card. Darker than its card here; lighter than it on paper. */
+  inputFill: '#0C1009',
+  exchangeTrack: '#1D231A',
+  /** The lime-tinted pair. The tint direction inverts; the hue must not. */
+  askTint: '#131A0C',
+  limeTintChip: '#1B2610',
+
+  // ── Text. Every pair below clears 4.5:1 against both `paper` and `card`. ─
+  textPrimary: '#EEF0E8',
+  muted: '#99A28B',
+  quietText: '#99A28B',
+  faintInk: '#848C79',
+  quoteInk: '#B0B8A2',
+  moss: '#A9D93C',
+  /** Light initials, now that the discs beneath them are dark. */
+  avatarText: '#EEF0E8',
+
+  // ── Edges and fills, which change side: ink-alpha becomes paper-alpha. ──
+  divider: 'rgba(241,242,236,.10)',
+  dash: 'rgba(241,242,236,.22)',
+  disabledFill: 'rgba(241,242,236,.06)',
+  dotDone: 'rgba(195,245,60,.45)',
+  sheetGrip: 'rgba(241,242,236,.22)',
+  outline: 'rgba(241,242,236,.16)',
+  composerEdge: 'rgba(241,242,236,.10)',
+  /** Below `divider`, as on paper: a rule inside a card, not between cards. */
+  rowDivider: 'rgba(241,242,236,.08)',
+  /** Inset in a card, so it goes the same way `inputFill` does — down. */
+  checkboxFill: '#0C1009',
+
+  // ── The four that could not be flipped, only re-decided. ────────────────
+  /**
+   * Deeper, because it has more to do. On paper a 42% wash separates a light
+   * sheet from a light app. On dark the sheet is `paper` over `paper` and the
+   * only thing telling them apart is how much darker the ground behind has
+   * gone, so the wash carries the whole separation rather than half of it.
+   */
+  scrim: 'rgba(4,6,2,.74)',
+  /**
+   * The composer bar is `card` at the same 96%, not white at 96% — it is a
+   * raised bar over the sheet, and raised on dark means lighter.
+   */
+  composerBar: 'rgba(18,23,15,.96)',
+  /**
+   * Down from .75. On `askTint` a three-quarter lime edge is a soft outline;
+   * on a near-black one it is the brightest thing on the screen, competing
+   * with the lime CTA it is meant to point at. `.50` is `onDark.limeEdge` —
+   * the edge on the thing that is current — which is exactly what this row is.
+   */
+  needsEdge: 'rgba(195,245,60,.50)',
+  /**
+   * The pair inverts together or not at all: a cream chip with amber text
+   * becomes an amber chip with cream text. Flipping one alone leaves either
+   * dark-on-dark or a cream slab brighter than anything around it. 8.1:1.
+   */
+  waitingChip: '#3A2E12',
+  waitingText: '#E8C77A',
+  /**
+   * Index 0 of `darkPersonTints` by value, and a separate key by intent. This
+   * is Rally's own mark in a fake iOS notification, not a person — but it does
+   * share the constraint that decided that array, because it carries
+   * `avatarText` on it and has to hold that text on a dark ground. Its own key
+   * so that re-ordering `personTints`, which that array's docblock warns costs
+   * nothing to do accidentally, cannot re-tint the app icon.
+   */
+  previewTile: '#2C3325',
+  /**
+   * Not a pale green. `#C6DDA0` was chosen to be *quieter* than `lime` on
+   * paper; the same hue on a near-black ground is louder than `lime`, and
+   * ranks two and three would out-shout first place. So it goes the other way:
+   * this is `onDark.limeDeep`'s value — lime at roughly two-fifths of its
+   * luminance — written out rather than referenced, because `onDark` is
+   * declared below this object.
+   */
+  ringQuiet: '#6E9418',
+  /** Unmoved, for the reason in its light docblock: it carries light content. */
+  systemTile: '#3B4630',
+};
+
+/**
+ * The static export, unchanged. The files still reading `color.*` directly get
+ * the light palette whatever the device says — which was invisible while dark
+ * resolved to light and is a bug from this PR onwards. Deleted in the last PR
+ * of the sequence; until then, a `color.` in a component is a thing to migrate.
  */
 export const color = lightColors;
 
@@ -287,6 +503,38 @@ export const personTints = [
  */
 export type PersonTints = readonly string[];
 
+/**
+ * The same ten hues, taken down to sit on a dark ground.
+ *
+ * A pastel disc is a *quiet* mark on paper. Put it on near-black and it is the
+ * brightest thing on screen — louder than the lime accent, which is supposed
+ * to be the loudest thing in this app — and the dark initials on it become the
+ * highest-contrast text anywhere. Circle draws seven of these at once.
+ *
+ * So the discs come down and the initials go up: `avatarText` flips with this
+ * array, and neither can be decided without the other. Hue is what survives,
+ * because hue is the whole job — it is how you tell one faceless person from
+ * another at 20pt.
+ *
+ * Index for index with the light set. Slots 0-6 are what `hashTint` can reach;
+ * 7-9 are the three Oz hues, two of which (lilac, pale blue) exist nowhere
+ * else in this palette.
+ */
+export const darkPersonTints: PersonTints = [
+  '#2C3325',
+  '#2A3520',
+  '#35301E',
+  '#372A21',
+  '#24302A',
+  '#393016',
+  '#272F23',
+  '#2F2837',
+  '#233135',
+  '#312B21',
+];
+
+
+
 /** Year-grid cell levels: 0 nothing · 1 partial · 2 good · 3 perfect */
 export const yearLevelColor: Record<number, string> = {
   0: '#EDF0E4',
@@ -296,6 +544,29 @@ export const yearLevelColor: Record<number, string> = {
 };
 
 export type YearLevelColor = typeof yearLevelColor;
+
+/**
+ * The year grid on dark.
+ *
+ * Levels 2 and 3 hold: a saturated mid-lime and `lime` itself read on either
+ * ground. Levels 0 and 1 cannot, and not because they are the wrong lightness
+ * — because their *direction* is wrong. On paper an empty week is an off-white
+ * a shade below the ground, so "nothing happened" reads as slightly recessed.
+ * There is no room below a near-black ground to recess into, so on dark an
+ * empty week becomes a faint raised slot instead: the cell you can see is
+ * empty, rather than the cell you cannot see at all.
+ *
+ * Judge all four together — the ramp has to stay monotonic, and 0 and 1 are
+ * four percent of lightness apart on paper, which cannot simply be mirrored.
+ */
+export const darkYearLevelColor: YearLevelColor = {
+  0: '#12170F',
+  1: '#2A3520',
+  2: '#A9D93C',
+  3: '#C3F53C',
+};
+
+
 
 export const font = {
   /** Display only: numbers, headings, names in stat positions, badge labels. */
@@ -365,6 +636,30 @@ export const shadows = {
 export type Shadows = typeof shadows;
 
 /**
+ * Elevation on dark is a lighter surface, not a darker shadow.
+ *
+ * Every ink-coloured shadow here is doing nothing on a near-black ground —
+ * `shadows.card` is ink at five percent, which is invisible over `#070A06`,
+ * and stacking black on black reads as smudge rather than lift. The card
+ * grammar keeps its separation from `card` sitting above `paper` instead, and
+ * the ink cards from the hairline they already carry.
+ *
+ * The four lime entries stay exactly as they are. They were never elevation —
+ * they are the accent glowing, on surfaces (`ink`, `planBg`) that do not move
+ * between schemes, and they get *better* as the ground drops. `tabbar`,
+ * `tooltip` and `toast` also stay: each sits under a floating element that
+ * overlaps whatever is behind it, where a dark shadow is still doing the
+ * separating.
+ */
+export const darkShadows: Shadows = {
+  ...shadows,
+  card: shadow('rgb(25,30,22)', 1, 2, 0, 0),
+  cardStrong: shadow('rgb(25,30,22)', 1, 2, 0, 0),
+};
+
+
+
+/**
  * The handoff asks for 44px hit targets while keeping the dense card grammar.
  * Padding grows, type does not.
  */
@@ -399,7 +694,39 @@ export const hairlineGradient = {
   composerLocations: [0, 0.42, 0.8],
 } as const;
 
-export type HairlineGradient = typeof hairlineGradient;
+/**
+ * Widened for the same reason as `Palette`: `as const` types the light stops as
+ * the literal strings they happen to be today, which no second scheme can
+ * satisfy. Colours and locations stay separate rather than collapsing into
+ * `(string | number)[]` — a stop list and an offset list are not the same
+ * thing, and `LinearGradient` will not tell you if they are swapped.
+ */
+export type HairlineGradient = {
+  readonly light: readonly string[];
+  readonly lightLocations: readonly number[];
+  readonly dark: readonly string[];
+  readonly darkLocations: readonly number[];
+  readonly composer: readonly string[];
+  readonly composerLocations: readonly number[];
+};
+
+/**
+ * Only `light` moves, and its name says why: these keys are about the *surface*
+ * the hairline is drawn around, not about the scheme. `dark` rings an ink card
+ * and `composer` rings `planCard`; neither surface changes, so neither gradient
+ * does.
+ *
+ * `light` rings a white card, and its middle stop is white at 75% for exactly
+ * that reason — it melts into the card edge. On a dark card that stop is a
+ * bright smear along the top-left. Paper at a tenth does the same job here: a
+ * lit edge that fades, rather than a white one that shines.
+ */
+export const darkHairlineGradient: HairlineGradient = {
+  ...hairlineGradient,
+  light: ['rgba(195,245,60,.40)', 'rgba(241,242,236,.10)', 'rgba(241,242,236,0)'],
+};
+
+
 
 /**
  * The bloom behind the Plan hero number. Android clips a text shadow to the

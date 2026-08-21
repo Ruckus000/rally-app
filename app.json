@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "rally",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "backgroundColor": "#F1F2EC",
     "ios": {
       "supportsTablet": false,
@@ -52,6 +52,11 @@
           "image": "./assets/splash-icon.png",
           "imageWidth": 132,
           "backgroundColor": "#F1F2EC",
+          "dark": {
+            "image": "./assets/splash-icon-dark.png",
+            "imageWidth": 132,
+            "backgroundColor": "#070A06"
+          },
           "resizeMode": "contain"
         }
       ],

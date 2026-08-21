@@ -12,7 +12,7 @@
 import React, { useRef, useState } from 'react';
 import { ScrollView, TextInput, View } from 'react-native';
 import { heroGlow, onDark } from '../../theme/tokens';
-import { useColors } from '../../theme/ThemeProvider';
+import { useColors, useKeyboardAppearance } from '../../theme/ThemeProvider';
 import { TITLE_MAX } from '../../data/fixtures';
 import { Icon } from '../../components/Icon';
 import { Bri, Caps, GlowBloom, Sans, Tap, row } from '../../components/primitives';
@@ -44,6 +44,7 @@ export function StakeScreen({
   onNext: () => void;
 }) {
   const color = useColors();
+  const keyboard = useKeyboardAppearance();
   const [draft, setDraft] = useState('');
   // Date.now() alone collides if you add two in the same millisecond, which a
   // paste-and-tap can do.
@@ -121,6 +122,7 @@ export function StakeScreen({
             // one, so the keyboard must not dismiss itself.
             blurOnSubmit={false}
             returnKeyType="done"
+            keyboardAppearance={keyboard}
             // The cap every other composer carries — a first-run user could
             // otherwise mint a title that breaks every row downstream.
             maxLength={TITLE_MAX}

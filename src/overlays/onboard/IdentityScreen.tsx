@@ -5,7 +5,7 @@
 import React from 'react';
 import { TextInput, View } from 'react-native';
 import { font } from '../../theme/tokens';
-import { useColors, usePersonTints, useShadows } from '../../theme/ThemeProvider';
+import { useColors, useKeyboardAppearance, usePersonTints, useShadows } from '../../theme/ThemeProvider';
 import { Bri, Caps, Sans } from '../../components/primitives';
 import { NAME_MAX } from '../../data/people';
 import { handleOf, initialsOf } from './data';
@@ -33,6 +33,7 @@ export function IdentityScreen({
   showHandle?: boolean;
 }) {
   const color = useColors();
+  const keyboard = useKeyboardAppearance();
   const personTints = usePersonTints();
   const shadows = useShadows();
   const named = value.trim().length > 0;
@@ -99,6 +100,7 @@ export function IdentityScreen({
         selectionColor={color.moss}
         cursorColor={color.moss}
         returnKeyType="done"
+        keyboardAppearance={keyboard}
         autoCapitalize="words"
         autoCorrect={false}
         // `profiles_name_length` refuses anything longer, and a refusal here

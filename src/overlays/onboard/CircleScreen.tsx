@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import { ScrollView, TextInput, View } from 'react-native';
 import { onLight } from '../../theme/tokens';
-import { useColors, useShadows } from '../../theme/ThemeProvider';
+import { useColors, useKeyboardAppearance, useShadows } from '../../theme/ThemeProvider';
 import { Icon } from '../../components/Icon';
 import { Bri, Caps, Sans, Tap, fill, row } from '../../components/primitives';
 import { Trouble } from '../../components/Trouble';
@@ -31,6 +31,7 @@ export function CircleScreen({
   error?: string | null;
 }) {
   const color = useColors();
+  const keyboard = useKeyboardAppearance();
   const [open, setOpen] = useState<'code' | 'create' | null>(null);
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
@@ -87,6 +88,7 @@ export function CircleScreen({
                 autoCapitalize="characters"
                 autoCorrect={false}
                 returnKeyType="go"
+                keyboardAppearance={keyboard}
                 editable={!busy}
                 placeholder="RALLY-XXXX"
                 placeholderTextColor={color.faintInk}
@@ -134,6 +136,7 @@ export function CircleScreen({
                 // going over would surface as a bare failure on the card.
                 maxLength={CIRCLE_NAME_MAX}
                 returnKeyType="go"
+                keyboardAppearance={keyboard}
                 editable={!busy}
                 placeholder="e.g. The Basement"
                 placeholderTextColor={color.faintInk}
