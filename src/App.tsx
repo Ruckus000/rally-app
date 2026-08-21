@@ -11,6 +11,7 @@ import { Animated, ScrollView, StatusBar, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { gutter } from './theme/tokens';
 import { ThemeProvider, useTheme } from './theme/ThemeProvider';
+import type { SchemePreference } from './theme/schemePreference';
 import { sheetEasing, useReducedMotion } from './theme/motion';
 import { StoreProvider, useStore, Config, State } from './state/store';
 import { Header } from './shell/Header';
@@ -57,20 +58,29 @@ import { UnsavedBanner } from './components/UnsavedBanner';
  * surface the palette cannot reach. Invisible today, because there is one
  * palette. In the PR that adds the dark one it is a light screen flashing in
  * front of a dark app on a dark device.
+ *
+ * `preference` — System, Light or Dark, read off disk by the entry file — is
+ * handed to that same provider, for the same reason. It is not state and it is
+ * not in the reducer: see `theme/schemePreference.ts` for why it has a storage
+ * key of its own, and `theme/ThemeProvider.tsx` for why the in-session choice
+ * is layered over this rather than seeded from it.
  */
 export function Root({
   ready,
   restored,
+  preference,
   onReveal,
 }: {
   /** Fonts loaded (or given up on) and persisted state in hand. */
   ready: boolean;
   restored?: Partial<State> | null;
+  /** What was chosen in Settings on a previous launch, if anything. */
+  preference?: SchemePreference;
   /** Lifts the native splash once the frame underneath is drawn. */
   onReveal?: () => void;
 }) {
   return (
-    <ThemeProvider>
+    <ThemeProvider preference={preference}>
       <View style={{ flex: 1 }} onLayout={onReveal}>
         {ready ? <App restored={restored} /> : <BootScreen />}
       </View>
@@ -98,9 +108,10 @@ export function App({
           covers the boot screen — see the note there. Which palette you get is
           a fact about the device, not about the account: nothing in the reducer
           reads it, and a signed-out shell still has to be drawn in something.
-          When the Settings override lands it will pass a `scheme` down from
-          persisted state, which is still the palette following the person
-          rather than the store owning it. */}
+          The Settings override does not change that: it is one AsyncStorage key
+          of its own, read before first paint and owned by the provider, so
+          resetting app data or signing out cannot alter how this phone
+          renders. */}
       <StoreProvider config={config} restored={restored} persist={persist} sync={sync}>
         <Shell />
       </StoreProvider>

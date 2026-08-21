@@ -111,9 +111,43 @@
  * the import plus one line. That is what makes 470 reads reviewable. Where the
  * name `color` is already taken in that scope — `primitives.tsx` has a `color`
  * prop — use `colors`.
+ *
+ * ## The override (6e), and why the preference is state in here
+ *
+ * Three inputs decide the scheme, and they are ranked rather than merged:
+ *
+ *  1. the `scheme` prop — a hard override. Tests use it, and it still beats
+ *     everything, which is what keeps every existing render-in-a-scheme test
+ *     saying what it said.
+ *  2. the stored preference, when it is `'light'` or `'dark'`.
+ *  3. `useColorScheme()`, when the preference is `'system'`.
+ *
+ * The preference is *state here* rather than a value threaded down from the
+ * entry file, because the setter has to repaint. The provider is the highest
+ * thing in the tree and the only one that can hand a new palette to everything
+ * below it in one go; a preference owned further up and passed down would work
+ * too, but then the entry file — whose entire job is fonts and splash timing —
+ * would own a piece of app state that only this file understands.
+ *
+ * It cannot live in the reducer for a harder reason: this provider sits *above*
+ * `StoreProvider` so that the boot screen is covered, so there is no store to
+ * read at the moment it is needed. See the note in `src/App.tsx`.
+ *
+ * **`setPreference` persists as well as repaints.** Both, always, in one call.
+ * A control that changes the look and forgets it by the next launch is the
+ * exact bug this is for, and it is not the call site's job to remember the
+ * second half.
+ *
+ * The value arriving from disk is a *prop*, and the in-session choice is state
+ * layered over it (`chosen ?? preference ?? 'system'`). That ordering is
+ * load-bearing: this provider mounts on the first frame, before the read off
+ * disk has resolved, so the prop is `undefined` and then becomes a real value
+ * a few milliseconds later. `useState(initial)` would have captured the
+ * `undefined` and never seen the answer.
  */
-import React, { createContext, useContext, useMemo } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { useColorScheme } from 'react-native';
+import { SchemePreference, saveSchemePreference } from './schemePreference';
 import {
   darkColors,
   darkHairlineGradient,
@@ -138,6 +172,14 @@ import {
  * rather than two. All five live in `tokens`, beside the values they describe.
  */
 export type { HairlineGradient, Palette, PersonTints, Shadows, YearLevelColor };
+
+/**
+ * Re-exported for the same reason: a component reading `useSchemePreference()`
+ * needs the union to type its own handlers, and one import is better than two.
+ * The storage lives in `schemePreference.ts`, which is where the argument for
+ * its separate key lives too.
+ */
+export type { SchemePreference };
 
 export type Scheme = 'light' | 'dark';
 
@@ -199,24 +241,93 @@ const darkTheme: Theme = {
  */
 const ThemeContext = createContext<Theme>(lightTheme);
 
+/** What the Settings control reads and writes. */
+export type SchemePreferenceControl = {
+  preference: SchemePreference;
+  setPreference: (preference: SchemePreference) => void;
+};
+
+/**
+ * Separate from `ThemeContext` on purpose. Nearly every component in the app
+ * reads the theme and re-renders when it changes; exactly one reads the
+ * preference, and folding the setter into the theme value would put a function
+ * identity into the thing ~470 call sites subscribe to.
+ *
+ * Its default is inert rather than throwing, for the same reason the theme
+ * defaults to light: a component rendered without a provider — which is most of
+ * this suite — must not blow up. A radio group under the default shows System
+ * selected and does nothing when tapped, which is exactly what "no provider
+ * above me" means.
+ */
+const PreferenceContext = createContext<SchemePreferenceControl>({
+  preference: 'system',
+  setPreference: () => {},
+});
+
 export function ThemeProvider({
   scheme,
+  preference,
   children,
 }: {
   /**
-   * Force a scheme. Tests use it; the Settings override will use it once that
-   * exists. Absent, the device decides.
+   * Force a scheme, above everything else. Tests use it. It is not how the
+   * Settings override arrives — that is `preference`, below — because a hard
+   * override cannot be changed from inside the tree, and the whole point of the
+   * control is that it can.
    */
   scheme?: Scheme;
+  /**
+   * The preference as it was read off disk, or `undefined` while that read is
+   * still in flight. Only the initial value: once somebody chooses in Settings,
+   * their choice wins for the rest of the session and is written back.
+   */
+  preference?: SchemePreference;
   children: React.ReactNode;
 }) {
   const system = useColorScheme();
+  const [chosen, setChosen] = useState<SchemePreference | null>(null);
+  const current = chosen ?? preference ?? 'system';
+
+  // One call, two effects: repaint now, and be this way next launch. Split
+  // across two calls at the call site, one of them would eventually be
+  // forgotten — and the one that gets forgotten is always the durable half,
+  // because the app looks right without it.
+  const setPreference = useCallback((next: SchemePreference) => {
+    setChosen(next);
+    void saveSchemePreference(next);
+  }, []);
+
   // `useColorScheme()` is `'light' | 'dark' | null` — null on a platform that
-  // has not told us yet, which is light as far as this app is concerned.
-  const resolved: Scheme = scheme ?? (system === 'dark' ? 'dark' : 'light');
+  // has not told us yet, which is light as far as this app is concerned. It is
+  // subscribed to unconditionally, not just when the preference is 'system':
+  // a hook cannot be called conditionally, and flipping the phone's appearance
+  // has to keep re-rendering this tree the way it does today.
+  const fromDevice: Scheme = system === 'dark' ? 'dark' : 'light';
+  const resolved: Scheme = scheme ?? (current === 'system' ? fromDevice : current);
   const value = useMemo(() => (resolved === 'dark' ? darkTheme : lightTheme), [resolved]);
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  const control = useMemo<SchemePreferenceControl>(
+    () => ({ preference: current, setPreference }),
+    [current, setPreference],
+  );
+
+  return (
+    <PreferenceContext.Provider value={control}>
+      <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+    </PreferenceContext.Provider>
+  );
+}
+
+/**
+ * The Settings control's half of this file: what you asked for, and how to ask
+ * for something else.
+ *
+ * Deliberately *not* `useTheme().scheme`. That answers what is on screen, which
+ * under `'system'` is a fact about the phone; this answers what you chose,
+ * which is the only thing a radio group can honestly tick.
+ */
+export function useSchemePreference(): SchemePreferenceControl {
+  return useContext(PreferenceContext);
 }
 
 /** The whole theme, for the rare caller that needs to know which scheme it is. */
