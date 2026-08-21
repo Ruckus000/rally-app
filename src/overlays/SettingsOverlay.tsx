@@ -39,7 +39,7 @@
  */
 import React from 'react';
 import { Alert, Linking, Platform, ScrollView, TextInput, View } from 'react-native';
-import { font, gutter, radius } from '../theme/tokens';
+import { font, gutter, onLight, radius } from '../theme/tokens';
 import {
   useColors,
   useKeyboardAppearance,
@@ -249,7 +249,7 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
         ) : null}
 
         {signOutVisible(account, session) ? (
-          <Section title="Leaving">
+          <Section title="Leaving" apart>
             <SignOutRow enabled={signOutEnabled(session)} />
           </Section>
         ) : null}
@@ -258,9 +258,32 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  apart,
+  children,
+}: {
+  title: string;
+  /**
+   * Set the section off from the ones above it.
+   *
+   * Only "Leaving" uses it. Signing out is the one thing on this page you
+   * cannot undo from this page, and it was drawn as the same card as the
+   * Monday reminder — same box, same weight, same everything. There is no
+   * destructive colour to reach for here and there should not be one: this app
+   * has no red in it anywhere, and the confirm that actually guards the action
+   * is an OS alert with its own destructive styling. So the distinction is
+   * made the way the rest of Rally makes distinctions — with space, and a rule.
+   */
+  apart?: boolean;
+  children: React.ReactNode;
+}) {
+  const color = useColors();
   return (
-    <View style={{ marginBottom: 18 }}>
+    <View style={{ marginBottom: 18, marginTop: apart ? 10 : 0 }}>
+      {apart ? (
+        <View style={{ height: 1, backgroundColor: color.divider, marginBottom: 18 }} />
+      ) : null}
       <Caps size={11} tracking={1.4} style={{ marginHorizontal: 2, marginBottom: 9 }}>
         {title}
       </Caps>
@@ -484,18 +507,28 @@ function PhotoRow() {
  * telling you it is set to something it is not.
  */
 function AppearanceRows() {
+  const color = useColors();
   const { preference, setPreference } = useSchemePreference();
+  const active = APPEARANCE_OPTIONS.find((o) => o.value === preference) ?? APPEARANCE_OPTIONS[0];
 
   return (
-    <View style={{ gap: 8 }} accessibilityRole="radiogroup">
-      {APPEARANCE_OPTIONS.map((option) => (
-        <AppearanceRow
-          key={option.value}
-          option={option}
-          selected={preference === option.value}
-          onPress={() => setPreference(option.value)}
-        />
-      ))}
+    <View style={{ ...cardBox(color), minHeight: undefined }}>
+      <View style={{ flexDirection: 'row', gap: 6 }} accessibilityRole="radiogroup">
+        {APPEARANCE_OPTIONS.map((option) => (
+          <AppearancePill
+            key={option.value}
+            option={option}
+            selected={preference === option.value}
+            onPress={() => setPreference(option.value)}
+          />
+        ))}
+      </View>
+      {/* One line, for the choice that is actually in force. The other two
+          explain themselves — "Light" needs no gloss — and printing all three
+          at once was three paragraphs to make the smallest decision here. */}
+      <Sans size={12.5} lineHeight={17} color={color.muted} style={{ marginTop: 10 }}>
+        {active.line}
+      </Sans>
     </View>
   );
 }
@@ -504,10 +537,14 @@ function AppearanceRows() {
  * The three, in the order they are worth reading: the default first, then the
  * two ways to overrule it.
  *
- * "System" says what following the system actually does, rather than naming a
- * setting somewhere else and leaving you to guess. The two pinned options say
- * the consequence — that the phone's own switch stops moving Rally — because
- * that is the part somebody comes back confused about.
+ * `line` is what the choice does, and only the selected one is drawn. "System"
+ * has to say what following the system means rather than naming a setting
+ * somewhere else; the two pinned options say the consequence — that the
+ * phone's own switch stops moving Rally — because that is the part somebody
+ * comes back confused about.
+ *
+ * `label` is what a screen reader hears, and it stays the full sentence: a
+ * pill reading "Dark" out of context says nothing about what it will do.
  */
 const APPEARANCE_OPTIONS: {
   value: SchemePreference;
@@ -536,14 +573,18 @@ const APPEARANCE_OPTIONS: {
 ];
 
 /**
- * One option. Same card as every other row on this page, with the tick where a
- * row's trailing action would be.
+ * One option, as a pill.
  *
- * The tick is not the only signal — the title above it is `textPrimary` when
- * selected and `muted` when not — because a single small glyph in one colour is
- * exactly the thing somebody misses.
+ * The same shape the audience chips use in Plan and on a feed card — this app
+ * already has an idiom for "pick exactly one of a few", and a settings page is
+ * not the place to invent a second one. Lime for the chosen one, `chip` for the
+ * rest, which is how a selected chip reads everywhere else in Rally.
+ *
+ * Colour is not the only signal: the chosen pill is also the only one at weight
+ * 700 on a filled ground, and its label is the only one a screen reader reports
+ * as selected.
  */
-function AppearanceRow({
+function AppearancePill({
   option,
   selected,
   onPress,
@@ -560,17 +601,28 @@ function AppearanceRow({
       accessibilityRole="radio"
       accessibilityState={{ selected }}
       accessibilityLabel={option.label}
-      style={{ ...row, gap: 12, ...cardBox(color) }}
+      style={{
+        flex: 1,
+        borderRadius: 999,
+        paddingHorizontal: 10,
+        paddingVertical: 9,
+        minHeight: 38,
+        alignItems: 'center',
+        justifyContent: 'center',
+        // The border is not decoration. `chip` on `card` is a couple of
+        // percent of lightness in the light palette — enough on `paper`, where
+        // chips usually sit, and almost nothing inside a white card, which is
+        // where these are. Without it the two unpicked options read as labels
+        // rather than as things you can press. Same pairing the audience chips
+        // use in Plan: a fill, and an edge when not chosen.
+        borderWidth: 1,
+        borderColor: selected ? 'transparent' : color.divider,
+        backgroundColor: selected ? color.lime : color.chip,
+      }}
     >
-      <View style={fill}>
-        <Bri size={15} weight={800} color={selected ? color.textPrimary : color.muted}>
-          {option.title}
-        </Bri>
-        <Sans size={12.5} lineHeight={17} color={color.muted} style={{ marginTop: 3 }}>
-          {option.line}
-        </Sans>
-      </View>
-      {selected ? <Icon name="check" size={17} color={color.moss} /> : null}
+      <Sans size={12.5} weight={700} color={selected ? onLight : color.muted}>
+        {option.title}
+      </Sans>
     </Tap>
   );
 }
@@ -592,14 +644,18 @@ function BlockedList() {
   const color = useColors();
   const { state } = useStore();
 
+  // No card when there is nobody. A card is a promise that something is in it,
+  // and an empty one saying "Nobody" carries the same weight on this page as
+  // Sign out does — which is how a page of seven settings stops being
+  // scannable. The line still says where a block would appear, because the
+  // whole argument for this section is that a block you cannot find is a block
+  // you cannot lift.
   if (!state.blocked.length) {
     return (
-      <Card>
-        <Sans size={12.5} lineHeight={17.5} color={color.muted}>
-          Nobody. If you ever block someone, they show up here — this is where
-          you take it back.
-        </Sans>
-      </Card>
+      <Sans size={12.5} lineHeight={17.5} color={color.muted} style={{ marginHorizontal: 2 }}>
+        Nobody yet. Anyone you block shows up here, and this is where you take it
+        back.
+      </Sans>
     );
   }
 
