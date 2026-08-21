@@ -33,6 +33,8 @@ export const COLOR = {
   ink: '#191E16',
   paper: '#F1F2EC',
   planBg: '#12170F',
+  /** `darkColors.textPrimary`. The dark launch screen's ink. */
+  onDarkInk: '#EEF0E8',
 };
 
 export const SPEC = {
@@ -330,10 +332,19 @@ async function main() {
   // edge to edge and lets the platform round it.
   await write('icon.png', await png(markSvg(), 1024));
 
-  // The launch screen is paper, the same colour the app opens on, so the mark
-  // is ink and carries no plate. A lime plate here would flash green and then
-  // drop to paper the moment React took over.
+  // The launch screen is the colour the app opens on, so the mark is that
+  // scheme's ink and carries no plate. A lime plate here would flash green and
+  // then drop to the ground the moment React took over.
+  //
+  // Two of them, since dark mode: `app.json` names one splash per scheme, and
+  // they cannot share art. The light mark is `#191E16` on `#F1F2EC`; on the
+  // dark ground `#070A06` that same mark is about 1.35:1 — there, but not
+  // visible, which is worse than absent because it looks like a broken asset.
   await write('splash-icon.png', await png(foregroundSvg({ fg: COLOR.ink, scale: 0.92 }), 1024));
+  await write(
+    'splash-icon-dark.png',
+    await png(foregroundSvg({ fg: COLOR.onDarkInk, scale: 0.92 }), 1024),
+  );
 
   await write('android-icon-foreground.png', await png(foregroundSvg(), 1024));
   await write(
@@ -355,6 +366,7 @@ async function main() {
   for (const [name, opaqueOnly] of [
     ['icon.png', false],
     ['splash-icon.png', true],
+    ['splash-icon-dark.png', true],
     ['android-icon-foreground.png', true],
     ['android-icon-monochrome.png', true],
     ['favicon.png', false],
