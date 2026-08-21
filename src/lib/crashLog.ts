@@ -93,10 +93,35 @@ export async function clearCrashes(): Promise<void> {
   }
 }
 
+/**
+ * Drop the part of a stack frame that is identical on every other frame.
+ *
+ * Metro stamps each frame with the absolute path of the bundle it was built
+ * from: ninety characters of `/Users/…/main.jsbundle` on a simulator, and a
+ * container UUID of much the same length on a device. It is the same string on
+ * every line, and it is the one part that locates nothing — what says *where*
+ * is the `line:col` sitting right behind it.
+ *
+ * Left in, it costs four lines per frame, so four frames fill the box on the
+ * crash screen and three quarters of what is on it is one path repeated. That
+ * is expensive on the one screen whose whole argument is that a photograph of
+ * it is worth sending to somebody.
+ *
+ * The basename stays — `main.jsbundle:59016:20` still says which bundle, which
+ * matters the day there is more than one. A frame carrying no path at all
+ * (`at RNCSafeAreaProvider (<anonymous>)`) is left exactly as it was.
+ */
+export function tidy(stack: string): string {
+  return stack.replace(/\(([^()]*\/)([^()/]+:\d+:\d+)\)/g, '($2)');
+}
+
 /** Turn whatever was thrown into something with a message. */
 export function describe(error: unknown): { message: string; stack?: string } {
   if (error instanceof Error) {
-    return { message: error.message || error.name, stack: error.stack };
+    return {
+      message: error.message || error.name,
+      stack: error.stack ? tidy(error.stack) : undefined,
+    };
   }
   return { message: typeof error === 'string' ? error : JSON.stringify(error) };
 }

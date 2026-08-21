@@ -31,7 +31,7 @@ import { ScrollView, View } from 'react-native';
 import { Caps, Sans, Tap } from './primitives';
 import { gutter, radius } from '../theme/tokens';
 import { useColors } from '../theme/ThemeProvider';
-import { describe, readCrashes, recordCrash, type Crash } from '../lib/crashLog';
+import { describe, readCrashes, recordCrash, tidy, type Crash } from '../lib/crashLog';
 
 type Props = { children: React.ReactNode };
 type State = { crash: Crash | null; earlier: number };
@@ -130,7 +130,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
     const crash: Crash = {
       at: Date.now(),
       ...describe(error),
-      componentStack: info?.componentStack ?? undefined,
+      componentStack: info?.componentStack ? tidy(info.componentStack) : undefined,
     };
     this.setState({ crash });
 
