@@ -145,8 +145,8 @@
  * a few milliseconds later. `useState(initial)` would have captured the
  * `undefined` and never seen the answer.
  */
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import { useColorScheme } from 'react-native';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { Appearance, useColorScheme } from 'react-native';
 import { SchemePreference, saveSchemePreference } from './schemePreference';
 import {
   darkColors,
@@ -264,6 +264,29 @@ const PreferenceContext = createContext<SchemePreferenceControl>({
   setPreference: () => {},
 });
 
+/**
+ * Hand the chosen scheme to the platform, so the surfaces this app does not
+ * draw follow it too.
+ *
+ * `Alert.alert`, the image picker and the Apple sign-in sheet are drawn by iOS,
+ * not by React, and they answer to the window's interface style rather than to
+ * anything in `tokens.ts`. Without this, pinning Dark on a light phone gets you
+ * a white system alert over a near-black app — the one seam a palette alone
+ * cannot close.
+ *
+ * `'unspecified'` is how the override is *released*; there is no `null` in this
+ * API. Releasing it matters more than setting it: `setColorScheme('dark')` also
+ * changes what `getColorScheme()` reports, so a preference of 'system' that
+ * never cleared a previous override would keep resolving to that override
+ * forever, and the phone's own setting would stop reaching the app.
+ *
+ * Under jest there is no native module behind this and the call is a no-op,
+ * which is why the tests spy on it rather than observing its effect.
+ */
+const applyToNativeSurfaces = (preference: SchemePreference): void => {
+  Appearance.setColorScheme(preference === 'system' ? 'unspecified' : preference);
+};
+
 export function ThemeProvider({
   scheme,
   preference,
@@ -288,14 +311,31 @@ export function ThemeProvider({
   const [chosen, setChosen] = useState<SchemePreference | null>(null);
   const current = chosen ?? preference ?? 'system';
 
-  // One call, two effects: repaint now, and be this way next launch. Split
-  // across two calls at the call site, one of them would eventually be
-  // forgotten — and the one that gets forgotten is always the durable half,
-  // because the app looks right without it.
+  // One call, three effects: repaint now, tell the platform, and be this way
+  // next launch. Split across separate calls at the call site, one of them
+  // would eventually be forgotten — and the one that gets forgotten is always
+  // the durable half, because the app looks right without it.
+  //
+  // The platform call goes *before* `setChosen`, and that ordering is not
+  // stylistic. `setColorScheme` updates what `getColorScheme()` reports but
+  // deliberately emits no change event, so `useColorScheme()` only picks the
+  // new value up on its next render. Do it in an effect instead and switching
+  // Dark → System renders once against the stale override — resolving dark,
+  // on a light phone — and then nothing re-renders to correct it, because
+  // nothing was emitted. Setting it first means the render that reacts to
+  // `setChosen` already reads the released value.
   const setPreference = useCallback((next: SchemePreference) => {
+    applyToNativeSurfaces(next);
     setChosen(next);
     void saveSchemePreference(next);
   }, []);
+
+  // The other way in: a preference that was on disk at launch arrives as a prop
+  // some milliseconds after this mounts, and never passes through the setter.
+  // Idempotent, so it costs nothing when the setter got there first.
+  useEffect(() => {
+    applyToNativeSurfaces(current);
+  }, [current]);
 
   // `useColorScheme()` is `'light' | 'dark' | null` — null on a platform that
   // has not told us yet, which is light as far as this app is concerned. It is
