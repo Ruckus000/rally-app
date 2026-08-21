@@ -369,38 +369,29 @@ describe('the platform is told too', () => {
    * renders at the moment of the call is what says so.
    */
   it('tells the platform before the tree re-renders, not after', async () => {
-    // Counted inside a *consumer*, not around one. Children of the provider
-    // keep their element identity across a scheme change, so React bails out
-    // of re-rendering them — only the subtrees that read the context run
-    // again. A counter wrapped around `Control` would sit at 1 forever and
-    // this test would pass on any ordering at all.
-    let renders = 0;
-    function CountingControl() {
-      const { preference, setPreference } = useSchemePreference();
-      renders += 1;
-      return (
-        <Tap accessibilityLabel="pick system" onPress={() => setPreference('system')}>
-          <Text>{preference}</Text>
-        </Tap>
-      );
-    }
     render(
       <ThemeProvider preference="dark">
-        <CountingControl />
+        <Control />
       </ThemeProvider>,
     );
 
-    const atCall: number[] = [];
+    // What the tree was showing each time the platform was told. Two calls are
+    // expected and correct: the setter's, then the effect's backstop. What is
+    // being asserted is the *first* one — if the setter got there before React
+    // re-rendered, the tree still reads 'dark' at that instant. Were the setter
+    // an effect, the only call would come after the render and read 'system',
+    // which is precisely the ordering bug this guards.
+    const showing: unknown[] = [];
     told.mockClear();
     told.mockImplementation(() => {
-      atCall.push(renders);
+      showing.push(screen.getByTestId('preference').props.children);
     });
 
-    const before = renders;
     fireEvent.press(screen.getByLabelText('pick system'));
 
-    expect(atCall[0]).toBe(before);
-    expect(renders).toBeGreaterThan(before);
+    expect(showing[0]).toBe('dark');
+    expect(showing).toEqual(['dark', 'system']);
+    expect(screen.getByTestId('preference').props.children).toBe('system');
     await act(async () => {});
   });
 });
