@@ -31,6 +31,7 @@ import { Presence } from './overlays/Overlay';
 import { ReportSheet } from './overlays/ReportSheet';
 import { Toast } from './components/Toast';
 import { SyncBanner } from './components/SyncBanner';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { UnsavedBanner } from './components/UnsavedBanner';
 
 /**
@@ -82,7 +83,14 @@ export function Root({
   return (
     <ThemeProvider preference={preference}>
       <View style={{ flex: 1 }} onLayout={onReveal}>
-        {ready ? <App restored={restored} /> : <BootScreen />}
+        {/*
+          Inside the provider, not outside: the fallback asks for the palette
+          like everything else does, and a boundary above `ThemeProvider` could
+          not. It wraps the branch rather than sitting in one of its arms so
+          that a throw in `BootScreen` is caught too — that screen runs before
+          the app exists, which is exactly when a crash is hardest to explain.
+        */}
+        <ErrorBoundary>{ready ? <App restored={restored} /> : <BootScreen />}</ErrorBoundary>
       </View>
     </ThemeProvider>
   );
