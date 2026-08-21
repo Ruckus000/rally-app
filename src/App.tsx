@@ -10,7 +10,7 @@ import React, { useEffect, useState } from 'react';
 import { Animated, ScrollView, StatusBar, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { gutter } from './theme/tokens';
-import { ThemeProvider, useColors } from './theme/ThemeProvider';
+import { ThemeProvider, useTheme } from './theme/ThemeProvider';
 import { sheetEasing, useReducedMotion } from './theme/motion';
 import { StoreProvider, useStore, Config, State } from './state/store';
 import { Header } from './shell/Header';
@@ -109,15 +109,22 @@ export function App({
 }
 
 function Shell() {
-  const color = useColors();
+  const { colors: color, scheme } = useTheme();
   const { state } = useStore();
   const insets = useSafeAreaInsets();
 
   return (
     <View style={{ flex: 1, backgroundColor: color.paper }}>
-      {/* Onboarding sets its own: four of its seven screens are paper, so it
-          can't be answered from out here. */}
-      <StatusBar barStyle={state.planOpen ? 'light-content' : 'dark-content'} />
+      {/* Two independent reasons for light glyphs, and it used to ask only the
+          first. Plan is a near-black overlay drawn over whatever scheme is in
+          force; the dark scheme makes the ground behind it near-black too. Ask
+          only "is Plan open" and the status bar goes `dark-content` on a dark
+          ground — near-black glyphs on a near-black bar, and the clock, the
+          battery and the carrier vanish. Either condition alone is enough.
+
+          Onboarding sets its own: four of its seven screens are paper in the
+          light scheme, so it can't be answered from out here. */}
+      <StatusBar barStyle={state.planOpen || scheme === 'dark' ? 'light-content' : 'dark-content'} />
 
       <Header topInset={insets.top} />
 

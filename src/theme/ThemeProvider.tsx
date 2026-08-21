@@ -250,3 +250,33 @@ export function useShadows(): Shadows {
 export function usePersonTints(): PersonTints {
   return useContext(ThemeContext).personTints;
 }
+
+/**
+ * The iOS keyboard, which is the one surface this app puts on screen without
+ * drawing it.
+ *
+ * No `TextInput` in the app set `keyboardAppearance`, so every field got
+ * `UIKeyboardAppearanceDefault`. Under a dark sheet that is a light slab across
+ * the bottom half of the screen — brighter than anything the palette is allowed
+ * to draw, and the only part of a dark app that stayed light.
+ *
+ * It follows the **scheme**, not the surface the field sits on. The keyboard is
+ * not *on* the sheet, it is in front of it, and half the fields in this app
+ * already sit on grounds that are dark in both schemes — `planCard`, the ink
+ * profile card, the onboarding stake screen. Keying off those would give a
+ * light-mode user a dark keyboard on three screens and a light one everywhere
+ * else, which is a second theme nobody asked for.
+ *
+ * `Scheme` is `'light' | 'dark'`, which is exactly `KeyboardAppearance` minus
+ * `'default'` — so the scheme *is* the answer and there is nothing to map. In
+ * the light scheme `'light'` is what `'default'` was already resolving to, so
+ * nothing about light mode changes.
+ *
+ * Android has no equivalent and ignores the prop; its keyboard follows the OS.
+ *
+ * A named hook rather than `useTheme().scheme` at each site, by the rule above:
+ * ten reads across eight files, and one grep for who has been given a keyboard.
+ */
+export function useKeyboardAppearance(): Scheme {
+  return useContext(ThemeContext).scheme;
+}

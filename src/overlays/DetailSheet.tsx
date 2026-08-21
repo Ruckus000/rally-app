@@ -18,7 +18,7 @@ import {
   View,
 } from 'react-native';
 import { onLight, radius } from '../theme/tokens';
-import { useColors, usePersonTints, type Palette } from '../theme/ThemeProvider';
+import { useColors, useKeyboardAppearance, usePersonTints, type Palette } from '../theme/ThemeProvider';
 import {
   AUDIENCE_LABEL,
   ME,
@@ -668,6 +668,7 @@ function PersonSheet({ who }: { who: PersonId }) {
  */
 function StartCircle() {
   const color = useColors();
+  const keyboard = useKeyboardAppearance();
   const { dispatch } = useStore();
   const [name, setName] = React.useState('');
   const [busy, setBusy] = React.useState(false);
@@ -709,6 +710,7 @@ function StartCircle() {
           onChangeText={setName}
           onSubmitEditing={() => void create()}
           maxLength={CIRCLE_NAME_MAX}
+          keyboardAppearance={keyboard}
           editable={!busy}
           placeholder="e.g. The Basement"
           placeholderTextColor={color.faintInk}
@@ -1132,6 +1134,7 @@ function NoteBubble({ note }: { note: Note }) {
 
 function NoteComposer({ bottomInset }: { bottomInset: number }) {
   const color = useColors();
+  const keyboard = useKeyboardAppearance();
   const { state, dispatch, people } = useStore();
   const sheet = state.sheet;
   // Buffered locally while typing: a keystroke used to dispatch `SET_NOTE`,
@@ -1175,6 +1178,7 @@ function NoteComposer({ bottomInset }: { bottomInset: number }) {
           placeholderTextColor={color.muted}
           accessibilityLabel={placeholder}
           returnKeyType="send"
+          keyboardAppearance={keyboard}
           style={{
             flex: 1,
             height: 46,

@@ -33,7 +33,7 @@
 import React from 'react';
 import { Alert, Linking, Platform, ScrollView, TextInput, View } from 'react-native';
 import { font, gutter, radius } from '../theme/tokens';
-import { useColors, type Palette } from '../theme/ThemeProvider';
+import { useColors, useKeyboardAppearance, type Palette } from '../theme/ThemeProvider';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
 import { Icon } from '../components/Icon';
 import { Avatar } from '../components/Avatar';
@@ -262,6 +262,7 @@ function Card({ children }: { children: React.ReactNode }) {
  */
 function NameField({ current }: { current: string }) {
   const color = useColors();
+  const keyboard = useKeyboardAppearance();
   const { dispatch } = useStore();
   // Seeded once, on purpose: re-syncing to `current` mid-edit would yank the
   // field out from under somebody typing. The narrow cost, recorded rather than
@@ -286,6 +287,7 @@ function NameField({ current }: { current: string }) {
       autoCapitalize="words"
       autoCorrect={false}
       returnKeyType="done"
+      keyboardAppearance={keyboard}
       selectionColor={color.lime}
       placeholder="Your name"
       placeholderTextColor={color.faintInk}

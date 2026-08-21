@@ -13,7 +13,7 @@ import {
   planGutter,
   useDisplayLeading,
 } from '../theme/tokens';
-import { useColors, useShadows } from '../theme/ThemeProvider';
+import { useColors, useKeyboardAppearance, useShadows } from '../theme/ThemeProvider';
 import {
   AUDIENCE_LABEL,
   AUDIENCE_WORD,
@@ -34,6 +34,7 @@ import { Overlay } from './Overlay';
 
 export function PlanOverlay({ topInset, bottomInset }: { topInset: number; bottomInset: number }) {
   const color = useColors();
+  const keyboard = useKeyboardAppearance();
   const shadows = useShadows();
   const { state, dispatch, effectiveAudience, demo, people } = useStore();
   // Up here rather than inline on the `<Bri>` below because it is a hook, and
@@ -255,6 +256,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
               selectionColor={color.lime}
               cursorColor={color.lime}
               returnKeyType="done"
+              keyboardAppearance={keyboard}
               accessibilityLabel="What will you do?"
               // The length the rating function accepts. Without it a longer
               // goal is staked unscreened — the function 400s and the client
