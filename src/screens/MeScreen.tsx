@@ -278,10 +278,11 @@ export function MeScreen() {
           </Tap>
         </View>
 
-        {/* Under the control that failed, which is `Trouble`'s whole remit — the
-            light chip reads against the card's ink the same way it reads against
-            paper elsewhere, so this needs no dark variant. */}
-        <Trouble message={secureTrouble} />
+        {/* Under the control that failed, which is `Trouble`'s whole remit. It
+            is told it is on an ink card: that card is near-black in both
+            schemes, so the chip `Trouble` draws by default would flip out from
+            under it and leave an invisible rectangle here. */}
+        <Trouble message={secureTrouble} dark />
 
         {/* 2 · points */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 11, marginTop: 22 }}>
