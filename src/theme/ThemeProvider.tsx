@@ -114,9 +114,15 @@
 import React, { createContext, useContext, useMemo } from 'react';
 import { useColorScheme } from 'react-native';
 import {
+  darkColors,
+  darkHairlineGradient,
+  darkPersonTints,
+  darkShadows,
+  darkYearLevelColor,
   hairlineGradient,
   HairlineGradient,
   lightColors,
+  Palette,
   personTints,
   PersonTints,
   shadows,
@@ -128,14 +134,11 @@ import {
 /**
  * Re-exported so a consumer needing one of these as a *type* — a factory
  * taking what it reads, in the convention below — has one import to reach for
- * rather than two. `Palette` is defined here; these four come from `tokens`.
+ * rather than two. All five live in `tokens`, beside the values they describe.
  */
-export type { HairlineGradient, PersonTints, Shadows, YearLevelColor };
+export type { HairlineGradient, Palette, PersonTints, Shadows, YearLevelColor };
 
 export type Scheme = 'light' | 'dark';
-
-/** The colour map a component reads. One shape, whichever scheme is active. */
-export type Palette = typeof lightColors;
 
 /**
  * What the context carries: everything in the app that is a colour and could
@@ -164,20 +167,26 @@ const lightTheme: Theme = {
 };
 
 /**
- * Dark, holding the light structures — all five, by reference to the very
- * objects the light theme names.
+ * Dark, at last holding a palette of its own.
  *
- * Not an oversight and not a placeholder to be filled in casually: the palette
- * swap is the next PR, and the test suite asserts that both schemes still hand
- * back the identical object for every field until then.
+ * Five fields, and only `scheme` is shared with the light theme — but a great
+ * deal *inside* those objects is deliberately identical. `ink`, `planBg`,
+ * `planCard`, `onboardBg`, `tabbar` and `lime` are byte-for-byte what they are
+ * on paper, because the surfaces they name were already dark and the accent was
+ * never a function of the ground. `darkShadows` and `darkHairlineGradient` are
+ * spreads of their light counterparts for the same reason: most of what they
+ * carry sits on a surface that does not move.
+ *
+ * `theme.test.tsx` pins those invariants, so a later hand that "finishes" the
+ * dark palette by giving `lime` a dark variant finds out immediately.
  */
 const darkTheme: Theme = {
   scheme: 'dark',
-  colors: lightColors,
-  shadows,
-  personTints,
-  hairlineGradient,
-  yearLevelColor,
+  colors: darkColors,
+  shadows: darkShadows,
+  personTints: darkPersonTints,
+  hairlineGradient: darkHairlineGradient,
+  yearLevelColor: darkYearLevelColor,
 };
 
 /**
