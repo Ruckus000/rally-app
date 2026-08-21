@@ -6,11 +6,23 @@
  * progress on the ~470 reads; it is to run the mechanism against real
  * components, in all three situations they will actually be rendered in — with
  * no provider (which is how most of this suite mounts things), under an
- * explicit light provider, and under a dark one, which resolves to the light
- * palette until the last PR of this sequence.
+ * explicit light provider, and under a dark one.
  *
  * Every expectation below is written against a token, never against a hex
  * literal. A literal here would be a second copy of the palette that drifts.
+ *
+ * ## What PR 6d changed about the shape of this file
+ *
+ * Each row of `describe.each` used to be a wrapping alone, and every assertion
+ * read `color.*` — the *light* palette — in all three runs. That was the claim
+ * being made on purpose while dark resolved to light: "the same token whatever
+ * the scheme". Once the two palettes part, it is simply wrong, and it fails in
+ * the least useful way, by reporting the dark palette working correctly.
+ *
+ * So a row now carries the wrapping **and the palette that wrapping should
+ * produce**, and the claim becomes "the token the *active* scheme defines".
+ * That version says something in every run rather than something in two of
+ * them, and it keeps working the next time a token's dark value is retuned.
  */
 import React from 'react';
 import { StyleSheet, Text } from 'react-native';
@@ -23,10 +35,19 @@ import { TabBar } from '../../shell/TabBar';
 import { StoreProvider } from '../../state/store';
 import { closeButton } from '../../overlays/LedgerOverlay';
 import { Palette, Scheme, ThemeProvider, useColors } from '../../theme/ThemeProvider';
-import { color } from '../../theme/tokens';
+import { color, darkColors, lightColors } from '../../theme/tokens';
 
-/** `undefined` means no provider at all — the case most of the suite is in. */
-const wrappings: (Scheme | undefined)[] = [undefined, 'light', 'dark'];
+/**
+ * Wrapping, and the palette that wrapping is supposed to produce.
+ *
+ * `undefined` means no provider at all — the case most of the suite is in, and
+ * one that has to keep answering with the light palette rather than throwing.
+ */
+const wrappings: [Scheme | undefined, Palette][] = [
+  [undefined, lightColors],
+  ['light', lightColors],
+  ['dark', darkColors],
+];
 
 const under = (scheme: Scheme | undefined, node: React.ReactElement) =>
   render(scheme === undefined ? node : <ThemeProvider scheme={scheme}>{node}</ThemeProvider>);
@@ -43,8 +64,8 @@ const flat = (style: unknown) =>
 
 const styleOf = (label: string) => flat(screen.getByLabelText(label).props.style);
 
-describe.each(wrappings)('with scheme %s', (scheme) => {
-  it('draws Bri and Sans in ink, and Caps in muted', () => {
+describe.each(wrappings)('with scheme %s', (scheme, palette) => {
+  it('draws Bri and Sans in the primary text colour, and Caps in muted', () => {
     under(
       scheme,
       <>
@@ -53,14 +74,21 @@ describe.each(wrappings)('with scheme %s', (scheme) => {
         <Caps accessibilityLabel="caps">LABEL</Caps>
       </>,
     );
-    expect(styleOf('bri').color).toBe(color.ink);
-    expect(styleOf('sans').color).toBe(color.ink);
-    expect(styleOf('caps').color).toBe(color.muted);
+    // `textPrimary`, not `ink`. They are the same hex on paper and opposite
+    // ends of the ramp on dark, which is the entire reason 6b split them: `ink`
+    // is a surface that stays dark, this is text on a ground that flips.
+    expect(styleOf('bri').color).toBe(palette.textPrimary);
+    expect(styleOf('sans').color).toBe(palette.textPrimary);
+    expect(styleOf('caps').color).toBe(palette.muted);
   });
 
   it('still lets a caller override the colour', () => {
-    under(scheme, <Sans accessibilityLabel="override" color={color.lime} />);
-    expect(styleOf('override').color).toBe(color.lime);
+    // `lime` on both sides on purpose: it is one of the six tokens that is
+    // byte-identical in the two palettes, so this test survives the split
+    // without being parameterised. Reading it from `palette` anyway, so that
+    // nothing here has to remember which tokens those six are.
+    under(scheme, <Sans accessibilityLabel="override" color={palette.lime} />);
+    expect(styleOf('override').color).toBe(palette.lime);
   });
 
   it('draws the banner on askTint and its action on card', () => {
@@ -71,14 +99,17 @@ describe.each(wrappings)('with scheme %s', (scheme) => {
       </Banner>,
     );
     const banner = flat(screen.UNSAFE_getAllByProps({ accessibilityRole: 'alert' })[0].props.style);
-    expect(banner.backgroundColor).toBe(color.askTint);
-    expect(styleOf('Retry').backgroundColor).toBe(color.card);
-    expect(styleOf('Retry').borderColor).toBe(color.divider);
+    expect(banner.backgroundColor).toBe(palette.askTint);
+    expect(styleOf('Retry').backgroundColor).toBe(palette.card);
+    expect(styleOf('Retry').borderColor).toBe(palette.divider);
   });
 
   it('paints the boot screen on paper', () => {
+    // The boot screen is the first thing anyone sees and is drawn before the
+    // app exists. On a dark device this is `#070A06`, and the reason the
+    // provider sits above the boot/app branch rather than inside it.
     under(scheme, <BootScreen />);
-    expect(styleOf('Rally').backgroundColor).toBe(color.paper);
+    expect(styleOf('Rally').backgroundColor).toBe(palette.paper);
   });
 
   it('keeps the tab bar fill and the lime FAB', () => {
@@ -88,7 +119,10 @@ describe.each(wrappings)('with scheme %s', (scheme) => {
         <TabBar bottomInset={0} />
       </StoreProvider>,
     );
-    expect(styleOf('Plan your week').backgroundColor).toBe(color.lime);
+    // The other test that survives the split only because `lime` does not
+    // move: the FAB is the same green in both schemes, by design, and
+    // `theme.test.tsx` is what holds it there.
+    expect(styleOf('Plan your week').backgroundColor).toBe(palette.lime);
   });
 });
 
@@ -108,7 +142,7 @@ it('falls back only on undefined, the way a parameter default did', () => {
     </>,
   );
   expect(styleOf('empty').color).toBe('');
-  expect(styleOf('absent').color).toBe(color.ink);
+  expect(styleOf('absent').color).toBe(color.textPrimary);
 });
 
 

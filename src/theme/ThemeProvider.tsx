@@ -19,13 +19,14 @@
  * the worst possible moment to discover it. Context re-renders. That is the
  * entire argument.
  *
- * ## Why `dark` resolves to the light palette here
+ * ## `dark` resolves to a dark palette now
  *
- * There is no dark palette yet — it is designed (see the spec) but not built,
- * and half of it invented in a mechanism PR is how a PR that promises to
- * change no pixels starts changing pixels. So both schemes resolve to
- * `lightColors`, and the tests pin that down rather than leaving it as a
- * comment somebody trusts.
+ * For five PRs it did not: the palette was designed but not built, and half of
+ * one invented inside a mechanism PR is how a PR that promises to change no
+ * pixels starts changing pixels. 6d built it. Both `theme.test.tsx` and
+ * `themeStructures.test.tsx` turned over with it — what they pin now is that
+ * the two palettes differ, that they carry the identical key set, and that the
+ * six tokens the emphasis grammar rests on are the same in both.
  *
  * ## Why the context value is an object rather than the colour map
  *
