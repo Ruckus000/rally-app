@@ -114,33 +114,75 @@ import { attemptSignOut, unsentLine } from './settings/signOut';
  * let through. A pure function takes the platform as an argument and cannot
  * fall through to the host.
  */
+/**
+ * What this account *is*, in as few words as the state allows.
+ *
+ * The heading here used to be `live ? 'Live' : 'Demo'` — two values for the
+ * eight states below, and the live one named an internal account mode rather
+ * than anything a reader recognises. It carried almost no information, which is
+ * why every line under it opened by naming the state itself: "Signed in.",
+ * "Signed out on this device.", "Signing in isn't working". The line was doing
+ * the heading's job and the heading was saying a word from the source code.
+ *
+ * So they split: this says which state you are in, `accountLine` says what
+ * follows from it. Neither repeats the other, and the pair has to be read
+ * together — which is how the tests assert on it.
+ */
+export function accountHeading(
+  account: AccountMode | null,
+  session: SessionState,
+  platform: typeof Platform.OS,
+): string {
+  if (account !== 'live') return 'Just looking around';
+  if (session.status === 'signing-in') return 'Signing in…';
+  // Not "Signed out": there is nothing to be signed out *of* on a build with no
+  // server configured, and the distinction is the whole reason this state has
+  // its own line.
+  if (session.status === 'off') return 'On this phone only';
+  if (session.status === 'offline') return 'Signed in, offline';
+  if (session.status === 'expired') return 'Signed out on this device';
+  if (session.status === 'error') return 'Sign-in isn’t working';
+  if (!session.anonymous) return 'Signed in with Apple';
+  // True on both platforms; what differs is whether there is anything to do
+  // about it, and that is the line's business rather than the heading's.
+  return platform === 'ios' ? 'Signed in, not secured yet' : 'Signed in, not secured';
+}
+
+/**
+ * What follows from the state `accountHeading` just named.
+ *
+ * Each of these used to open by naming that state, back when the heading above
+ * could only say "Live". They no longer do — a heading and a first clause that
+ * say the same thing read as a template rather than a sentence — so these are
+ * consequences only, and none of them stands alone.
+ */
 export function accountLine(
   account: AccountMode | null,
   session: SessionState,
   platform: typeof Platform.OS,
 ): string {
-  // The heading above this line already says "Demo", so the word does not
-  // appear again here — twice in two lines reads as a template, not a sentence.
   if (account !== 'live') {
     return 'Nothing here reaches a server. It’s all made up, and it’s all yours.';
   }
-  if (session.status === 'signing-in') return 'Checking this account…';
+  // Keeps the word "Checking", which every other state below is asserted not to
+  // say: this is the only moment anything is actually in flight.
+  if (session.status === 'signing-in') return 'Checking this account. It usually takes a second.';
   if (session.status === 'off') {
     return 'No server is set up for this copy of Rally, so this account never signs in. Everything you do stays on this phone.';
   }
   if (session.status === 'offline') {
-    return 'Signed in. No connection right now — this catches up on its own once there is one.';
+    return 'No connection right now — this catches up on its own once there is one.';
   }
   if (session.status === 'expired') {
-    return 'Signed out on this device. Your week is safe here, but nothing new is reaching the server.';
+    return 'Your week is safe here, but nothing new is reaching the server.';
   }
   if (session.status === 'error') {
-    return 'Signing in isn’t working on this phone, and trying again may not be enough.';
+    return 'Trying again may not be enough on this phone.';
   }
-  if (!session.anonymous) return 'Signed in, and this account can be got back with Apple.';
+  if (!session.anonymous) return 'This account can be got back on a new phone.';
   return platform === 'ios'
-    ? 'Signed in, but this account can’t be got back yet. Secure it below and you can sign back in on a new phone.'
-    : 'Signed in, but this account can’t be got back — signing in with Apple is iOS-only for now. That’s also why there’s no sign-out here: there’d be no way back.';
+    ? 'Secure it below and you can sign back in on a new phone.'
+    : 'Signing in with Apple is iOS-only for now, so there is no way to secure this account yet. That’s also why there’s no sign-out here: there’d be no way back.';
 }
 
 export function SettingsOverlay({ topInset }: { topInset: number }) {
@@ -181,7 +223,7 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
         <Section title="Account">
           <Card>
             <Bri size={15} weight={800}>
-              {live ? 'Live' : 'Demo'}
+              {accountHeading(account, session, Platform.OS)}
             </Bri>
             <Sans size={12.5} lineHeight={17.5} color={color.muted} style={{ marginTop: 4 }}>
               {accountLine(account, session, Platform.OS)}
