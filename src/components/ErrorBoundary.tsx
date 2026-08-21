@@ -29,7 +29,7 @@ import React from 'react';
 import { ScrollView, View } from 'react-native';
 
 import { Caps, Sans, Tap } from './primitives';
-import { gutter, radius } from '../theme/tokens';
+import { gutter, onDark, radius } from '../theme/tokens';
 import { useColors } from '../theme/ThemeProvider';
 import { describe, readCrashes, recordCrash, tidy, type Crash } from '../lib/crashLog';
 
@@ -109,7 +109,16 @@ function CrashScreen({
           backgroundColor: colors.ink,
         }}
       >
-        <Sans size={15} weight={600} color={colors.paper}>
+        {/*
+          `onDark.primary`, not `colors.paper`. The fill above is `ink`, which
+          is a surface that stays dark in both schemes — so the label on it has
+          to be a colour that never follows the ground down. `paper` is the
+          ground: light on paper, #070A06 on dark. It read correctly for
+          exactly as long as there was no dark palette, and would have gone
+          near-black-on-near-black the day one landed. That day was PR 6d, and
+          the token comment there had already named this mistake in advance.
+        */}
+        <Sans size={15} weight={600} color={onDark.primary}>
           Try again
         </Sans>
       </Tap>

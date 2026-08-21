@@ -12,13 +12,14 @@
  * it would hide the same message arriving from somewhere it is not expected.
  */
 import React from 'react';
-import { Text } from 'react-native';
+import { ScrollView, StyleSheet, Text } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ErrorBoundary } from '../ErrorBoundary';
 import { Root } from '../../App';
-import { ThemeProvider } from '../../theme/ThemeProvider';
+import { Palette, Scheme, ThemeProvider } from '../../theme/ThemeProvider';
+import { darkColors, lightColors, onDark } from '../../theme/tokens';
 import { readCrashes } from '../../lib/crashLog';
 
 const Boom = ({ throws }: { throws: boolean }) => {
@@ -138,5 +139,63 @@ describe('where it sits', () => {
     const providers = screen.UNSAFE_getAllByType(ThemeProvider);
     expect(providers).toHaveLength(1);
     expect(providers[0].findByType(ErrorBoundary)).toBeTruthy();
+  });
+});
+
+/**
+ * The palette it is drawn in, in each scheme it can be drawn in.
+ *
+ * `themedLeaves.test.tsx` makes this claim for the four smallest components in
+ * the app and its header explains the shape; these are the same rows for the
+ * one screen nobody is looking at when it is first drawn. A colour mistake
+ * here stays invisible right up until the moment this is the only thing on the
+ * display, which is the worst available moment to find one.
+ */
+const wrappings: [Scheme | undefined, Palette][] = [
+  [undefined, lightColors],
+  ['light', lightColors],
+  ['dark', darkColors],
+];
+
+/** `Tap` is a `Pressable`: its style is a function of the press state. */
+const flat = (style: unknown) =>
+  StyleSheet.flatten(
+    typeof style === 'function'
+      ? (style as (s: { pressed: boolean }) => unknown)({ pressed: false })
+      : style,
+  ) as Record<string, unknown>;
+
+describe.each(wrappings)('drawn under scheme %s', (scheme, palette) => {
+  beforeEach(() => {
+    render(
+      <ThemeProvider scheme={scheme}>
+        <ErrorBoundary>
+          <Boom throws />
+        </ErrorBoundary>
+      </ThemeProvider>,
+    );
+  });
+
+  it('puts the label on the fill rather than on the ground', () => {
+    const fill = flat(screen.getByLabelText('Try again').props.style).backgroundColor;
+    const label = flat(screen.getByText('Try again').props.style).color;
+
+    expect(fill).toBe(palette.ink);
+    // `onDark.primary`, which is the same hex as `paper` in the light rows and
+    // its opposite in the dark one — so this row is the only one of the three
+    // that can catch the mistake, and it is the reason the row exists. `ink`
+    // is a surface that stays dark; a label that followed the ground down
+    // would be #070A06 on #191E16, about 1.2:1.
+    expect(label).toBe(onDark.primary);
+    expect(label).not.toBe(fill);
+  });
+
+  it('keeps the stack legible against the box it sits in', () => {
+    // The whole argument for showing a stack at all is that somebody can read
+    // it off the screen. Two tokens have to hold for that, in both schemes.
+    expect(flat(screen.UNSAFE_getByType(ScrollView).props.style).backgroundColor).toBe(
+      palette.card,
+    );
+    expect(flat(screen.getByText(/the sky fell/).props.style).color).toBe(palette.textPrimary);
   });
 });
