@@ -63,6 +63,18 @@ npm run icons             # regenerates assets AND src/theme/mark.ts
 - Under jest-expo `BackHandler` is an iOS stub — use `src/test/backPress.ts`.
 - `/ios` and `/android` are gitignored (prebuild output).
 
+## Branches
+
+Several worktrees run in parallel here, so a branch is easy to cut from another
+branch's tip instead of `main`. Before opening a PR:
+
+```bash
+git log origin/main..HEAD   # commits you did not write = the squash will absorb them
+```
+
+A squash merge lands the whole `merge-base..HEAD` diff. Foreign commits merge under
+your title and leave their own PR's merge commit empty — see #54, which swallowed #53.
+
 ## Where to read more
 
 | Topic | File |
