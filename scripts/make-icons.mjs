@@ -3,28 +3,24 @@
  *
  *   npm run icons
  *
- * The icon has a source, not just a binary. Three R's climbing a stack, cut
- * from Bricolage Grotesque ExtraBold — the same face the app sets its headlines
- * in, so the mark and the product are drawn with one pen. The glyph is
- * converted to outlines here rather than referenced as text: a logo that
- * depends on a font being installed is a logo that renders differently on every
- * machine that opens it.
+ * The icon has a source, not just a binary. The mark is **Gather**: five wedges
+ * on a 72° rotation closing on one core — separate people arriving at the same
+ * point. It is pure geometry, so unlike the three-R stack it replaced it needs
+ * no font and no outlining step; `SPEC` below is the whole drawing.
  *
- * Every number a designer would want to push lives in SPEC. Changing the stack
- * offset is one edit and one command, which is the point — an icon that can only
- * be revised in a drawing program stops being revised.
+ * Every number a designer would want to push lives in SPEC. Changing the wedge
+ * or the core is one edit and one command, which is the point — an icon that
+ * can only be revised in a drawing program stops being revised.
+ *
+ * Source: `Rally - Logo Spec.dc.html`, Claude Design project
+ * 5c5ab54c-3afe-4abc-bcd1-8d26813e4697.
  */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import opentype from 'opentype.js';
 import sharp from 'sharp';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const FONT = join(
-  ROOT,
-  'node_modules/@expo-google-fonts/bricolage-grotesque/800ExtraBold/BricolageGrotesque_800ExtraBold.ttf',
-);
 const OUT = join(ROOT, 'assets');
 
 /** Straight from `src/theme/tokens.ts`. The mark is not allowed its own palette. */
@@ -32,205 +28,216 @@ export const COLOR = {
   lime: '#C3F53C',
   ink: '#191E16',
   paper: '#F1F2EC',
-  planBg: '#12170F',
+  /** `lightColors.moss`. The core on a light ground. */
+  olive: '#4B6A0B',
   /** `darkColors.textPrimary`. The dark launch screen's ink. */
   onDarkInk: '#EEF0E8',
 };
 
 export const SPEC = {
   /** The art is drawn on this square and scaled to whatever a platform wants. */
-  canvas: 1024,
+  canvas: 100,
 
-  /** Cap height of one R as a fraction of the canvas. */
-  letter: 0.36,
+  /** Everything rotates about the middle of that square. */
+  center: 50,
 
   /**
-   * How far each R sits above and to the right of the one before it, as a
-   * fraction of cap height.
+   * One wedge. Base across the top, tip pointing at the core — and the tip is
+   * skewed 7 units off the axis (57, not 50), which is the whole reason the
+   * group reads as *arriving* rather than as a finished pinwheel. Straighten it
+   * and the mark goes static.
+   */
+  wedge: 'M38 6 L62 6 L57 44 Z',
+
+  /**
+   * The same wedge, thickened, for sizes where the standard cut turns to lace.
+   * Paired with `coreSmallR` and drawn in one colour.
+   */
+  wedgeSmall: 'M36 4 L64 4 L58 44 Z',
+
+  /** Five of them. 72° apart is not a style choice, it is the mark. */
+  angles: [0, 72, 144, 216, 288],
+
+  /** Two-tone core: the one element that changes between colorways. */
+  coreR: 13,
+
+  /**
+   * One-colour core. It grows, because with the wedges in the same ink as the
+   * core the huddle has to *fuse* — at r13 in a single colour the join looks
+   * like a printing error rather than a decision.
+   */
+  coreSolidR: 15,
+
+  /** Below 22px, with `wedgeSmall`. */
+  coreSmallR: 17,
+
+  /**
+   * Optical centring nudge, canvas units. Positive moves the art down/right.
    *
-   * These two numbers are the whole design, and they were found by rendering
-   * rather than by reasoning. Stacked nearly vertically — the first thing
-   * "three R's stacked" suggests — the letters bury each other's legs and the
-   * mark reads as one damaged R with debris behind it. The horizontal drift is
-   * what buys each letter its own air; the rise is what keeps it a climb rather
-   * than a word. At 0.70/0.68 the three stay individually legible down to about
-   * 40px, which is the size an icon is actually judged at.
+   * The mark is five-fold symmetric about (50, 50) but its *ink box* is not
+   * centred there — a 5-fold shape has no mirror symmetry across the horizontal,
+   * so the box works out to 91.109 × 86.650 centred on (50, 49.325). Drawn on
+   * the raw viewBox the mark therefore sits 0.675 units low in every square
+   * asset. Small, and visible once you know.
    */
-  riseY: 0.7,
-  driftX: 0.68,
-
-  /**
-   * The lime cut around each letter, in canvas units. Three black shapes this
-   * close would merge into one silhouette at any size a person actually sees an
-   * icon at. This gap is the only reason the stack reads as three.
-   */
-  gap: 20,
-
-  /** Optical centring nudge, canvas units. Positive moves the art down/right. */
   nudgeX: 0,
-  nudgeY: 0,
+  nudgeY: 0.675,
 };
 
-// `parse`, not `loadSync` — the latter is deprecated in opentype.js 1.3+ and
-// returns undefined rather than throwing, which fails a good way downstream.
-const font = opentype.parse(readFileSync(FONT).buffer);
-
 /**
- * One R as outlines, normalised so its ink box is exactly `size` tall and its
- * top-left corner is the origin. opentype gives glyph metrics, not ink extents,
- * and the difference is the sidebearing — leave it in and the letter sits
- * visibly off-centre in a square.
+ * Where the ink actually reaches, for a given cut.
+ *
+ * Measured from the path's own corner points rather than assumed: the scale
+ * factors below are expressed as "this fraction of the tile", and that is only
+ * meaningful against the real box. Returns canvas units.
  */
-function letterR(size) {
-  const probe = font.getPath('R', 0, 0, 1000);
-  const b = probe.getBoundingBox();
-  const scale = size / (b.y2 - b.y1);
-  const path = font.getPath('R', 0, 0, 1000 * scale);
-  const bb = path.getBoundingBox();
+export function inkBox(spec = SPEC, small = false) {
+  const d = small ? spec.wedgeSmall : spec.wedge;
+  const pts = [...d.matchAll(/(-?[\d.]+)\s+(-?[\d.]+)/g)].map((m) => [+m[1], +m[2]]);
+  const c = spec.center;
+  const all = [];
+  for (const a of spec.angles) {
+    const r = (a * Math.PI) / 180;
+    const cos = Math.cos(r);
+    const sin = Math.sin(r);
+    for (const [x, y] of pts) {
+      const dx = x - c;
+      const dy = y - c;
+      all.push([c + dx * cos - dy * sin, c + dx * sin + dy * cos]);
+    }
+  }
+  const xs = all.map((p) => p[0]);
+  const ys = all.map((p) => p[1]);
   return {
-    d: path.toPathData(3),
-    dx: -bb.x1,
-    dy: -bb.y1,
-    width: bb.x2 - bb.x1,
-    height: bb.y2 - bb.y1,
-  };
-}
-
-/** Where each letter sits, bottom of the stack first. */
-export function letterPositions(spec = SPEC) {
-  const s = spec.canvas;
-  const cap = s * spec.letter;
-  const R = letterR(cap);
-  const stepY = cap * spec.riseY;
-  const stepX = cap * spec.driftX;
-
-  // The whole stack's ink box, so it can be centred as one object rather than
-  // three. Centring each letter individually is what makes stacked marks list.
-  const stackW = R.width + stepX * 2;
-  const stackH = R.height + stepY * 2;
-  const originX = (s - stackW) / 2 + spec.nudgeX;
-  const originY = (s - stackH) / 2 + spec.nudgeY;
-
-  return {
-    R,
-    letters: [0, 1, 2].map((i) => ({
-      x: +(originX + R.dx + stepX * i).toFixed(2),
-      y: +(originY + R.dy + stepY * (2 - i)).toFixed(2),
-    })),
+    width: Math.max(...xs) - Math.min(...xs),
+    height: Math.max(...ys) - Math.min(...ys),
+    maxRadius: Math.max(...all.map((p) => Math.hypot(p[0] - c, p[1] - c))),
   };
 }
 
 /**
- * The three-R stack, as SVG.
+ * The factor `markSvg` scales the art by to hit a target ink width.
  *
- * The channel between overlapping letters is cut out of the letter underneath
- * rather than painted over it. That distinction is the whole reason this
- * function looks the way it does.
+ * Shared rather than recomputed, because everything that measures a rendered
+ * asset needs the same number the asset was drawn with, and two copies of this
+ * expression is exactly how they drift apart.
+ */
+function inkScale(spec = SPEC, inkWidthFraction, small = false) {
+  return inkWidthFraction ? (inkWidthFraction * spec.canvas) / inkBox(spec, small).width : 1;
+}
+
+/**
+ * Where the mark's rotation centre lands in a rendered asset, in canvas units.
  *
- * Painting a fat background-coloured copy of each letter before its ink is the
- * obvious way to get a separation channel, and it is what this did first. It
- * works on the lime plate and produces nothing at all on the Android
- * foreground, the themed icon and the splash art, because those are drawn on
- * transparency and `fill="none"` paints nothing. All three shipped as one fused
- * blob, and it was invisible in review: at a glance the shapes still read as
- * letters. A connected-component count is what caught it, and is what should be
- * used to check it — three ink components on every asset, or it is broken
- * again.
+ * Not `center + nudgeY`. `markSvg` nudges *before* it scales, so the correction
+ * shrinks with the art: at scale k the centre sits at `center + nudge * k`. Any
+ * check that rotates about the middle, or samples the pixel at it, has to ask
+ * for the same `inkWidthFraction` the asset was drawn at — otherwise it is
+ * measuring a point the mark is not on, and reports a fault in the artwork that
+ * is really a fault in the measurement.
+ */
+export function markCentre(spec = SPEC, inkWidthFraction, small = false) {
+  const k = inkScale(spec, inkWidthFraction, small);
+  return { cx: spec.center + spec.nudgeX * k, cy: spec.center + spec.nudgeY * k };
+}
+
+/**
+ * The one rule the spec puts above the others: *the wedges always touch the
+ * core*. Everything Rally claims is carried by that contact point, and it is a
+ * property of two numbers — where the tip lands, and how big the core is — so
+ * it can be checked before a single pixel is rendered.
+ */
+export function contact(spec = SPEC) {
+  const c = spec.center;
+  const tip = (d) => {
+    const pts = [...d.matchAll(/(-?[\d.]+)\s+(-?[\d.]+)/g)].map((m) => [+m[1], +m[2]]);
+    return pts[pts.length - 1];
+  };
+  const reach = (d) => {
+    const [x, y] = tip(d);
+    return Math.hypot(x - c, y - c);
+  };
+  return [
+    { cut: 'two-tone', reach: reach(spec.wedge), core: spec.coreR },
+    { cut: 'one-colour', reach: reach(spec.wedge), core: spec.coreSolidR },
+    { cut: 'small', reach: reach(spec.wedgeSmall), core: spec.coreSmallR },
+  ].map((r) => ({ ...r, ok: r.reach < r.core }));
+}
+
+/**
+ * The mark, as SVG.
  *
- * Cut as a mask, the channel is a hole in the alpha, which is a hole on any
- * ground: the lime plate shows through on the icon, the background layer shows
- * through on Android, and the launcher's flat recolour of the themed icon keeps
- * all three letters because Android tints by alpha.
+ * Note what is *not* here: no masks, no separation channel, no per-shape
+ * notching. The three-R mark this replaced needed all of that, because three
+ * letters that close together weld into one silhouette. Gather has the opposite
+ * requirement — the wedges are *supposed* to meet the core, and at 30.5° of
+ * span on a 72° pitch they have 41.5° of clear air from each other. There is
+ * nothing to keep apart, so there is nothing to go wrong.
+ *
+ * `inkWidthFraction` scales the art so its measured ink box is that fraction of
+ * the tile; leave it undefined to draw on the raw canvas frame, which is what
+ * the launch screen renders and therefore what the splash art must match.
  */
 export function markSvg({
-  size = SPEC.canvas,
-  bg = COLOR.lime,
-  fg = COLOR.ink,
+  size = 1024,
   spec = SPEC,
-  bleed = 1,
+  plate = 'none',
+  wedgeFill = COLOR.ink,
+  coreFill = COLOR.olive,
+  coreR = spec.coreR,
+  small = false,
   radius = 0,
-  idPrefix = 'cut',
+  inkWidthFraction,
+  bleed = 1,
+  /** The core with no wedges yet — the launch screen's first frame. */
+  coreOnly = false,
 } = {}) {
   const s = spec.canvas;
-  const { R, letters } = letterPositions(spec);
+  const c = spec.center;
+  const d = small ? spec.wedgeSmall : spec.wedge;
 
-  // Letter i is notched by every letter drawn after it, which is every letter
-  // sitting higher up the stack.
-  const masks = letters.map((_, i) => {
-    const above = letters
-      .map((p, j) =>
-        j > i
-          ? `<g transform="translate(${p.x} ${p.y})"><path d="${R.d}" fill="#000" stroke="#000" stroke-width="${spec.gap * 2}" stroke-linejoin="round"/></g>`
-          : '',
-      )
-      .join('');
-    return `<mask id="${idPrefix}-${i}" maskUnits="userSpaceOnUse" x="0" y="0" width="${s}" height="${s}">
-      <rect width="${s}" height="${s}" fill="#fff"/>${above}
-    </mask>`;
-  });
+  const k = inkScale(spec, inkWidthFraction, small);
+  // Nudge first, then scale about the centre — SVG applies these right to
+  // left, so the rightmost runs first. Order is not cosmetic: nudged after
+  // scaling, the correction stays a fixed distance while the error it corrects
+  // shrinks with the art, and a scaled-down icon lands 0.675(1-k) units low.
+  // Nudged before, the ink centre sits on the rotation centre and *then*
+  // scales about it, so it is exactly centred at every k.
+  const frame = `translate(${c} ${c}) scale(${k}) translate(${-c} ${-c}) translate(${spec.nudgeX} ${spec.nudgeY})`;
 
-  // The mask goes on an outer group that carries no transform, and the
-  // translate goes on an inner one. A `mask` resolves in its element's own user
-  // space, so putting both on the same group applies the translate to the mask
-  // content too — the cut-outs land at double the offset and swallow the mark.
-  const painted = letters.map(
-    (p, i) =>
-      `<g mask="url(#${idPrefix}-${i})"><g transform="translate(${p.x} ${p.y})"><path d="${R.d}" fill="${fg}"/></g></g>`,
-  );
+  const wedges = spec.angles
+    .map((a) => `<path d="${d}" fill="${wedgeFill}" transform="rotate(${a} ${c} ${c})"/>`)
+    .join('\n      ');
 
-  const bgShape =
-    bg === 'none'
+  const plateShape =
+    plate === 'none'
       ? ''
       : radius
-        ? `<rect width="${s}" height="${s}" rx="${radius}" fill="${bg}"/>`
-        : `<rect x="${-bleed}" y="${-bleed}" width="${s + bleed * 2}" height="${s + bleed * 2}" fill="${bg}"/>`;
+        ? `<rect width="${s}" height="${s}" rx="${radius / (1024 / s)}" fill="${plate}"/>`
+        : `<rect x="${-bleed}" y="${-bleed}" width="${s + bleed * 2}" height="${s + bleed * 2}" fill="${plate}"/>`;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${s} ${s}">
-  <defs>${masks.join('')}</defs>
-  ${bgShape}
-  ${painted.join('\n  ')}
+  ${plateShape}
+  <g transform="${frame}">
+      ${coreOnly ? '' : wedges}
+      <circle cx="${c}" cy="${c}" r="${coreR}" fill="${coreFill}"/>
+  </g>
 </svg>`;
 }
 
 /**
- * The same stack with no plate behind it, drawn to fit Android's safe circle.
- * An adaptive icon's foreground gets masked to roughly the middle 66%, so art
- * that fills the square loses its corners on every launcher that crops a circle.
- */
-/**
- * `scale` shrinks the letters, not the channel. Android masks the foreground to
- * a circle and the mark has to fit inside it: at 0.66 the ink reached radius
- * 400 against a 341 limit and the launcher shaved the top R's shoulder and the
- * bottom R's foot flat. 0.56 fits by a single pixel, which is not a margin;
- * 0.51 leaves about 9% and clears Google's stricter 66dp circle too.
- *
- * `gap` deliberately does not scale with it. The channel's job is optical at
- * whatever size the icon is finally drawn, so it is an absolute width — scaled
- * down alongside the letters it would land near half a device pixel on a themed
- * icon and close up entirely, which is the bug this whole function just had.
- */
-export function foregroundSvg({ size = SPEC.canvas, fg = COLOR.ink, scale = 0.51 } = {}) {
-  const s = SPEC.canvas;
-  return markSvg({
-    size,
-    spec: { ...SPEC, letter: SPEC.letter * scale },
-    fg,
-    bg: 'none',
-    idPrefix: `fg${Math.round(scale * 100)}`,
-  });
-}
-
-/**
- * The same three letters, as data the app can draw.
+ * The same mark, as data the app can draw.
  *
  * The launch screen shows this mark and then hands over to the real UI, so it
  * has to be the *same* mark — not a picture of it that drifts the first time
- * SPEC changes. The generator emits the geometry; `BootScreen` renders it with
- * react-native-svg. One shape, one source, two places it appears.
+ * SPEC changes. The generator emits the geometry; `BootScreen` and `Logo`
+ * render it with react-native-svg. One shape, one source.
+ *
+ * Geometry only. How the brand is *applied* — minimum sizes, lockup ratios,
+ * clear space — lives in `src/components/Logo.tsx`, with the code that enforces
+ * it. A generated file should hold what the generator knows.
  */
 function markModule() {
-  const { R, letters } = letterPositions();
-
   return `/**
  * The Rally mark, as geometry.
  *
@@ -238,22 +245,41 @@ function markModule() {
  * SPEC there. Editing this file by hand puts the launch screen and the app icon
  * out of step, which is the one thing having a generator was meant to prevent.
  *
- * The R is Bricolage Grotesque ExtraBold converted to outlines, so nothing here
- * depends on a font being loaded — which matters, because the launch screen is
- * on screen precisely while the fonts are still loading.
+ * Five wedges on a 72° rotation closing on one core. Pure geometry: nothing
+ * here depends on a font being loaded, which matters, because the launch screen
+ * is on screen precisely while the fonts are still loading.
  */
 
 /** Both the viewBox width and height. The mark is drawn on a square. */
 export const MARK_CANVAS = ${SPEC.canvas};
 
-/** One R, as a path. Draw it three times at the offsets below. */
-export const MARK_PATH = '${R.d}';
+/** Everything rotates about this point, on both axes. */
+export const MARK_CENTER = ${SPEC.center};
 
-/** Bottom letter first, so a stagger animates as a climb. */
-export const MARK_LETTERS: { x: number; y: number }[] = ${JSON.stringify(letters)};
+/** One wedge. Draw it once per angle below. */
+export const MARK_WEDGE = '${SPEC.wedge}';
 
-/** The channel that keeps overlapping letters apart, in canvas units. */
-export const MARK_GAP = ${SPEC.gap};
+/** The thickened cut, for sizes where the standard one turns to lace. */
+export const MARK_WEDGE_SMALL = '${SPEC.wedgeSmall}';
+
+/** Five of them, 72° apart. The spacing is the mark. */
+export const MARK_ANGLES: number[] = ${JSON.stringify(SPEC.angles)};
+
+/** Core radius, two-tone — the one element that changes between colorways. */
+export const MARK_CORE_R = ${SPEC.coreR};
+
+/** Core radius for the one-colour cut, grown so the huddle fuses. */
+export const MARK_CORE_R_SOLID = ${SPEC.coreSolidR};
+
+/** Core radius for the small cut, paired with \`MARK_WEDGE_SMALL\`. */
+export const MARK_CORE_R_SMALL = ${SPEC.coreSmallR};
+
+/**
+ * Optical centring nudge, canvas units. The mark is five-fold symmetric about
+ * the centre but its ink box is not — 5-fold has no mirror across the
+ * horizontal — so drawn on the raw frame it sits this far high.
+ */
+export const MARK_NUDGE_Y = ${SPEC.nudgeY};
 `;
 }
 
@@ -269,23 +295,21 @@ async function write(name, buf) {
 /**
  * How many separate islands of ink an asset contains.
  *
- * The mark is three letters and must therefore be three shapes. When the
- * channel between them fails they fuse into one, and the failure is close to
- * invisible by eye — the outline still looks like letters at a glance. This
- * counts them instead, which is how the fused assets were caught in the first
- * place. Run on every output, every time.
+ * For this mark the answer is always **one**. That is not a formality — it is
+ * the contact rule, measured in pixels rather than in arithmetic: a wedge that
+ * stops short of the core shows up here as a sixth island, on the asset, after
+ * rasterising, which is the only place a rounding error would ever appear.
+ *
+ * Alpha only. Colour-filtering would be worse than useless here: the olive core
+ * `#4B6A0B` is (75, 106, 11) and passes any reasonable "is this dark ink" test,
+ * so a filter that tried to count wedges separately would fold the core in with
+ * them and cheerfully report success on a broken mark.
  */
-async function inkIslands(file, opaqueOnly) {
+async function inkIslands(file) {
   const { data, info } = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const { width: w, height: h } = info;
   const ink = new Uint8Array(w * h);
-  for (let i = 0; i < w * h; i++) {
-    const o = i * 4;
-    const isInk = opaqueOnly
-      ? data[o + 3] > 128
-      : data[o + 3] > 128 && data[o] < 120 && data[o + 1] < 120;
-    if (isInk) ink[i] = 1;
-  }
+  for (let i = 0; i < w * h; i++) if (data[i * 4 + 3] > 128) ink[i] = 1;
   const seen = new Uint8Array(w * h);
   let islands = 0;
   for (let i = 0; i < w * h; i++) {
@@ -303,10 +327,115 @@ async function inkIslands(file, opaqueOnly) {
       if (y > 0 && ink[p - w] && !seen[p - w]) { seen[p - w] = 1; stack.push(p - w); }
       if (y < h - 1 && ink[p + w] && !seen[p + w]) { seen[p + w] = 1; stack.push(p + w); }
     }
-    // Anti-aliasing leaves specks; only real letters are this big.
+    // Anti-aliasing leaves specks; only real shapes are this big.
     if (n > 500) islands++;
   }
   return islands;
+}
+
+/**
+ * How far the art departs from its own five-fold symmetry, as a fraction of the
+ * ink.
+ *
+ * This is the check that earns its keep. An island count sees contact and
+ * nothing else — it is equally happy with four wedges, with six, with 70°
+ * spacing, and with the stretched mark the spec explicitly forbids. Rotating
+ * the mark by 72° and comparing it with itself sees all of them, because every
+ * one of those breaks the symmetry that *is* the mark.
+ *
+ * Two things this has to get right, both learned by getting them wrong:
+ *
+ * On a plated asset the alpha channel is the *tile*, not the mark — opaque
+ * everywhere — and rotating a square by 72° compares its corners with nothing.
+ * So where there is a plate, the mask is "differs from the plate colour".
+ *
+ * And it samples bilinearly rather than by nearest neighbour. The mark is five
+ * long thin wedges, so its perimeter is enormous next to its area; a half-pixel
+ * of rounding along that boundary alone reported ~8% asymmetry on art that is
+ * symmetric by construction. Sub-pixel sampling puts it back under 1%, which
+ * leaves the tolerance tight enough to still mean something.
+ */
+export async function fivefoldError(file, { plate, spec = SPEC, inkWidthFraction, small } = {}) {
+  const N = 512;
+  const { data } = await sharp(file)
+    .resize(N, N, { fit: 'fill' })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const pl = plate
+    ? [1, 3, 5].map((i) => parseInt(plate.slice(i, i + 2), 16))
+    : null;
+
+  // Mask in [0,1]: the mark, however it is distinguished from its ground.
+  const mask = new Float32Array(N * N);
+  for (let i = 0; i < N * N; i++) {
+    const o = i * 4;
+    if (pl) {
+      const d = Math.abs(data[o] - pl[0]) + Math.abs(data[o + 1] - pl[1]) + Math.abs(data[o + 2] - pl[2]);
+      mask[i] = Math.min(1, d / 60);
+    } else {
+      mask[i] = data[o + 3] / 255;
+    }
+  }
+
+  const at = (x, y) => {
+    if (x < 0 || y < 0 || x > N - 1 || y > N - 1) return 0;
+    const x0 = Math.floor(x);
+    const y0 = Math.floor(y);
+    const x1 = Math.min(x0 + 1, N - 1);
+    const y1 = Math.min(y0 + 1, N - 1);
+    const fx = x - x0;
+    const fy = y - y0;
+    return (
+      mask[y0 * N + x0] * (1 - fx) * (1 - fy) +
+      mask[y0 * N + x1] * fx * (1 - fy) +
+      mask[y1 * N + x0] * (1 - fx) * fy +
+      mask[y1 * N + x1] * fx * fy
+    );
+  };
+
+  // Rotate about where the mark actually turns, which is not the raster middle
+  // and not `center + nudge` either — see `markCentre`. Getting this wrong on a
+  // scaled asset moves the pivot a quarter of a canvas unit and reports correct
+  // art as several percent asymmetric, which lands right on the tolerance.
+  const centre = markCentre(spec, inkWidthFraction, small);
+  const cx = (centre.cx / spec.canvas) * N;
+  const cy = (centre.cy / spec.canvas) * N;
+  const r = (72 * Math.PI) / 180;
+  const cos = Math.cos(r);
+  const sin = Math.sin(r);
+  let ink = 0;
+  let diff = 0;
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const a = mask[y * N + x];
+      const dx = x - cx;
+      const dy = y - cy;
+      const b = at(cx + dx * cos - dy * sin, cy + dx * sin + dy * cos);
+      ink += a;
+      diff += Math.abs(a - b);
+    }
+  }
+  return ink ? diff / ink : 1;
+}
+
+/**
+ * The colour at the very centre — which is the core, on every asset.
+ *
+ * `inkWidthFraction` has to match what the asset was drawn with: the core moves
+ * with the art, so sampling the unscaled centre on a scaled tile aims slightly
+ * high. It is inside the core today by a comfortable margin, and would stop
+ * being so the moment the core shrank — reporting the plate's colour and
+ * failing artwork that is perfectly correct.
+ */
+async function coreColor(file, inkWidthFraction) {
+  const { data, info } = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const centre = markCentre(SPEC, inkWidthFraction);
+  const x = Math.round((centre.cx / SPEC.canvas) * info.width);
+  const y = Math.round((centre.cy / SPEC.canvas) * info.height);
+  const o = (y * info.width + x) * 4;
+  return '#' + [data[o], data[o + 1], data[o + 2]].map((v) => v.toString(16).padStart(2, '0')).join('').toUpperCase();
 }
 
 /** The furthest any ink sits from the centre, against Android's safe circles. */
@@ -325,65 +454,201 @@ async function safeCircle(file) {
   return { max, mask72: info.width * 0.333, mask66: info.width * 0.3056 };
 }
 
+/**
+ * The app icon keeps the lime plate — a deliberate deviation from the identity
+ * spec's app-icon row, which asks for an ink tile. See
+ * `design-reference/DEVIATIONS.md`.
+ */
+const ICON_INK_WIDTH = 0.58;
+
+/**
+ * Everything on the lime plate is the one-colour cut, and that follows from
+ * keeping the plate.
+ *
+ * The spec's two-tone core is olive `#4B6A0B`, which it only ever puts on bone
+ * or white. On lime it is about 1.9:1 — at 120px it is a smudge and at 60px,
+ * which is the size a home screen actually shows, it is gone: the mark
+ * degrades into a one-colour huddle by accident. The spec already has a cut for
+ * being one colour on purpose, with the core grown to r15 so the shape fuses
+ * rather than looking like a printing fault, and it is unambiguously stronger
+ * at every size an icon is judged at. Two-tone stays on the splash art, where
+ * the ground is bone or ink and the colorway works as drawn.
+ *
+ * See `design-reference/DEVIATIONS.md`.
+ */
+const ON_LIME = { wedgeFill: COLOR.ink, coreFill: COLOR.ink, coreR: SPEC.coreSolidR };
+
+/**
+ * The Android foreground cannot use the icon's 0.58.
+ *
+ * An adaptive icon's foreground is masked to roughly the middle 66%, and at
+ * 0.58 the ink reaches 0.2903 of the width against a 0.3056 limit — a 5%
+ * margin, which is the same non-margin the previous mark was caught by when
+ * 0.56 "fitted by a single pixel". At 0.52 the ink reaches 0.2603 and clears
+ * Google's stricter 66dp circle by 15%.
+ */
+const ANDROID_INK_WIDTH = 0.52;
+
 async function main() {
-  console.log('Rally mark — three R’s, Bricolage Grotesque ExtraBold, outlined.\n');
+  console.log('Rally mark — Gather: five wedges, 72° apart, closing on one core.\n');
+
+  // Contact first, because it is arithmetic and it gates everything: no point
+  // rendering seven assets from a mark whose wedges do not reach.
+  let bad = 0;
+  console.log('The wedges reach the core:');
+  for (const c of contact()) {
+    if (!c.ok) bad++;
+    console.log(
+      `  ${c.cut.padEnd(32)} tip at ${c.reach.toFixed(2)} into r${c.core} ${c.ok ? '' : '← DETACHED'}`,
+    );
+  }
+  if (bad) {
+    console.error('\nThe mark is broken at the source. Nothing was written.');
+    process.exitCode = 1;
+    return;
+  }
+  console.log();
 
   // iOS has no adaptive layer and masks its own corners, so this one is drawn
   // edge to edge and lets the platform round it.
-  await write('icon.png', await png(markSvg(), 1024));
-
-  // The launch screen is the colour the app opens on, so the mark is that
-  // scheme's ink and carries no plate. A lime plate here would flash green and
-  // then drop to the ground the moment React took over.
-  //
-  // Two of them, since dark mode: `app.json` names one splash per scheme, and
-  // they cannot share art. The light mark is `#191E16` on `#F1F2EC`; on the
-  // dark ground `#070A06` that same mark is about 1.35:1 — there, but not
-  // visible, which is worse than absent because it looks like a broken asset.
-  await write('splash-icon.png', await png(foregroundSvg({ fg: COLOR.ink, scale: 0.92 }), 1024));
   await write(
-    'splash-icon-dark.png',
-    await png(foregroundSvg({ fg: COLOR.onDarkInk, scale: 0.92 }), 1024),
+    'icon.png',
+    await png(markSvg({ plate: COLOR.lime, ...ON_LIME, inkWidthFraction: ICON_INK_WIDTH }), 1024),
   );
 
-  await write('android-icon-foreground.png', await png(foregroundSvg(), 1024));
+  // The splash is the core alone — and that is the load-bearing decision on
+  // this screen, so it is worth the paragraph.
+  //
+  // The OS paints this before any JavaScript exists, and `BootScreen` then
+  // draws the same thing so the handover is invisible. That is what the boot
+  // screen is *for*. It also means an entrance animation cannot be seen: by
+  // the time the splash lifts, a 500ms arrival is long over. Filmed, the mark
+  // was already complete in the boot screen's first visible frame — and had
+  // been for the three-R mark before it, which is why nobody noticed.
+  //
+  // Starting the arrival on reveal instead would make the mark visibly
+  // disassemble and rebuild, which is precisely the flaw the boot screen was
+  // written to fix. So the splash shows the core, `BootScreen` starts from
+  // exactly that image, and the wedges arrive onto it once the splash has
+  // lifted. The handover stays invisible and the choreography becomes
+  // something you can actually watch.
+  //
+  // It does invert the spec's "then the core lands" — see
+  // `design-reference/DEVIATIONS.md`.
+  //
+  // No `inkWidthFraction`: drawn on the raw canvas frame, which is exactly the
+  // frame `BootScreen` renders (`viewBox="0 0 100 100"` at `MARK_WIDTH`).
+  // Matching by construction beats a scale factor somebody has to keep in step.
+  //
+  // Two of them, since dark mode: `app.json` names one splash per scheme, and
+  // they cannot share art. Olive on paper, lime on `#070A06` — olive there is
+  // about 1.2:1, a hole where the core should be.
+  await write('splash-icon.png', await png(markSvg({ coreOnly: true, coreFill: COLOR.olive }), 1024));
+  await write(
+    'splash-icon-dark.png',
+    await png(markSvg({ coreOnly: true, coreFill: COLOR.lime }), 1024),
+  );
+
+  // Drawn over the lime background layer, so it takes the same cut as the iOS
+  // tile for the same reason.
+  await write(
+    'android-icon-foreground.png',
+    await png(markSvg({ ...ON_LIME, inkWidthFraction: ANDROID_INK_WIDTH }), 1024),
+  );
   await write(
     'android-icon-background.png',
     await png(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1" fill="${COLOR.lime}"/></svg>`, 1024),
   );
-  // Themed icons are a silhouette: the launcher recolours it, so anything but a
-  // single flat shape comes back as mud.
-  await write('android-icon-monochrome.png', await png(foregroundSvg({ fg: '#000000' }), 1024));
+  // Themed icons are a silhouette: the launcher recolours by alpha, so a
+  // two-tone core comes back invisible. This is the one-colour cut, which is
+  // what that cut exists for.
+  await write(
+    'android-icon-monochrome.png',
+    await png(
+      markSvg({
+        wedgeFill: '#000000',
+        coreFill: '#000000',
+        coreR: SPEC.coreSolidR,
+        inkWidthFraction: ANDROID_INK_WIDTH,
+      }),
+      1024,
+    ),
+  );
 
-  await write('favicon.png', await png(markSvg({ radius: 180 }), 96));
+  // The spec sends the favicon to the one-colour cut: at tab size the two-tone
+  // core is three pixels of olive and reads as a smudge.
+  await write(
+    'favicon.png',
+    await png(
+      markSvg({ plate: COLOR.lime, ...ON_LIME, inkWidthFraction: ICON_INK_WIDTH, radius: 180 }),
+      96,
+    ),
+  );
 
   const mod = join(ROOT, 'src/theme/mark.ts');
   writeFileSync(mod, markModule());
   console.log(`  ${'src/theme/mark.ts'.padEnd(32)} geometry for the launch screen`);
 
-  console.log('\nChecking the letters are still three separate shapes:');
-  let bad = 0;
-  for (const [name, opaqueOnly] of [
-    ['icon.png', false],
-    ['splash-icon.png', true],
-    ['splash-icon-dark.png', true],
-    ['android-icon-foreground.png', true],
-    ['android-icon-monochrome.png', true],
-    ['favicon.png', false],
+  // One island, on every asset: the pixel-level statement of the contact rule.
+  // A wedge that pulls away from the core is a sixth island here.
+  console.log('\nThe huddle is one connected shape:');
+  for (const name of [
+    'icon.png',
+    'splash-icon.png',
+    'splash-icon-dark.png',
+    'android-icon-foreground.png',
+    'android-icon-monochrome.png',
+    'favicon.png',
   ]) {
-    const n = await inkIslands(join(OUT, name), opaqueOnly);
-    // The favicon is only 96px, where anti-aliasing legitimately bridges the
-    // channel; it is the same artwork and is verified at full size above.
-    const ok = n === 3 || name === 'favicon.png';
+    const n = await inkIslands(join(OUT, name));
+    const ok = n === 1;
     if (!ok) bad++;
-    console.log(`  ${name.padEnd(32)} ${n} ${n === 1 ? 'island ' : 'islands'} ${ok ? '' : '← FUSED'}`);
+    console.log(`  ${name.padEnd(32)} ${n} ${n === 1 ? 'island ' : 'islands'} ${ok ? '' : '← BROKEN'}`);
+  }
+
+  // Symmetry is a property of the geometry, not of any one rasterisation, so it
+  // is checked once on a canonical full-frame render rather than per asset.
+  // Measured on the shipped assets instead, plate masking and the scaled-down
+  // art push the floor from 2.05% to 3.6% and the 96px favicon to 18%, which
+  // would crowd out the faults worth catching.
+  //
+  // Calibration, so the tolerance is a number with a reason rather than a
+  // round one: correct art scores 2.05%; one wedge moved by a single degree
+  // scores 4.43%; by five degrees 18.9%; a missing wedge 40%; a sixth wedge
+  // 74%; the stretch the spec forbids 17% at 1.05x and 56% at 1.2x. 3.5% sits
+  // in the gap with room on both sides.
+  const sym = await (async () => {
+    const probe = join(OUT, '.symmetry-probe.png');
+    writeFileSync(probe, await png(markSvg({ wedgeFill: COLOR.ink, coreFill: COLOR.olive }), 1024));
+    const e = await fivefoldError(probe);
+    rmSync(probe);
+    return e;
+  })();
+  const symOk = sym < 0.035;
+  if (!symOk) bad++;
+  console.log(
+    `\n  five-fold symmetry               ${(sym * 100).toFixed(2)}% off ${symOk ? '' : '← ASYMMETRIC'}`,
+  );
+
+  // Lime is never the wedges. Sampling the core is how that stays true.
+  console.log('\nThe core is the right colour:');
+  for (const [name, want, inkWidth] of [
+    ['icon.png', COLOR.ink, ICON_INK_WIDTH],
+    ['splash-icon.png', COLOR.olive, undefined],
+    ['splash-icon-dark.png', COLOR.lime, undefined],
+    ['favicon.png', COLOR.ink, ICON_INK_WIDTH],
+  ]) {
+    const got = await coreColor(join(OUT, name), inkWidth);
+    const ok = got === want.toUpperCase();
+    if (!ok) bad++;
+    console.log(`  ${name.padEnd(32)} ${got} ${ok ? '' : `← want ${want.toUpperCase()}`}`);
   }
 
   const fit = await safeCircle(join(OUT, 'android-icon-foreground.png'));
   const fits = fit.max <= fit.mask66;
   if (!fits) bad++;
   console.log(
-    `  android safe circle              ink reaches ${fit.max.toFixed(0)} of ${fit.mask66.toFixed(0)} ${fits ? '' : '← CLIPPED'}`,
+    `\n  android safe circle              ink reaches ${fit.max.toFixed(0)} of ${fit.mask66.toFixed(0)} ${fits ? '' : '← CLIPPED'}`,
   );
 
   if (bad) {

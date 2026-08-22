@@ -40,7 +40,6 @@
     "eslint-config-expo": "~57.0.1",
     "jest": "~29.7.0",
     "jest-expo": "~57.0.4",
-    "opentype.js": "^2.0.0",
     "pg": "^8.23.0",
     "react-test-renderer": "^19.2.3",
     "sharp": "^0.35.3",

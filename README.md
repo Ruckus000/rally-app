@@ -87,29 +87,105 @@ The handoff lists seven gaps needing a product decision before building. What th
 
 ## The mark
 
-Three R's climbing a stack, cut from Bricolage Grotesque ExtraBold — the same face the app sets its headlines in — and converted to outlines, so nothing depends on a font being installed. Black on the brand lime.
+**Gather** — five wedges on a 72° rotation closing on one core. Separate people
+arriving at the same point, which is the thing the app is about. Drawn from the
+identity specification in `Rally - Logo Spec.dc.html`.
 
 ```bash
 npm run icons
 ```
 
-That regenerates every asset from `scripts/make-icons.mjs` and rewrites `src/theme/mark.ts`, which is the geometry the launch screen draws. The icon has a source rather than being a binary somebody once exported: all the geometry is in `SPEC`, and revising the mark is one edit and one command.
+That regenerates every asset from `scripts/make-icons.mjs` and rewrites
+`src/theme/mark.ts`, which is the geometry the launch screen and
+`src/components/Logo.tsx` draw. The icon has a source rather than being a binary
+somebody once exported: all of it is in `SPEC`, and revising the mark is one edit
+and one command. It needs no font — the mark this replaced was three outlined
+R's, and dropping the glyph dropped `opentype.js` with it.
 
-Two things worth knowing before changing it:
+Four things worth knowing before changing it:
 
-**The separation channel is cut, not painted.** Three black letters this close merge into one silhouette, so each letter is notched by the ones above it. That notch is a hole in the alpha, produced with an SVG mask. It was originally a fat background-coloured copy painted underneath, which works on the lime plate and silently produces *nothing* on the Android foreground, the themed icon and the splash art — all three are drawn on transparency, and `fill="none"` paints nothing. All three shipped as a single fused blob and it passed a visual review, because at a glance the shape still reads as letters.
+**The wedges always touch the core.** That contact point is the one rule the spec
+puts above the others; open the gap and nobody arrived. It is a property of two
+numbers — where the tip lands, and how big the core is — so it is asserted from
+`SPEC` before anything renders, again as a connected-component count on every
+rasterised asset, and a third time in `src/theme/__tests__/mark.test.ts`, because
+`mark.ts` is a file somebody could edit without running the generator.
 
-**So it is checked by counting, not by looking.** `npm run icons` finishes by counting the connected islands of ink in every asset and fails if any of them is not exactly three, and by measuring the furthest ink from centre against Android's safe circles. A mark that fuses again fails the command that produced it rather than shipping.
+**So every asset is exactly one island of ink**, and that is the opposite of what
+this checked before. The three-R mark had to be three separate shapes and had a
+separation channel cut into it to stay that way. Gather has no channel and needs
+none: the wedges are *supposed* to meet the core, and at 30.5° of span on a 72°
+pitch they have 41.5° of clear air from each other.
 
-**Geometry.** `riseY: 0.70` / `driftX: 0.68` were found by rendering, not by reasoning. Stacked nearly vertically — the obvious reading of "three R's stacked" — the letters bury each other's legs and the mark reads as one damaged R with debris behind it. The horizontal drift buys each letter its own air. The Android foreground is drawn at `scale: 0.51` so the stack clears both the 72dp and the stricter 66dp adaptive-icon safe circles; at 0.66 the launcher shaved the top R's shoulder flat.
+**Symmetry is checked by rotating the art onto itself.** An island count sees
+contact and nothing else — it is equally happy with four wedges, with six, and
+with the stretched mark the spec forbids. Turning the silhouette 72° and
+comparing catches all of them. Correct art scores 2.05%; one wedge moved by a
+single degree scores 4.43%, a missing wedge 40%, a 1.2× stretch 56%. The
+tolerance is 3.5%, which is a number with a reason rather than a round one.
 
-Known limit: at 16–20px the mark reads as a texture rather than as three letters. That is the browser-tab favicon only, and the trade was taken deliberately — sizing the letters up to survive a tab would damage the mark everywhere it actually gets seen.
+**Everything on the lime plate is the one-colour cut.** The spec's two-tone core
+is olive `#4B6A0B`, which it only ever places on bone or white; on lime it is
+about 1.9:1, and at the 60px a home screen actually shows it disappears into the
+wedges — the mark degrades into a one-colour huddle by accident. The spec already
+has a cut for being one colour on purpose, with the core grown to r15 so the
+shape fuses, and it is stronger at every size. Two-tone stays on the splash art,
+where the ground is bone or ink and the colorway works as drawn. The plate itself
+staying lime is a deliberate deviation — see `design-reference/DEVIATIONS.md`.
 
 ## The launch screen
 
-Two screens, made to look like one. The native splash (`expo-splash-screen`, configured in `app.json`) paints the mark on paper before any JavaScript exists; `src/screens/BootScreen.tsx` then draws the *same* geometry at the same size while fonts and persisted state load. `App.tsx` holds the splash open until both are ready and hides it on layout, so there is no flash of background between the two. Before this the first React frame was a bare paper rectangle and the mark visibly vanished and came back.
+Two screens, made to look like one. The native splash (`expo-splash-screen`,
+configured in `app.json`) paints before any JavaScript exists;
+`src/screens/BootScreen.tsx` then draws the *same* picture while fonts and
+persisted state load. `App.tsx` holds the splash open until both are ready and
+hides it on layout, so there is no flash of background between the two. Before
+this the first React frame was a bare paper rectangle and the mark visibly
+vanished and came back.
 
-The letters arrive bottom-first, which is the stack being built — the thing the app is for. It is over in under half a second, and under reduced motion they are simply there.
+**The splash shows the core alone, and that is the whole design.** A native
+splash is a static PNG, so whatever it shows is the state the boot screen has to
+start in — and if that is the finished mark, an entrance animation is impossible.
+It plays behind the splash and is over before anyone sees it. Filmed, the mark
+was already complete in the boot screen's first visible frame, and had been for
+the three-R mark before it, which is why nobody noticed. Starting it when the
+splash lifts instead makes the mark disassemble and rebuild, which is the exact
+flaw the boot screen was written to fix.
+
+So the splash is the core, the boot screen begins as that same circle, and the
+five wedges arrive onto it once the splash has actually gone — `App.tsx` passes
+`revealed` down for that, and it is a different moment from `laidOut`. The
+handover stays invisible and the arrival becomes something you can watch. It
+inverts the spec's "then the core lands"; see `design-reference/DEVIATIONS.md`.
+
+**Nothing animated is handed to react-native-svg, and that is not a style
+choice.** `<G opacity={someAnimatedValue}>` does not work: the first render
+gives the group an `Animated.Value` where it expects a number, the parser falls
+back to fully opaque, and no later update ever lands. It fails silently and in
+the visible direction — the mark looks perfect and simply never moves — so the
+code, the tests and a read-through all pass. The three-R climb was written that
+way and had been dead for its entire life; filming a cold start is what finally
+showed it. Each wedge is therefore its own layer: an `Animated.View` carrying
+opacity and transform, wrapping a static `Svg`. `bootScreen.test.tsx` pins it.
+
+Two simulator caches will lie to you while checking this. Xcode skips the
+bundling phase when `Rally.app/main.jsbundle` already exists, and iOS reuses the
+launch image it snapshotted at first install. Delete the bundle and
+`simctl uninstall` before believing anything you film.
+
+**No spinning** — the spec forbids it, and a rotating logo is a spinner: it says
+"waiting" where this should say "arriving". The rotation is static; only the
+radial slide moves, and that falls out of the structure rather than being aimed
+by hand.
+
+It runs 410ms and starts only once the splash is gone, so how much of it you see
+depends on how long the app takes to be ready: on a warm start most of it lands
+during the OS's own open transition, and on a slow one it plays in full. That is
+the right way round for a loading state, and the alternative — holding the app
+back so the logo can finish — is not on the table. Under reduced motion the mark
+is simply there. The splash art is emitted on the same `0 0 100 100`
+frame the boot screen renders, so the two match by construction; what is still
+coupled by hand is `MARK_WIDTH` against `imageWidth` in `app.json`.
 
 ## What a goal is worth
 
