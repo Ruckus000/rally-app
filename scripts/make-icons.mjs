@@ -116,6 +116,32 @@ export function inkBox(spec = SPEC, small = false) {
 }
 
 /**
+ * The factor `markSvg` scales the art by to hit a target ink width.
+ *
+ * Shared rather than recomputed, because everything that measures a rendered
+ * asset needs the same number the asset was drawn with, and two copies of this
+ * expression is exactly how they drift apart.
+ */
+function inkScale(spec = SPEC, inkWidthFraction, small = false) {
+  return inkWidthFraction ? (inkWidthFraction * spec.canvas) / inkBox(spec, small).width : 1;
+}
+
+/**
+ * Where the mark's rotation centre lands in a rendered asset, in canvas units.
+ *
+ * Not `center + nudgeY`. `markSvg` nudges *before* it scales, so the correction
+ * shrinks with the art: at scale k the centre sits at `center + nudge * k`. Any
+ * check that rotates about the middle, or samples the pixel at it, has to ask
+ * for the same `inkWidthFraction` the asset was drawn at — otherwise it is
+ * measuring a point the mark is not on, and reports a fault in the artwork that
+ * is really a fault in the measurement.
+ */
+export function markCentre(spec = SPEC, inkWidthFraction, small = false) {
+  const k = inkScale(spec, inkWidthFraction, small);
+  return { cx: spec.center + spec.nudgeX * k, cy: spec.center + spec.nudgeY * k };
+}
+
+/**
  * The one rule the spec puts above the others: *the wedges always touch the
  * core*. Everything Rally claims is carried by that contact point, and it is a
  * property of two numbers — where the tip lands, and how big the core is — so
@@ -170,7 +196,7 @@ export function markSvg({
   const c = spec.center;
   const d = small ? spec.wedgeSmall : spec.wedge;
 
-  const k = inkWidthFraction ? (inkWidthFraction * s) / inkBox(spec, small).width : 1;
+  const k = inkScale(spec, inkWidthFraction, small);
   // Nudge first, then scale about the centre — SVG applies these right to
   // left, so the rightmost runs first. Order is not cosmetic: nudged after
   // scaling, the correction stays a fixed distance while the error it corrects
@@ -329,7 +355,7 @@ async function inkIslands(file) {
  * symmetric by construction. Sub-pixel sampling puts it back under 1%, which
  * leaves the tolerance tight enough to still mean something.
  */
-export async function fivefoldError(file, { plate, spec = SPEC } = {}) {
+export async function fivefoldError(file, { plate, spec = SPEC, inkWidthFraction, small } = {}) {
   const N = 512;
   const { data } = await sharp(file)
     .resize(N, N, { fit: 'fill' })
@@ -369,10 +395,13 @@ export async function fivefoldError(file, { plate, spec = SPEC } = {}) {
     );
   };
 
-  // The art is nudged off the raster centre by the same amount it is nudged on
-  // the canvas, so rotate about where the mark actually turns.
-  const cx = (spec.center / spec.canvas) * N;
-  const cy = ((spec.center + spec.nudgeY) / spec.canvas) * N;
+  // Rotate about where the mark actually turns, which is not the raster middle
+  // and not `center + nudge` either — see `markCentre`. Getting this wrong on a
+  // scaled asset moves the pivot a quarter of a canvas unit and reports correct
+  // art as several percent asymmetric, which lands right on the tolerance.
+  const centre = markCentre(spec, inkWidthFraction, small);
+  const cx = (centre.cx / spec.canvas) * N;
+  const cy = (centre.cy / spec.canvas) * N;
   const r = (72 * Math.PI) / 180;
   const cos = Math.cos(r);
   const sin = Math.sin(r);
@@ -391,12 +420,20 @@ export async function fivefoldError(file, { plate, spec = SPEC } = {}) {
   return ink ? diff / ink : 1;
 }
 
-/** The colour at the very centre — which is the core, on every asset. */
-async function coreColor(file) {
+/**
+ * The colour at the very centre — which is the core, on every asset.
+ *
+ * `inkWidthFraction` has to match what the asset was drawn with: the core moves
+ * with the art, so sampling the unscaled centre on a scaled tile aims slightly
+ * high. It is inside the core today by a comfortable margin, and would stop
+ * being so the moment the core shrank — reporting the plate's colour and
+ * failing artwork that is perfectly correct.
+ */
+async function coreColor(file, inkWidthFraction) {
   const { data, info } = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  // The core is centred on the nudged centre, not the raster middle.
-  const x = Math.round((SPEC.center / SPEC.canvas) * info.width);
-  const y = Math.round(((SPEC.center + SPEC.nudgeY) / SPEC.canvas) * info.height);
+  const centre = markCentre(SPEC, inkWidthFraction);
+  const x = Math.round((centre.cx / SPEC.canvas) * info.width);
+  const y = Math.round((centre.cy / SPEC.canvas) * info.height);
   const o = (y * info.width + x) * 4;
   return '#' + [data[o], data[o + 1], data[o + 2]].map((v) => v.toString(16).padStart(2, '0')).join('').toUpperCase();
 }
@@ -595,13 +632,13 @@ async function main() {
 
   // Lime is never the wedges. Sampling the core is how that stays true.
   console.log('\nThe core is the right colour:');
-  for (const [name, want] of [
-    ['icon.png', COLOR.ink],
-    ['splash-icon.png', COLOR.olive],
-    ['splash-icon-dark.png', COLOR.lime],
-    ['favicon.png', COLOR.ink],
+  for (const [name, want, inkWidth] of [
+    ['icon.png', COLOR.ink, ICON_INK_WIDTH],
+    ['splash-icon.png', COLOR.olive, undefined],
+    ['splash-icon-dark.png', COLOR.lime, undefined],
+    ['favicon.png', COLOR.ink, ICON_INK_WIDTH],
   ]) {
-    const got = await coreColor(join(OUT, name));
+    const got = await coreColor(join(OUT, name), inkWidth);
     const ok = got === want.toUpperCase();
     if (!ok) bad++;
     console.log(`  ${name.padEnd(32)} ${got} ${ok ? '' : `← want ${want.toUpperCase()}`}`);

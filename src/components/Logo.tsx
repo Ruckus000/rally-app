@@ -22,7 +22,7 @@
  * the mark is geometry rather than a glyph. `BootScreen` draws `mark.ts`
  * directly; see the note there.
  */
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View } from 'react-native';
 import Svg, { Circle, G, Path } from 'react-native-svg';
 import {
@@ -120,9 +120,15 @@ export function LogoMark({
   // than a decision.
   const coreR = small ? MARK_CORE_R_SMALL : tone === 'solid' ? MARK_CORE_R_SOLID : MARK_CORE_R;
 
-  if (__DEV__ && size < MIN_MARK) {
-    console.warn(`Logo: ${size}px is below the mark's ${MIN_MARK}px minimum.`);
-  }
+  // In an effect, not in the render body. Render has to be pure: warned inline
+  // this fires twice per mount under StrictMode, again on every re-render of
+  // whatever is above it, and for speculative renders React then throws away.
+  // Keyed on `size`, it fires once per actual violation.
+  useEffect(() => {
+    if (__DEV__ && size < MIN_MARK) {
+      console.warn(`Logo: ${size}px is below the mark's ${MIN_MARK}px minimum.`);
+    }
+  }, [size]);
 
   return (
     <Svg
