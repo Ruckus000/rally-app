@@ -31,6 +31,7 @@ import Svg, { Path } from 'react-native-svg';
 import { onDark, onLight } from '../../theme/tokens';
 import { useColors } from '../../theme/ThemeProvider';
 import { Bri, Caps, GlowBloom, Sans, row } from '../../components/primitives';
+import { Logo } from '../../components/Logo';
 import { HeroSegments, PillButton } from './kit';
 import { Trouble } from '../../components/Trouble';
 
@@ -73,24 +74,11 @@ export function WelcomeScreen({
 
       {/* The design's 84px is measured from the top of the device; the flow
           container has already applied the safe-area inset. */}
-      <View style={[row, { gap: 9, paddingTop: 36 }]}>
-        <View
-          style={{
-            width: 30,
-            height: 30,
-            borderRadius: 9,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: color.lime,
-          }}
-        >
-          <Bri size={17} weight={800} color={onLight}>
-            R
-          </Bri>
-        </View>
-        <Bri size={21} weight={800} tracking={-0.4} color={onDark.primary}>
-          Rally
-        </Bri>
+      <View style={[row, { paddingTop: 36 }]}>
+        {/* Variant A, reversed — the ground here never flips, so the colorway
+            is fixed rather than themed. 28px is the mark height the identity
+            spec gives for an app header. */}
+        <Logo variant="horizontal" tone="reversed" size={28} />
       </View>
 
       <View style={{ flex: 1, justifyContent: 'center' }}>

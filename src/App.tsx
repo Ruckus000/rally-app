@@ -71,6 +71,7 @@ export function Root({
   restored,
   preference,
   onReveal,
+  revealed,
 }: {
   /** Fonts loaded (or given up on) and persisted state in hand. */
   ready: boolean;
@@ -79,6 +80,13 @@ export function Root({
   preference?: SchemePreference;
   /** Lifts the native splash once the frame underneath is drawn. */
   onReveal?: () => void;
+  /**
+   * The native splash is gone and the boot screen is actually visible. It is
+   * the cue for that screen's arrival animation, which would otherwise play
+   * behind the splash and never be seen. Defaults to false so a test mounting
+   * `Root` gets the still frame rather than a running animation.
+   */
+  revealed?: boolean;
 }) {
   return (
     <ThemeProvider preference={preference}>
@@ -90,7 +98,9 @@ export function Root({
           that a throw in `BootScreen` is caught too — that screen runs before
           the app exists, which is exactly when a crash is hardest to explain.
         */}
-        <ErrorBoundary>{ready ? <App restored={restored} /> : <BootScreen />}</ErrorBoundary>
+        <ErrorBoundary>
+          {ready ? <App restored={restored} /> : <BootScreen revealed={revealed} />}
+        </ErrorBoundary>
       </View>
     </ThemeProvider>
   );
