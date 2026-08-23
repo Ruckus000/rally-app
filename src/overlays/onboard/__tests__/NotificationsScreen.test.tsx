@@ -29,6 +29,17 @@ const show = () =>
   );
 
 describe('the notifications step', () => {
+  it('shows the app icon rather than a letter standing in for it', () => {
+    // The tile in these previews *is* the app icon. It was a hand-drawn "R"
+    // long after the mark stopped being an R, because a second copy of the
+    // brand is a copy nobody remembers to update. Two ways to get it wrong:
+    // draw a letter again, or let the mark announce its own name inside a row
+    // that already says "Rally" — which reads out as "Rally Rally".
+    show();
+    expect(screen.queryByText('R')).toBeNull();
+    expect(screen.queryAllByLabelText('Rally')).toHaveLength(0);
+  });
+
   it('promises the cheer arrives when it is sent, which it now does', () => {
     show();
     expect(screen.getByText(/the moment they send it/)).toBeTruthy();
