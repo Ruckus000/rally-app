@@ -70,7 +70,7 @@
     "android:build": "./scripts/android.sh --build",
     "android:dev": "expo run:android",
     "ios:dev": "expo run:ios",
-    "lint": "expo lint",
+    "lint": "expo lint --no-cache",
     "icons": "node scripts/make-icons.mjs"
   },
   "private": true,
