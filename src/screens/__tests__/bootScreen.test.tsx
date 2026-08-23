@@ -7,9 +7,9 @@
  * native splash behind this screen is already showing it — that identity is
  * the whole handover, and it is the first test below.
  *
- * The wedges wait for `revealed`. Mounted, this screen is still behind the
- * splash; an arrival that starts on mount finishes unseen, which is what
- * shipped for years without anyone noticing.
+ * The arrival starts on mount and waits for nothing. It briefly waited for the
+ * splash to lift, which lost it altogether on a fast launch — `ready` resolves
+ * first, and the screen unmounts before a wedge shows.
  *
  * Under reduced motion the mark has to be *there*. An arrival that is skipped
  * rather than completed leaves a bare core for however long the fonts take.
@@ -71,10 +71,10 @@ const bound = (): Animatable[] =>
     // every wedge would otherwise be counted twice.
     .filter((v: Animatable, i: number, all: Animatable[]) => all.indexOf(v) === i);
 
-const under = (scheme: Scheme, revealed = true) =>
+const under = (scheme: Scheme) =>
   render(
     <ThemeProvider scheme={scheme}>
-      <BootScreen revealed={revealed} />
+      <BootScreen />
     </ThemeProvider>,
   );
 
@@ -103,41 +103,26 @@ describe('BootScreen', () => {
     // or absent for a frame, the handover would flash — which is the thing
     // this screen exists to prevent. No opacity prop at all: not "animated to
     // 1", simply never animated.
-    under('light', false);
+    under('light');
     expect(screen.UNSAFE_getAllByType(Circle)[0].props.opacity).toBeUndefined();
   });
 
   /**
-   * The pair below is the one that matters, and it has to be a pair.
-   *
-   * Asserting the wedges are at zero on a screen that has not been revealed
-   * proves nothing on its own — they are at zero on the first frame either
-   * way, which is exactly how this shipped unnoticed for years. The claim is
-   * that they are *still* at zero after the whole arrival would have run, and
-   * that they are not when the splash has lifted.
+   * Asserted on the *start*, not on the values. The arrival runs on the native
+   * driver, which does not exist under jest — so the JS-side `Animated.Value`s
+   * sit at 0 for the whole test whatever happens, and "the wedges are hidden"
+   * is a claim that passes just as happily on a screen that is animating. That
+   * is the shape of assertion that let a dead animation ship unnoticed. Whether
+   * a stagger reached the driver at all is the thing that actually differs.
    */
-  // Asserted on the *start*, not on the values, and that is a real constraint
-  // rather than a shortcut. The arrival runs on the native driver, which does
-  // not exist under jest — so the JS-side `Animated.Value`s sit at 0 for the
-  // whole test whatever happens, and "the wedges are still hidden" is a claim
-  // that passes just as happily on a screen that is animating. That is the
-  // shape of assertion that let this ship unnoticed in the first place. Whether
-  // a stagger was handed to the driver at all is the thing that actually
-  // differs, and it is observable.
-  const arrivals = () => jest.spyOn(Animated, 'stagger');
-
-  it('holds the wedges back while the splash is still up', () => {
-    const stagger = arrivals();
+  it('starts the arrival on mount, waiting for nothing', () => {
+    // It used to wait for the splash to lift, which cost the animation
+    // entirely: `ready` can resolve first, and then this screen unmounts before
+    // a wedge appears. Nothing to wait for now — the splash shows the core, so
+    // the first frame matches it whenever the wedges start.
+    const stagger = jest.spyOn(Animated, 'stagger');
     stagger.mockClear();
-    under('light', false);
-    expect(stagger).not.toHaveBeenCalled();
-    stagger.mockRestore();
-  });
-
-  it('brings them in once it has lifted', () => {
-    const stagger = arrivals();
-    stagger.mockClear();
-    under('light', true);
+    under('light');
     expect(stagger).toHaveBeenCalledTimes(1);
     // Five of them, in the mark's own order, staggered rather than together.
     expect(stagger.mock.calls[0][1]).toHaveLength(MARK_ANGLES.length);
@@ -147,9 +132,7 @@ describe('BootScreen', () => {
 
   it('leaves the mark visible under reduced motion', async () => {
     jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
-    // Reduced motion wins over `revealed`: there is no arrival to wait for, so
-    // waiting on the splash would leave the wedges off for good.
-    under('light', false);
+    under('light');
     // `AccessibilityInfo` answers asynchronously, so this has to be polled
     // rather than read. Reading straight after `render` finds the zeros every
     // value is born with — a test that would pass only by accident, and fail

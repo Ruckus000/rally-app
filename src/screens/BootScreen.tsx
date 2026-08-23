@@ -20,12 +20,30 @@
  * must start in. Show the finished mark there — which is what shipped before —
  * and an entrance animation is impossible, because by the time the splash lifts
  * it is over. Filmed, the mark was already complete in the boot screen's first
- * visible frame, and had been for the three-R mark before it. Start it on
- * reveal instead and the mark visibly disassembles and rebuilds, which is the
- * exact flaw this screen was written to fix. Putting the core on the splash is
- * what buys an arrival anyone can see, and it happens to say the truer thing:
- * the point is already there, and people arrive at it. See
+ * visible frame, and had been for the three-R mark before it. Putting the core
+ * on the splash is what buys an arrival anyone can see, and it happens to say
+ * the truer thing: the point is already there, and people arrive at it. See
  * `design-reference/DEVIATIONS.md`.
+ *
+ * **And why nothing waits for the splash to lift.** It briefly did, gated on a
+ * `revealed` flag threaded down from the entry file. The worry was that
+ * starting on mount would show the mark disassembling as the splash came away —
+ * but that could only happen while the splash showed the *finished* mark. Once
+ * it shows the core alone, this screen's first frame is the splash's picture
+ * whenever the animation starts, because the wedges only ever add to what is
+ * already there. The gate defended against a problem the splash art had already
+ * solved, so it went.
+ *
+ * **How often is any of this actually seen? On a warm device, never.** Painting
+ * the boot screen magenta and filming a cold start shows no magenta at all:
+ * `ready` resolves before the native splash is even hidden, so `Root` goes
+ * straight to `App` and this component is never on screen. What the user sees
+ * end to end is the splash. That is not a bug to fix — it means the app was
+ * ready, which is the outcome you want — and it is exactly why the splash and
+ * this screen must keep drawing the same picture. This exists for the slow
+ * case: a cold start on a loaded phone, a first launch after install, fonts not
+ * yet cached. Do not go looking for the arrival on a fast simulator launch and
+ * conclude it is broken; hold `ready` false and it plays exactly as designed.
  *
  * **No spinning**, which the spec is explicit about, and it is right: a
  * rotating logo is a spinner, and a spinner says "waiting" where this should
@@ -90,7 +108,7 @@ const APPROACH = 12;
  * which is a fair price for an animation that exists.
  */
 
-export function BootScreen({ revealed = false }: { revealed?: boolean }) {
+export function BootScreen() {
   const color = useColors();
   const { scheme } = useTheme();
   const reduced = useReducedMotion();
@@ -109,16 +127,13 @@ export function BootScreen({ revealed = false }: { revealed?: boolean }) {
       rise.forEach((v) => v.setValue(1));
       return;
     }
-    // Nothing starts until the splash is gone. Behind it this would run and
-    // finish unseen, which is what it did for years.
-    if (!revealed) return;
     const arrive = Animated.stagger(
       STAGGER,
       rise.map((v) => Animated.timing(v, { toValue: 1, duration: FADE, useNativeDriver: true })),
     );
     arrive.start();
     return () => arrive.stop();
-  }, [reduced, revealed, rise]);
+  }, [reduced, rise]);
 
   // The colorway follows the ground, which is the one thing about this screen
   // that does flip: ink and olive on paper, bone and lime on the dark ground.
