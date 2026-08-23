@@ -148,15 +148,29 @@ splash is a static PNG, so whatever it shows is the state the boot screen has to
 start in — and if that is the finished mark, an entrance animation is impossible.
 It plays behind the splash and is over before anyone sees it. Filmed, the mark
 was already complete in the boot screen's first visible frame, and had been for
-the three-R mark before it, which is why nobody noticed. Starting it when the
-splash lifts instead makes the mark disassemble and rebuild, which is the exact
-flaw the boot screen was written to fix.
+the three-R mark before it, which is why nobody noticed.
 
 So the splash is the core, the boot screen begins as that same circle, and the
-five wedges arrive onto it once the splash has actually gone — `App.tsx` passes
-`revealed` down for that, and it is a different moment from `laidOut`. The
-handover stays invisible and the arrival becomes something you can watch. It
-inverts the spec's "then the core lands"; see `design-reference/DEVIATIONS.md`.
+five wedges arrive onto it. The handover stays invisible and the arrival becomes
+something you can watch. It inverts the spec's "then the core lands"; see
+`design-reference/DEVIATIONS.md`.
+
+**The arrival starts on mount and waits for nothing.** It briefly waited for the
+splash to lift, on the reasoning that starting earlier would show the mark
+disassembling as the splash came away. That holds only while the splash shows
+the *finished* mark; once it shows the core alone, the boot screen's first frame
+matches the splash whenever the wedges start, because they only ever add to what
+is already there. The gate defended against a problem the splash art had already
+solved.
+
+**On a warm device the boot screen never renders at all.** Paint it magenta and
+film a cold start: there is no magenta. `ready` resolves before the native
+splash is hidden, so `Root` goes straight to `App`. Everything the user sees is
+the splash — which is the good outcome, and precisely why the two must draw the
+same picture. The boot screen and its arrival are for the slow case: a cold
+start on a loaded phone, a first launch, fonts not yet cached. Don't chase the
+animation on a fast simulator launch and conclude it is broken; hold `ready`
+false and it plays as designed.
 
 **Nothing animated is handed to react-native-svg, and that is not a style
 choice.** `<G opacity={someAnimatedValue}>` does not work: the first render

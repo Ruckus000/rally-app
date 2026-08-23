@@ -88,35 +88,14 @@ export default function Entry() {
   const [laidOut, setLaidOut] = useState(false);
   const reveal = useCallback(() => setLaidOut(true), []);
 
-  // `revealed` is the moment the boot screen is genuinely on the glass, and it
-  // is a different moment from `laidOut`. The boot screen's arrival animation
-  // has to start here rather than on mount: mounted, it is still behind the
-  // native splash, and a 500ms arrival is over before anyone could see it.
-  // Filmed, the mark was already complete in the first visible frame.
-  const [revealed, setRevealed] = useState(false);
-
   useEffect(() => {
     if (!laidOut || preference === undefined) return;
-    SplashScreen.hideAsync()
-      .catch(() => {})
-      // Resolved or rejected, the splash is gone or was never ours to hide;
-      // either way what is on screen now is us. A `finally` rather than a
-      // `then`, because a boot screen that never animates because `hideAsync`
-      // rejected is a blank-looking launch.
-      .finally(() => setRevealed(true));
+    SplashScreen.hideAsync().catch(() => {});
   }, [laidOut, preference]);
 
   // Fonts, splash timing and reading state off disk are all this file does.
   // The shape of the tree — the palette, and the choice between boot screen and
   // app — is `Root`, in `src/App.tsx`, so that it can be tested without
   // dragging `expo-font` into a test run. See the note there.
-  return (
-    <Root
-      ready={ready}
-      restored={restored}
-      preference={preference}
-      onReveal={reveal}
-      revealed={revealed}
-    />
-  );
+  return <Root ready={ready} restored={restored} preference={preference} onReveal={reveal} />;
 }
