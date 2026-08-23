@@ -9,6 +9,7 @@ import { onDark, onLight } from '../../theme/tokens';
 import { useColors, useShadows } from '../../theme/ThemeProvider';
 import { SHEET_DURATION, sheetEasing, useReducedMotion } from '../../theme/motion';
 import { Icon } from '../../components/Icon';
+import { LogoMark } from '../../components/Logo';
 import { Bri, Sans, Tap, fill, row, rowTop } from '../../components/primitives';
 
 /* ------------------------------------------------------------------ buttons */
@@ -318,9 +319,19 @@ export function NotificationPreview({
           backgroundColor: dark ? color.lime : color.previewTile,
         }}
       >
-        <Bri size={19} weight={800} color={dark ? onLight : color.avatarText}>
-          R
-        </Bri>
+        {/* The real mark, not a stand-in — this tile is the app icon, and a
+            hand-drawn copy of it is what let the old one survive here after the
+            identity changed. 23px puts the ink at 58% of the 36px tile, the
+            proportion `make-icons.mjs` draws the icon at, and stays above the
+            22px cut-off below which `LogoMark` switches to a thicker drawing
+            the icon does not use. `named={false}` because the row already says
+            "Rally" and this View is `accessible`. */}
+        <LogoMark
+          size={23}
+          tone="solid"
+          solidColor={dark ? onLight : color.avatarText}
+          named={false}
+        />
       </View>
       <View style={fill}>
         <View style={[row, { justifyContent: 'space-between', gap: 8 }]}>

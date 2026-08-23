@@ -122,7 +122,7 @@ export const lightColors = {
   /** The "waiting {n}" pill. Fill and text are one decision, not two. */
   waitingChip: '#F6E6C8',
   waitingText: '#8A6218',
-  /** The "R" app-icon tile in the simulated push notification onboarding shows. */
+  /** The app-icon tile in the simulated push notification onboarding shows. */
   previewTile: '#E0E6D3',
   /**
    * The follow-through ring on the second and third podium places. Quieter
