@@ -53,6 +53,12 @@ npm run icons             # regenerates assets AND src/theme/mark.ts
   does not cover them; `supabase functions serve|deploy` does.
 - Shared edge-function logic is `.mjs` so Deno and Node both load it — `jest.config.js` adds
   `\.mjs$` to the transform or imports fail with "Unexpected token 'export'".
+- **`npm run lint` passes `--no-cache`, and must keep doing so.** `expo lint` otherwise caches
+  results in `.expo/cache/eslint/` keyed on file content — but `import/no-unresolved` and
+  `import/namespace` depend on `node_modules`, which the key ignores. Change a dependency
+  without touching a source file and the stale verdict is replayed indefinitely: false errors
+  for packages that are installed, and, worse, silence for imports that are genuinely missing.
+  `.expo/` is gitignored, so CI never sees it and disagrees with you. Costs about 4s.
 - **Env:** `EXPO_PUBLIC_*` is baked into the bundle. Publishable key only, never service-role.
   `GEMINI_API_KEY` is unprefixed on purpose (scripts only); the edge function reads it from
   `supabase secrets set`, not `.env`.
