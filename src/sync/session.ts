@@ -308,11 +308,16 @@ export async function retrySession(): Promise<SessionState> {
   return inFlight;
 }
 
-export async function signOutEverywhere(): Promise<void> {
+/**
+ * Everything leaving an account does *except* end the session itself.
+ *
+ * Shared by the two ways out, which differ by exactly one call — see
+ * `endSessionLocally` for why the difference matters.
+ */
+async function quiesce(): Promise<void> {
   stopAutoRefresh();
   fatal = null;
   expired = false;
-  signingOut = true;
   // Signed URLs are bearer links to objects in a private bucket, good for an
   // hour after this account stops existing on this phone. Both caches live only
   // in memory, so this is the whole of forgetting them — faces and goal photos
@@ -323,9 +328,14 @@ export async function signOutEverywhere(): Promise<void> {
   // Before the call, not after, so the sync layer stops immediately rather than
   // for the length of a round trip it does not need to wait on.
   set(OFF);
+  if (hasSupabaseConfig()) await forgetThisDevice();
+}
+
+export async function signOutEverywhere(): Promise<void> {
+  signingOut = true;
   try {
+    await quiesce();
     if (hasSupabaseConfig()) {
-      await forgetThisDevice();
       try {
         await getSupabase().auth.signOut({ scope: 'global' });
       } catch {
@@ -333,6 +343,32 @@ export async function signOutEverywhere(): Promise<void> {
         // or the app is stuck signed in to a session it is refusing to use.
       }
     }
+  } finally {
+    signingOut = false;
+  }
+}
+
+/**
+ * Leave the account behind on this device, but keep the session on disk.
+ *
+ * The one call this does not make is `auth.signOut`, and that omission is the
+ * entire way back from a scheduled deletion. Every account on Android and
+ * every unsecured account on iOS is anonymous — nothing but the stored session
+ * holds its uuid — so revoking it would make "delete my account" a one-way
+ * door for exactly the people most likely to have tapped it by mistake, which
+ * is the thing a fortnight's grace exists to prevent.
+ *
+ * Everything else happens: the push token is handed back while there is still
+ * a session to do it with, the signed-URL caches are dropped, and the sync
+ * layer stops. To the app this is a sign-out. What survives is one refresh
+ * token in AsyncStorage, which `cancelAccountDeletion` spends and nothing else
+ * reads — the Welcome screen decides what to offer from `state.deletionAt`,
+ * not from the presence of a session.
+ */
+export async function endSessionLocally(): Promise<void> {
+  signingOut = true;
+  try {
+    await quiesce();
   } finally {
     signingOut = false;
   }

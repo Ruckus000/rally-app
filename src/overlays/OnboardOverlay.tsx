@@ -23,8 +23,9 @@ import { CIRCLE_NAME, Category } from '../data/fixtures';
 import { OnboardStake, useStore } from '../state/store';
 import { Overlay } from './Overlay';
 import { createCircle, joinCircleByCode, UnknownInviteCode } from '../sync/transport';
-import { signInWithApple } from '../sync/session';
+import { signInWithApple, signOutEverywhere } from '../sync/session';
 import { appleTrouble } from '../lib/appleCopy';
+import { attemptCancelDeletion, deletionDateLine } from './settings/deleteAccount';
 import { kickSync } from '../sync/useSyncEngine';
 import { queueProfileName } from '../sync/engine';
 import { enableReminders } from '../lib/enableReminders';
@@ -242,6 +243,54 @@ export function OnboardOverlay({
    * went to the trouble of getting back. `SKIP_ONBOARD` keeps the account it
    * finds and lands on the feed, and the pull fills the rest in.
    */
+  /**
+   * Stay, from the screen a scheduled deletion leaves you on.
+   *
+   * Spends the session `endSessionLocally` deliberately left on disk, which is
+   * why this needs no provider and works on Android — where nothing else could
+   * bring an account back.
+   */
+  const keepAccount = async () => {
+    setBusy(true);
+    setTrouble(null);
+    try {
+      if (!(await attemptCancelDeletion())) {
+        setTrouble('That didn’t reach the server. Your account is still here — try again.');
+        return;
+      }
+      dispatch({ type: 'DELETION_CANCELLED' });
+      dispatch({ type: 'SET_ACCOUNT', mode: 'live' });
+      dispatch({ type: 'SKIP_ONBOARD' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * "Get started" while a deletion is pending: a new account, not the old one.
+   *
+   * The sign-out is the whole of it, and without it this button is a trapdoor
+   * back into the account being deleted. `endSessionLocally` left a valid
+   * session on disk, and `resolveSession` prefers a stored session to signing
+   * in — so the anonymous sign-in this flow expects would never happen, and
+   * somebody who chose to walk away would land back in the week they had just
+   * asked to destroy.
+   *
+   * The old account is left scheduled. Walking away from it is not cancelling
+   * it, and the purge will take it on the day it was always going to.
+   */
+  const startFresh = async () => {
+    setBusy(true);
+    try {
+      await signOutEverywhere();
+      dispatch({ type: 'DELETION_CANCELLED' });
+      dispatch({ type: 'SET_ACCOUNT', mode: 'live' });
+      patch({ circle: null, joined: false, step: 1 });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const recoverWithApple = async () => {
     setBusy(true);
     setTrouble(null);
@@ -253,6 +302,15 @@ export function OnboardOverlay({
         if (result.reason !== 'cancelled') setTrouble(appleTrouble(result.reason));
         return;
       }
+      // Signing back in is a decision to stay, so it takes back a scheduled
+      // deletion. Called unconditionally rather than gated on `deletionAt`,
+      // because the local marker only exists on the device that scheduled it —
+      // recovering on a *second* phone has no marker to check, and that is
+      // exactly the case where somebody would be most surprised to find the
+      // account they just signed into disappear a week later. The RPC is a
+      // no-op when nothing is scheduled, which is what makes that free.
+      await attemptCancelDeletion();
+      dispatch({ type: 'DELETION_CANCELLED' });
       dispatch({ type: 'SET_ACCOUNT', mode: 'live' });
       dispatch({ type: 'SKIP_ONBOARD' });
       // No `kickSync()` here, though the shape of the other flows invites one.
@@ -311,7 +369,15 @@ export function OnboardOverlay({
             busy={busy}
             trouble={trouble}
             onApple={() => void recoverWithApple()}
+            deletionOn={state.deletionAt ? deletionDateLine(state.deletionAt) : null}
+            onKeep={state.deletionAt ? () => void keepAccount() : undefined}
             onStart={() => {
+              if (state.deletionAt) {
+                // A session is still on disk and would be preferred to a fresh
+                // anonymous one. See `startFresh`.
+                void startFresh();
+                return;
+              }
               // Anonymous sign-in is the provider's session effect, which fires
               // on the account flipping to live. Nothing to await here.
               dispatch({ type: 'SET_ACCOUNT', mode: 'live' });

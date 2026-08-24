@@ -493,6 +493,42 @@ export async function joinCircleByCode(code: string): Promise<string> {
   return String(data);
 }
 
+/**
+ * Ask the server to delete this account, and say when the clock started.
+ *
+ * Not a `WireOp`, and that is the whole reason it lives here beside the circle
+ * calls rather than in the union above. The outbox stamps identity at *send*
+ * time — see `run()` — so a deletion still queued when somebody else signs in
+ * on this phone would schedule the deletion of **their** account. That is the
+ * same argument `unregister_device` is kept out of the queue for, one step
+ * worse: a deregistration sends a notification to the wrong place, and this
+ * destroys the wrong person's history.
+ *
+ * So it runs inline and awaited, and a failure is a failure the caller has to
+ * show rather than retry silently. `schedule_account_deletion` takes no
+ * arguments — the account is `auth.uid()`, read inside the function — so there
+ * is nothing here that could be pointed at anybody else.
+ *
+ * Idempotent on the server: a second call returns the first call's timestamp
+ * rather than restarting the fortnight.
+ */
+export async function scheduleAccountDeletion(): Promise<string> {
+  const { data, error } = await getSupabase().rpc('schedule_account_deletion');
+  if (error) fail(error);
+  if (!data) throw new Error('schedule_account_deletion returned no timestamp');
+  return String(data);
+}
+
+/**
+ * Take it back. A no-op on the server when nothing was scheduled, so this is
+ * safe to call from any path that means "I am staying", without first asking
+ * whether there is anything to cancel.
+ */
+export async function cancelAccountDeletion(): Promise<void> {
+  const { error } = await getSupabase().rpc('cancel_account_deletion');
+  if (error) fail(error);
+}
+
 /** The bucket photos live in. Private; reads are signed. See the migration. */
 export const MEDIA_BUCKET = 'task-media';
 

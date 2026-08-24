@@ -45,6 +45,37 @@ export function signOutEnabled(session: SessionState): boolean {
 }
 
 /**
+ * Whether the delete-account row appears at all.
+ *
+ * Every live account, and deliberately **not** `signOutVisible`, which is the
+ * distinction worth reading twice. Sign-out is withheld from an anonymous
+ * account because it cannot come back — and that is precisely the argument for
+ * *offering* this one to it. An account nobody can sign back into is an account
+ * whose only way to stop existing is this row; withholding it would leave the
+ * people with the least control over their data with none at all.
+ *
+ * Guideline 5.1.1(v) also wants the control easy to find and offered to
+ * everyone, so a rule that hid it from most Android installs would fail review
+ * as well as being wrong.
+ */
+export function deleteVisible(account: AccountMode | null): boolean {
+  return account === 'live';
+}
+
+/**
+ * Whether that row does anything when tapped.
+ *
+ * Needs a resolved session, because the RPC behind it reads `auth.uid()` and an
+ * unresolved session has none to read. Visible-but-disabled rather than absent,
+ * for the reason `secureUnavailable` gives at length: a control that comes and
+ * goes with connectivity reads as a bug, and this is the row somebody will go
+ * looking for when they have decided to leave.
+ */
+export function deleteEnabled(session: SessionState): boolean {
+  return session.status === 'ready';
+}
+
+/**
  * Whether to offer Apple linking.
  *
  * `MeScreen`'s own "Secure this account" row calls this directly rather than

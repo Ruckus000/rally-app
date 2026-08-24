@@ -108,6 +108,12 @@ const SCHEMA: Record<string, TableSpec> = {
       // signup trigger made.
       avatar_path: { default: () => null },
       avatar_state: { default: () => 'none' },
+      // Null means live. The visibility half of a scheduled deletion is nine
+      // RLS policies, so none of it is modelled here and none of it could be —
+      // this fake has no row security, and never will. What the column buys is
+      // that the two RPCs below have somewhere real to write, so a test can
+      // assert the round trip instead of that a stub was called.
+      deleted_at: { default: () => null },
     },
     unique: [{ name: 'profiles_handle_key', cols: ['handle'] }],
     checks: [
@@ -1093,6 +1099,33 @@ const RPC: Record<string, (args: Row) => unknown> = {
     if (at >= 0) rows.splice(at, 1);
     // Deleting nothing is not an error, which is what lets sign-out call it
     // unconditionally.
+    return null;
+  },
+
+  /**
+   * `schedule_account_deletion`. Takes no arguments, as the function does not.
+   *
+   * Idempotent in the same direction the migration is: a second call answers
+   * with the first call's timestamp rather than restarting the fortnight. That
+   * is modelled rather than stubbed because it is the property the client
+   * depends on — the call runs inline instead of through the outbox, so a
+   * flaky connection produces exactly the second call this has to get right.
+   */
+  schedule_account_deletion() {
+    const caller = state.session?.user.id;
+    if (!caller) throw new Refusal(pgError('42501', 'not signed in'));
+    const me = rowsOf('profiles').find((r) => r.id === caller);
+    if (!me) throw new Refusal(pgError('42501', 'not signed in'));
+    if (me.deleted_at == null) me.deleted_at = now();
+    return me.deleted_at;
+  },
+
+  /** `cancel_account_deletion`. A no-op when nothing was scheduled. */
+  cancel_account_deletion() {
+    const caller = state.session?.user.id;
+    if (!caller) throw new Refusal(pgError('42501', 'not signed in'));
+    const me = rowsOf('profiles').find((r) => r.id === caller);
+    if (me) me.deleted_at = null;
     return null;
   },
 
