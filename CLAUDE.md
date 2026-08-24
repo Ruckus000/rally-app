@@ -59,6 +59,12 @@ npm run icons             # regenerates assets AND src/theme/mark.ts
   without touching a source file and the stale verdict is replayed indefinitely: false errors
   for packages that are installed, and, worse, silence for imports that are genuinely missing.
   `.expo/` is gitignored, so CI never sees it and disagrees with you. Costs about 4s.
+- **A migration that restates a policy replaces it outright.** Several policies have
+  been tightened after `init.sql` — `notes_insert` and `reactions_insert` in
+  `20260811142948`, six SELECT policies in `20260819164832`. Writing out the
+  `init.sql` version plus your own clause silently reverts that hardening, and only
+  the integration suite notices. Grep for `policy <name>` across `supabase/migrations/`
+  and start from the *last* definition, not the first.
 - **Env:** `EXPO_PUBLIC_*` is baked into the bundle. Publishable key only, never service-role.
   `GEMINI_API_KEY` is unprefixed on purpose (scripts only); the edge function reads it from
   `supabase secrets set`, not `.env`.
