@@ -265,7 +265,7 @@ Editing a fixture won't reach an existing install until the version in `src/stat
 
 iOS data protection is deliberately left at its default. Raising it needs the `com.apple.developer.default-data-protection` entitlement and a matching provisioning capability — real signing setup for a marginal gain, given the data is already out of backups.
 
-**Reset app data** at the bottom of Me offers *Fresh start* (empty account) or *Reload demo*, so both states are reachable without reinstalling.
+**Reset app data** at the bottom of Me offers *Fresh start* (empty account) or *Reload demo*, so both states are reachable without reinstalling — in a development build. It sits behind `__DEV__` with the rest of the dev controls (`MeScreen.tsx`) and is not in a release build, because the same panel's *Go live* signs in anonymously, and shipping it would put unbounded account creation one tap from every user's profile screen.
 
 ## The backend, and what still is not on it
 

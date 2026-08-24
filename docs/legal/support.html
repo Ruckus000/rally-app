@@ -1,0 +1,190 @@
+<!--
+  The support page, as a single self-contained file.
+
+  App Store Connect requires a support URL alongside the privacy policy, and the
+  app itself contains no help screen, no "contact us" row and no mailto link
+  anywhere — this page is the only route a user has to a person. That is why it
+  leads with the email address rather than burying it under an FAQ.
+
+  Same format and the same reasons as privacy.html: plain HTML, one inline
+  <style> block, no assets, no scripts, no build step. The two files share their
+  styling by duplicating it, which is the cheaper of the two options here — a
+  shared stylesheet would be a second request and a second thing to deploy, for
+  eighty lines of CSS across two pages that will rarely change.
+
+  The rule this page is written under: describe only routes that work today.
+  In-app account deletion does not exist, so this page does not imply it does.
+  If one ships, this page and privacy.html both change in that pass.
+
+  Placeholders are written UPPER_SNAKE inside double braces, so that one grep for
+  a brace finds them all; docs/legal/README.md enumerates them.
+-->
+<title>Rally — Support</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --paper: #F1F2EC;
+    --ink: #16190F;
+    --muted: #5A5F52;
+    --rule: #D8DAD0;
+    --accent: #4C6B12;
+    --card: #E7E9DE;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #070A06;
+      --ink: #E8EAE0;
+      --muted: #9AA091;
+      --rule: #232821;
+      --accent: #C3F53C;
+      --card: #131810;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 3rem 1.25rem 6rem;
+    background: var(--paper);
+    color: var(--ink);
+    font: 17px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 42rem; margin: 0 auto; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .25rem; }
+  h2 { font-size: 1.25rem; margin: 2.75rem 0 .75rem; padding-top: 1.25rem; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1rem; margin: 1.75rem 0 .5rem; }
+  p, li { margin: 0 0 .9rem; }
+  ul, ol { padding-left: 1.25rem; }
+  a { color: var(--accent); }
+  .meta { color: var(--muted); }
+  .lede { font-size: 1.1rem; }
+  .card {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 1.25rem 1.4rem;
+    margin: 1.5rem 0 2rem;
+  }
+  .card p:last-child { margin-bottom: 0; }
+  .big { font-size: 1.15rem; font-weight: 600; }
+</style>
+
+<main>
+
+<h1>Rally — Support</h1>
+<p class="meta">Help, safety, and how to reach a person.</p>
+
+<div class="card">
+  <p class="big">Email <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a></p>
+  <p class="meta">One person reads this. Expect a reply within {{RESPONSE_TIME}}. Anything urgent — harassment, a photo that should not be up, someone at risk — put <strong>URGENT</strong> in the subject line and it gets looked at first.</p>
+</div>
+
+<h2>What Rally is</h2>
+
+<p class="lede">Rally is a weekly goal app you use with a few people you actually know.</p>
+
+<p>At the start of the week you <strong>stake</strong> a small number of goals — a handful, not a list of forty. Each one is worth points. You can pair with someone in your circle on a goal, so you are both on the hook for it. Through the week, people <strong>cheer</strong> each other's goals as they close. On Monday the week rolls over, the points are totted up, and you start again.</p>
+
+<p>You choose who sees each goal: your circle, everyone on Rally, or nobody but you. A circle is a small private group you create and invite people into with a code.</p>
+
+<h2>Getting help</h2>
+
+<p>There is no help desk and no ticket system. Email <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a> and describe what happened. It helps a lot if you include:</p>
+
+<ul>
+  <li>Your display name in the app, and the name of your circle if you are in one;</li>
+  <li>Your phone and OS version (iPhone 15, iOS 18.2 — that sort of thing);</li>
+  <li>What you did, what you expected, and what happened instead;</li>
+  <li>A screenshot, if there is anything to see.</li>
+</ul>
+
+<p>If the app showed you an error screen with a block of text on it, a photo of that screen is the single most useful thing you can send.</p>
+
+<h2 id="report">Reporting content or a person</h2>
+
+<p>If someone posts something abusive, or you see a goal, a note or a profile that should not be there, there are two things to do, and they do different jobs.</p>
+
+<h3>1. Report it in the app</h3>
+
+<p>Open the goal, note or profile, and choose <strong>Report</strong>. You will be asked to pick a reason: harassment or bullying, spam, sexual content, violence or threats, self-harm, or something else.</p>
+
+<p>Reporting does two things immediately: it hides that content from your own feed on that device, and it records the report on our servers. The person you reported is never told, and cannot find out that you reported them.</p>
+
+<p>Be aware of the limits, because we would rather tell you than have you assume: the in-app report is a record, not an alarm. Hiding is local to the device you reported from, so the same account on another phone will still see the content until you report it there too.</p>
+
+<h3>2. Email us if it needs someone to act</h3>
+
+<p>For anything that needs content taken down, an account dealt with, or a human decision of any kind, <strong>email <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a></strong>. This is the route that reaches a person, and it is the one to use if you have already filed an in-app report and nothing has happened.</p>
+
+<p>Tell us what you saw, where (a goal, a note, a profile), and the display name of the person involved. We will look at it, remove content that breaks the rules, and suspend or delete accounts that keep doing it. Expect a reply within {{RESPONSE_TIME}}, and sooner for anything marked urgent.</p>
+
+<p>If you believe someone is in immediate danger, please contact your local emergency services. We are a small app and we cannot act quickly enough to be the right first call.</p>
+
+<h3>Blocking someone</h3>
+
+<p>Blocking is the immediate, self-service option, and it does not need us. Open the person's profile and choose <strong>Block</strong>. From that moment you stop seeing their goals, notes and cheers, and they stop seeing yours — it works in both directions. Blocking follows your account, so it holds on every device you sign in on.</p>
+
+<p>Blocked people are listed under <strong>Settings</strong>, at the foot of the Me screen, where you can unblock them.</p>
+
+<p>Two things worth knowing. Nothing in the app announces a block, but a person paying attention may work out what has happened, since their cheers stop landing. And blocking someone in your circle does not remove their scores from the circle's weekly totals — it hides what they say, not the arithmetic the circle shares. If you want out of that entirely, leave the circle.</p>
+
+<h2 id="delete">Deleting your account and your data</h2>
+
+<p><strong>There is no delete-account button in the app yet, and we are not going to pretend otherwise.</strong> Here is the route that works today.</p>
+
+<p>Email <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a> with the subject <strong>Delete my account</strong>. Because Rally accounts have no email address attached, we need something to find yours by — please include:</p>
+
+<ul>
+  <li>Your display name in the app;</li>
+  <li>Your circle's name or invite code, if you are in one;</li>
+  <li>Whether you secured the account with Sign in with Apple.</li>
+</ul>
+
+<p>We will confirm we have found the right account, delete it, and write back to say it is done. Expect a reply within {{RESPONSE_TIME}}.</p>
+
+<p><strong>Deleting the app is not the same thing.</strong> It clears everything stored on your phone, but your account and its contents stay on our servers. On Android, deleting the app also leaves you no way back in — so if you want the account gone, email us <em>before</em> you uninstall.</p>
+
+<p>Deletion removes your profile, name and photo, every goal and photo you posted, every note you wrote or received, your cheers, your weekly totals, your notifications, your push tokens, your blocks and your circle memberships. The one thing it does not reach is the anonymous cache of goal text used to price goals, which holds no link to any account — the <a href="{{PRIVACY_URL}}">privacy policy</a> explains why.</p>
+
+<p>Want a copy of your data instead? Same address, subject <strong>Export my data</strong>.</p>
+
+<h2>Common things</h2>
+
+<h3>I deleted the app and lost everything</h3>
+
+<p>On iPhone, if you had tapped <strong>Secure this account</strong> before uninstalling, choose <strong>Continue with Apple</strong> on the welcome screen and your account comes back — name, circle, current week, notes, cheers and closed weeks. If you had not, the account cannot be recovered, because nothing but that install held the key to it.</p>
+
+<p>On Android there is currently no way to secure an account and no way to recover one. This is a real gap and we are working on it. Until then, treat an Android install as the only copy.</p>
+
+<h3>Recovery brought my totals back but not my old goal titles</h3>
+
+<p>Expected. A restored week brings back the numbers — points, goals done, whether the week was perfect — but not the list of what you did. Only the current week's titles come back.</p>
+
+<h3>I'm not getting notifications</h3>
+
+<p>Check that notifications are allowed for Rally in your phone's settings, and that <strong>Settings</strong> in the app shows permission granted. Push notifications do not work in a simulator, only on a real phone. If the app is showing cheers when you open it but nothing arrives on your lock screen, that is worth emailing us about.</p>
+
+<h3>My photo was rejected</h3>
+
+<p>Every profile picture and goal photo is checked automatically before anyone can see it. If the check declines it, or cannot complete, the photo is not published and you are asked for a different one. If you think a perfectly ordinary photo is being rejected, email us — that is a bug worth knowing about, and it happens.</p>
+
+<h3>A goal I typed was refused</h3>
+
+<p>Goals are screened for content describing serious harm. The check is automatic and it is not perfect. If a reasonable goal was refused, email us and tell us what you typed; it helps us fix it.</p>
+
+<h3>Points for the same goal came out differently</h3>
+
+<p>Goal prices are assigned by a model reading the text, and it is not perfectly consistent — the same goal reworded can be worth a step more or less. Once a particular wording has been priced, that price sticks for everyone.</p>
+
+<h3>The app says something hasn't been sent</h3>
+
+<p>Rally works offline and sends things when it can. If a banner says something is unsent, leave the app open with a connection for a moment. If it stays that way for more than a few minutes, email us.</p>
+
+<h2>Privacy</h2>
+
+<p>What Rally collects, who it goes to, and how to get rid of it is set out in full in the <a href="{{PRIVACY_URL}}">privacy policy</a>. The short version: no email address required, no analytics, no advertising, no tracking — but the goals you type and the photos you upload are sent to Google's Gemini API to be priced and screened.</p>
+
+<h2 class="meta">Contact</h2>
+
+<p class="meta">{{LEGAL_ENTITY}} · <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a><br>
+Privacy policy: <a href="{{PRIVACY_URL}}">{{PRIVACY_URL}}</a></p>
+
+</main>
