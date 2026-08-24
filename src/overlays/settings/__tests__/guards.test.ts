@@ -6,7 +6,14 @@
  * uuid — so rather than ship that behind a warning, the control is absent and
  * "Secure this account" stands in its place.
  */
-import { canSecure, secureUnavailable, signOutEnabled, signOutVisible } from '../guards';
+import {
+  canSecure,
+  deleteEnabled,
+  deleteVisible,
+  secureUnavailable,
+  signOutEnabled,
+  signOutVisible,
+} from '../guards';
 import type { SessionState } from '../../../sync/session';
 
 const READY_SECURED: SessionState = { status: 'ready', userId: 'u1', anonymous: false };
@@ -49,6 +56,48 @@ describe('signOutEnabled', () => {
 
   it('is not tappable for an anonymous account even when resolved', () => {
     expect(signOutEnabled(READY_ANON)).toBe(false);
+  });
+});
+
+/**
+ * The inverse of the rule above, and the reason it is written out here rather
+ * than shared with it.
+ *
+ * Sign-out is withheld from an anonymous account because it cannot come back.
+ * That is exactly why deletion is *offered* to one: an account nobody can sign
+ * back into is an account whose only way to stop existing is this row. Reusing
+ * `signOutVisible` would have hidden it from every Android install, which is
+ * every Android account, which is the population with the least control over
+ * their data to begin with.
+ */
+describe('deleteVisible', () => {
+  it('is offered to a secured live account', () => {
+    expect(deleteVisible('live')).toBe(true);
+  });
+
+  it('is offered to an anonymous one too, unlike sign-out', () => {
+    // The pair, asserted together, because the whole rule is the difference.
+    expect(signOutVisible('live', READY_ANON)).toBe(false);
+    expect(deleteVisible('live')).toBe(true);
+  });
+
+  it('is withheld from the demo modes, which have no account to delete', () => {
+    expect(deleteVisible('seeded')).toBe(false);
+    expect(deleteVisible('fresh')).toBe(false);
+    expect(deleteVisible(null)).toBe(false);
+  });
+});
+
+describe('deleteEnabled', () => {
+  it('is tappable once the session resolves, secured or not', () => {
+    expect(deleteEnabled(READY_SECURED)).toBe(true);
+    expect(deleteEnabled(READY_ANON)).toBe(true);
+  });
+
+  it('is not tappable without a session for the RPC to act as', () => {
+    expect(deleteEnabled(OFFLINE)).toBe(false);
+    expect(deleteEnabled(EXPIRED)).toBe(false);
+    expect(deleteEnabled(OFF)).toBe(false);
   });
 });
 

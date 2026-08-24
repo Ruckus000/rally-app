@@ -158,6 +158,16 @@ export type State = {
    * the world is treated as fresh until you either join or skip.
    */
   account: AccountMode | null;
+  /**
+   * When this account asked to be deleted, as the server's ISO timestamp, or
+   * null. Persisted, and it is the *only* thing that survives the wipe a
+   * scheduled deletion performs — which makes it the thing the Welcome screen
+   * reads to decide whether to offer a way back. Deliberately not derived from
+   * the session left on disk: a session is present after an ordinary sign-out
+   * too, and offering to un-delete an account nobody asked to delete would be
+   * a worse bug than not offering at all.
+   */
+  deletionAt: string | null;
   /** Which of `people` is you. 'you' in demo mode, a profile id once live. */
   selfId: PersonId;
   /**
@@ -333,6 +343,7 @@ export type State = {
 /** An account starts empty; onboarding decides what it gets seeded with. */
 const initialState: State = {
   account: null,
+  deletionAt: null,
   selfId: SELF_DEMO_ID,
   circle: null,
   notifications: seedNotifications(null),
@@ -437,6 +448,8 @@ export type Action =
   | { type: 'SET_ACCOUNT'; mode: AccountMode }
   | { type: 'RESET'; mode: AccountMode }
   | { type: 'SIGN_OUT' }
+  | { type: 'DELETION_SCHEDULED'; at: string }
+  | { type: 'DELETION_CANCELLED' }
   | { type: 'ROLLOVER_DETECTED'; to: WeekContext }
   | { type: 'COMMIT_ROLLOVER'; carryIds: string[] }
   | { type: 'SKIP_ONBOARD' }
@@ -1180,6 +1193,37 @@ export function reducer(state: State, action: Action): State {
       const week = liveWeek();
       return { ...initialState, week, day: week.today };
     }
+
+    /**
+     * The account asked to be deleted, and the server said when.
+     *
+     * `SIGN_OUT` with one field carried over, and the field is the point. The
+     * wipe is what makes this read as leaving rather than as a setting that
+     * was toggled — a person who taps *Delete my account* and is returned to a
+     * working app has every reason to think nothing happened, and so does an
+     * App Store reviewer. `deletionAt` is what the Welcome screen then reads to
+     * offer the way back.
+     *
+     * The wipe is also required rather than tidy, for `SIGN_OUT`'s own reason:
+     * the restore path refuses to fill history onto a device that already has
+     * some, so anything left here would mean cancelling restored nothing.
+     */
+    case 'DELETION_SCHEDULED': {
+      const week = liveWeek();
+      return { ...initialState, week, day: week.today, deletionAt: action.at };
+    }
+
+    /**
+     * Staying after all — or abandoning the account without recovering it.
+     *
+     * Only clears the marker. Whoever dispatches this owns the account state
+     * that goes with it: the way back pairs it with `SET_ACCOUNT` and
+     * `SKIP_ONBOARD`, and *Get started* pairs it with a real sign-out and a new
+     * anonymous account. Doing either from in here would make one action mean
+     * two opposite things.
+     */
+    case 'DELETION_CANCELLED':
+      return { ...state, deletionAt: null };
 
     case 'ROLLOVER_DETECTED':
       // Only ask once, and never while onboarding is still on screen.

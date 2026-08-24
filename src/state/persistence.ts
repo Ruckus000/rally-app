@@ -82,6 +82,22 @@ const PERSISTED_KEYS = [
    * bump, for the reasons above.
    */
   'reported',
+  /**
+   * And when this account asked to be deleted, which has to outlive the wipe
+   * that scheduling one performs. `DELETION_SCHEDULED` returns `initialState`
+   * with only this field carried across, so if it were not persisted the
+   * marker would survive exactly until the app was next closed — and the way
+   * back would disappear with it, silently, for the fortnight that matters.
+   *
+   * Additive, and no `VERSION` bump, for the reason `blocked` and `reported`
+   * give above and `people`/`selfId` gave before them. A bump discards the
+   * staked week, the history, the year grid and the totals; a payload written
+   * before this key existed simply lacks it, and the spread in `hydrate()`
+   * leaves `initialState.deletionAt` (null) standing — which is the right
+   * answer for every install that predates the feature, since none of them has
+   * a deletion pending.
+   */
+  'deletionAt',
 ] as const;
 
 export type Persisted = Pick<State, (typeof PERSISTED_KEYS)[number]>;
@@ -306,6 +322,11 @@ function isSound(data: unknown): data is Persisted {
   if (d.pendingRollover && !weekIsSound(d.pendingRollover.to)) return false;
   if (!peopleAreSound(d.people)) return false;
   if (d.selfId !== undefined && typeof d.selfId !== 'string') return false;
+  // Parsed by `new Date()` to draw a date on the Welcome screen. Anything that
+  // is neither absent nor a string would render "Invalid Date" at the one
+  // moment somebody is deciding whether to keep their account.
+  if (d.deletionAt !== undefined && d.deletionAt !== null && typeof d.deletionAt !== 'string')
+    return false;
   if (!blockedIsSound(d.blocked)) return false;
   return true;
 }

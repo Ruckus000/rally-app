@@ -58,6 +58,8 @@ import { NAME_MAX } from '../data/people';
 import { commitSelfName, queueUnblock } from '../sync/engine';
 import { linkApple } from '../sync/session';
 import { appleTrouble } from '../lib/appleCopy';
+import { DeleteAccountScreen } from './settings/DeleteAccountScreen';
+import { GRACE_DAYS, attemptScheduleDeletion } from './settings/deleteAccount';
 import { clearAvatar, pickAndUploadAvatar } from '../lib/avatarUpload';
 // The one line a refused photo is ever told, straight from the module the edge
 // function decides with. Mirrored nowhere: two copies of a sentence about
@@ -68,7 +70,14 @@ import { enableReminders } from '../lib/enableReminders';
 import { stakedPoints } from '../state/selectors';
 import type { AccountMode } from '../data/seed';
 import type { SessionState } from '../sync/session';
-import { canSecure, secureUnavailable, signOutEnabled, signOutVisible } from './settings/guards';
+import {
+  canSecure,
+  deleteEnabled,
+  deleteVisible,
+  secureUnavailable,
+  signOutEnabled,
+  signOutVisible,
+} from './settings/guards';
 import { attemptSignOut, unsentLine } from './settings/signOut';
 
 /**
@@ -192,6 +201,65 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
   const live = account === 'live';
   const close = () => dispatch({ type: 'CLOSE_SETTINGS' });
 
+  // The confirm screen is a state of this overlay rather than one of its own.
+  // See `DeleteAccountScreen`'s header for why it is not a third thing on the
+  // zIndex ladder between Settings and Rollover.
+  const [confirming, setConfirming] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+  const [deleteFailed, setDeleteFailed] = React.useState(false);
+
+  const leaveConfirm = () => {
+    setConfirming(false);
+    setDeleteFailed(false);
+  };
+
+  /**
+   * The last step, and the only one that changes anything.
+   *
+   * `DELETION_SCHEDULED` is dispatched **only** on `{ ok: true }`, for the
+   * reason `attemptSignOut` splits the same way: the dispatch wipes the device
+   * to onboarding, and doing that for a request that never landed would leave
+   * somebody at the Welcome screen believing their account was going while it
+   * carried on existing.
+   */
+  const runDelete = async () => {
+    setDeleting(true);
+    setDeleteFailed(false);
+    const outcome = await attemptScheduleDeletion();
+    if (outcome.ok) {
+      // No `finally`: the wipe unmounts this component, and there is nothing
+      // left to set busy on. Same shape as `SignOutRow.leave`.
+      dispatch({ type: 'DELETION_SCHEDULED', at: outcome.at });
+      return;
+    }
+    setDeleting(false);
+    setDeleteFailed(true);
+  };
+
+  const confirmDelete = () =>
+    Alert.alert(
+      'Delete this account?',
+      `Everything you have written stops being readable straight away, and in ${GRACE_DAYS} days it is gone for good. You can change your mind from the first screen of the app until then.`,
+      [
+        { text: 'Keep my account', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => void runDelete() },
+      ],
+    );
+
+  if (confirming) {
+    return (
+      <Overlay zIndex={59} background={color.paper} onRequestClose={leaveConfirm}>
+        <DeleteAccountScreen
+          topInset={topInset}
+          busy={deleting}
+          failed={deleteFailed}
+          onBack={leaveConfirm}
+          onConfirm={confirmDelete}
+        />
+      </Overlay>
+    );
+  }
+
   return (
     <Overlay zIndex={59} background={color.paper} onRequestClose={close}>
       <View
@@ -293,6 +361,27 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
         {signOutVisible(account, session) ? (
           <Section title="Leaving" apart>
             <SignOutRow enabled={signOutEnabled(session)} />
+          </Section>
+        ) : null}
+
+        {/* Its own section, and `apart` again even when Leaving is directly
+            above it. Signing out and deleting are both ways out and would read
+            as a pair in one box — but one of them keeps everything and the
+            other destroys it, and a rule between them is the whole of saying
+            so on a page with no red in it.
+
+            Shown to accounts that have no Sign out at all, which is every
+            Android install: `deleteVisible` is not `signOutVisible`, and the
+            reason it is not is written out in `guards.ts`. */}
+        {deleteVisible(account) ? (
+          <Section title="Deleting" apart>
+            <DeleteRow
+              enabled={deleteEnabled(session)}
+              onPress={() => {
+                setDeleteFailed(false);
+                setConfirming(true);
+              }}
+            />
           </Section>
         ) : null}
       </ScrollView>
@@ -967,6 +1056,41 @@ function SignOutRow({ enabled }: { enabled: boolean }) {
         </View>
       </Tap>
     </View>
+  );
+}
+
+/**
+ * The row itself. Same grammar as every other row on this page — that is the
+ * point of it being a row and not a red button.
+ *
+ * The caption changes with `enabled` and the reason travels in the
+ * `accessibilityLabel` as well, because `Tap` collapses its children into one
+ * element and VoiceOver would otherwise read "Delete my account, dimmed" and
+ * stop there. Identical treatment to `SignOutRow`, for the identical reason.
+ */
+function DeleteRow({ enabled, onPress }: { enabled: boolean; onPress: () => void }) {
+  const color = useColors();
+  return (
+    <Tap
+      onPress={enabled ? onPress : undefined}
+      disabled={!enabled}
+      accessibilityState={{ disabled: !enabled }}
+      accessibilityLabel={
+        enabled ? 'Delete my account' : 'Delete my account. This needs a connection'
+      }
+      style={{ ...row, gap: 12, ...cardBox(color), opacity: enabled ? 1 : 0.5 }}
+    >
+      <View style={fill}>
+        <Bri size={15} weight={800} color={enabled ? color.textPrimary : color.muted}>
+          Delete my account
+        </Bri>
+        <Sans size={12.5} lineHeight={17} color={color.muted} style={{ marginTop: 3 }}>
+          {enabled
+            ? `Everything goes. You have ${GRACE_DAYS} days to change your mind.`
+            : 'This needs a connection. Nothing here is lost while you wait.'}
+        </Sans>
+      </View>
+    </Tap>
   );
 }
 

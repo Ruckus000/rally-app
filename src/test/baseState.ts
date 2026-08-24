@@ -21,6 +21,7 @@ import { FIXTURE_WEEK } from '../data/week';
 /** The populated demo account, mid-week, with nothing acted on yet. */
 export const baseState: State = {
   account: 'seeded',
+  deletionAt: null,
   selfId: SELF_DEMO_ID,
   circle: null,
   // Seeded like every other demo slice. These two used to be empty here and

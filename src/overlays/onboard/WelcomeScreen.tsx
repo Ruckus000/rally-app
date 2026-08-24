@@ -46,6 +46,8 @@ export function WelcomeScreen({
   onStart,
   onLookAround,
   onApple,
+  onKeep,
+  deletionOn,
   busy = false,
   trouble,
 }: {
@@ -53,6 +55,19 @@ export function WelcomeScreen({
   onLookAround: () => void;
   /** Absent on Android, where there is no provider to reach. */
   onApple?: () => void;
+  /** Take back a scheduled deletion. Present only when `deletionOn` is. */
+  onKeep?: () => void;
+  /**
+   * The date a scheduled deletion falls due, already formatted, or null.
+   *
+   * This screen is where the way back lives because this screen is where a
+   * scheduled deletion leaves you: `DELETION_SCHEDULED` wipes the device to
+   * onboarding, and `deletionAt` is the one field it carries across. Read from
+   * persisted state rather than from the session left on disk — a session is
+   * present after an ordinary sign-out too, and offering to un-delete an
+   * account nobody asked to delete would be the worse bug.
+   */
+  deletionOn?: string | null;
   busy?: boolean;
   trouble?: string | null;
 }) {
@@ -99,6 +114,37 @@ export function WelcomeScreen({
       </View>
 
       <View style={{ gap: 10 }}>
+        {/* Above the ways in, not among them, because it is not one. The rule
+            separates a decision about the account you already have from the
+            three ways to arrive at a new one — and "Get started" below really
+            does mean a new one: it abandons this account to its deletion. */}
+        {deletionOn && onKeep ? (
+          <View style={{ marginBottom: 6 }}>
+            <Sans size={13.5} lineHeight={20} color={onDark.bodySecondary}>
+              This account is being deleted on {deletionOn}. Nobody else can see it until then, and
+              after that it is gone for good.
+            </Sans>
+            <PillButton
+              label="Keep my account"
+              variant="paper"
+              disabled={busy}
+              onPress={onKeep}
+              style={{
+                height: AUTH_HEIGHT,
+                marginTop: 12,
+                ...(busy ? { opacity: UNAVAILABLE_OPACITY } : null),
+              }}
+            />
+            <View
+              style={{
+                height: 1,
+                backgroundColor: onDark.hairlineBold,
+                marginTop: 16,
+              }}
+            />
+          </View>
+        ) : null}
+
         <PillButton
           label="Get started"
           variant="paper"
