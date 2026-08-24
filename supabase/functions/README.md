@@ -273,6 +273,103 @@ are a `mediaId` with no row (`waiting` while the object is there, `refused`
 once it is not) and a `mediaId` belonging to another account (`waiting`, and
 no model call).
 
+## `collect-media` — delete the files the database cannot reach
+
+Undocumented until now, which is its own small bug: it has been deployed and
+draining since `20260820163000_collect_orphaned_media.sql`.
+
+`task_media` rows cascade from `tasks`; the objects they name do not, because
+Postgres deletes rows and the bytes live in a bucket. **Deleting from
+`storage.objects` in SQL does not remove the file** — it orphans it, and the
+project keeps paying for it — so objects come out through the storage API or
+they do not come out. This function is the hands that do that.
+
+Two inputs. `media_gc` is certain: a trigger wrote each path inside the
+transaction that removed its row. `orphaned_media` is a guess with a one-hour
+grace, because an object no row names is also exactly what a live upload looks
+like in the seconds before its row is written.
+
+No JWT. It is called by a trigger, which is not a user, and
+`COLLECT_MEDIA_WEBHOOK_SECRET` is the whole gate. Unset, it refuses everything.
+
+### Deploying
+
+```bash
+npx supabase functions deploy collect-media
+npx supabase secrets set COLLECT_MEDIA_WEBHOOK_SECRET="$(openssl rand -hex 32)"
+```
+
+The trigger reads the endpoint and the secret from Vault, not from `.env`, and
+is silent when either is missing — which is what keeps every local stack and
+every integration run off the network:
+
+```sql
+select vault.create_secret('https://<ref>.supabase.co/functions/v1/collect-media',
+                           'collect_media_function_url');
+select vault.create_secret('<the same secret>', 'collect_media_webhook_secret');
+```
+
+## `delete-account` — finish a deletion the fortnight has run out on
+
+The second half of App Store Guideline 5.1.1(v).
+`20260824090000_account_deletion.sql` marks an account and hides it from
+everybody; this is what happens fourteen days later.
+
+Almost nothing here does the deleting — `auth.admin.deleteUser` fires the
+cascade, and a trigger takes the notifications the cascade cannot reach. Two
+things are left, and each is a thing SQL cannot do: remove the account's
+objects from the `avatars` bucket (the one bucket with no collector), and
+delete the `auth.users` row.
+
+**It takes no account id, and `accounts_due_for_purge()` takes no window.**
+That pair is the security story: the worst a leaked secret can do is bring
+forward by hours a deletion that fourteen days of grace already made certain.
+An id in the body would turn the same leak into "delete anybody".
+
+Avatar first, account second, and a failure on the first leaves the account
+entirely alone for the next run — so an account is either wholly gone or wholly
+still there. Deleting the account first would lose the only handle on its
+files: the path is `<uid>/…`, and once the profile row is gone nothing lists
+it.
+
+### Deploying
+
+```bash
+npx supabase functions deploy delete-account
+npx supabase secrets set DELETE_ACCOUNT_WEBHOOK_SECRET="$(openssl rand -hex 32)"
+```
+
+Then the Vault pair the schedule reads, same shape as `collect-media`:
+
+```sql
+select vault.create_secret('https://<ref>.supabase.co/functions/v1/delete-account',
+                           'delete_account_function_url');
+select vault.create_secret('<the same secret>', 'delete_account_webhook_secret');
+```
+
+`pg_cron` runs `private.purge_due_accounts()` at 03:17 UTC daily. Until both
+Vault secrets exist the job runs and does nothing, silently and on purpose —
+**so deploying the function without setting them means accounts are marked for
+deletion and never actually deleted.** Check the job is there:
+
+```sql
+select jobname, schedule, active from cron.job;
+```
+
+### Running it locally
+
+`npx supabase functions serve`, then invoke it directly rather than waiting for
+the schedule — backdate a `deleted_at` first, since nothing is due otherwise:
+
+```bash
+curl -i -X POST http://127.0.0.1:55321/functions/v1/delete-account \
+  -H 'x-webhook-secret: <your local secret>' -H 'content-type: application/json' -d '{}'
+```
+
+Worth driving all four answers: no secret set (500), wrong secret (401),
+nothing due (`{"purged":0,"failed":0,"due":0}`), and one backdated account
+(`purged: 1`, and its rows gone).
+
 ## What cannot be tested without hardware
 
 The last hop. Expo hands the message to APNs, and APNs delivers to a real

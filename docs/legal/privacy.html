@@ -76,7 +76,7 @@
   <li>We do not run analytics, advertising, or crash-reporting services. There is no tracking SDK in the app, and we do not use the iOS advertising identifier.</li>
   <li>What we hold is the content you create: a display name, your goals, notes, cheers, weekly totals, and any photos you attach.</li>
   <li>The text of a goal, and any photo you upload, is sent to Google's Gemini API to be priced and safety-screened. Nothing identifying you goes with it.</li>
-  <li>There is no "delete my account" button in the app yet. Email us and we will delete it. That route is described in full below.</li>
+  <li>You can delete your account from inside the app, under Me &rarr; Settings. It is hidden from everyone straight away and destroyed fourteen days later, and you can take it back at any point in between.</li>
 </ul>
 
 <h2>Who we are</h2>
@@ -247,22 +247,30 @@
 
 <p>Deleting a goal deletes any photo attached to it; the file itself is swept from storage shortly afterwards. Withdrawing a cheer deletes the notification it created.</p>
 
-<!-- Guideline 5.1.1(v) wants in-app deletion. It does not exist. Say so. -->
+<!-- In-app deletion: src/overlays/settings/DeleteAccountScreen.tsx, and the
+     two halves of it in supabase/migrations/2026082409* and 2026082414*. -->
 <h2 id="deletion">Deleting your account and your data</h2>
 
-<p><strong>There is currently no "delete my account" control inside the app.</strong> We are not going to describe a button that does not exist. The route that works today is this:</p>
+<p>The control is in the app, under <strong>Me &rarr; Settings &rarr; Delete my account</strong>. The screen there lists what goes and what stays before you confirm.</p>
+
+<p>It happens in two steps, and the gap between them is deliberate:</p>
 
 <ol>
-  <li>Email <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a> from any address, with the subject <strong>Delete my account</strong>.</li>
-  <li>Tell us your display name and, if you can, the name of your circle or its invite code. If you have secured the account with Apple, say so. This is so we can find the right account — we have no email address on file to match you by.</li>
-  <li>We will confirm we have found it, delete it, and write back to tell you it is done. Expect a reply within {{RESPONSE_TIME}}.</li>
+  <li><strong>Straight away.</strong> Your account stops being visible to anybody else. You are removed from your circle's roster and its weekly ranking, and every goal, note, cheer and photo you have written stops being readable — including goals you had set to <em>everyone</em>. Nothing new can be written from the account either. You can still see your own account, because that is what makes the next step reversible.</li>
+  <li><strong>Fourteen days later.</strong> It is destroyed. Your <code>auth</code> record goes, and the database cascade takes everything hanging off it. This cannot be undone by you or by us.</li>
 </ol>
+
+<p>To take it back inside that fortnight, open the app and tap <strong>Keep my account</strong> on the first screen — that works on any phone, including an account with no sign-in attached. On iPhone, signing back in with Apple also cancels a pending deletion.</p>
+
+<p>We chose a fortnight rather than deleting on the spot for one reason: most Rally accounts are anonymous, and on Android every account is, so nothing but the session on your own phone holds the key to yours. Deleting instantly would make a mistaken tap permanent for the people least able to recover from it.</p>
+
+<p>If you cannot reach the control — the app will not open, or you have already deleted it from your phone — email <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a> with the subject <strong>Delete my account</strong>, and tell us your display name and your circle's name or invite code. We have no email address on file to match you by. Expect a reply within {{RESPONSE_TIME}}.</p>
 
 <p>Deleting the app from your phone removes everything stored locally, but it does <strong>not</strong> delete what is on our server. On Android in particular, deleting the app leaves you with no way back into the account — so if you want the account gone, email us before you uninstall.</p>
 
 <h3>What deletion removes</h3>
 
-<p>Your profile and display name, your profile picture, every goal you wrote, every photo attached to them, every note you wrote or received, your cheers, your pairings, your weekly totals, your notifications, your push tokens, your blocks, your reports, your circle memberships, and your daily usage counters.</p>
+<p>Your profile and display name, your profile picture, every goal you wrote, every photo attached to them, every note you wrote or received, your cheers, your pairings, your weekly totals, your notifications, your push tokens, your blocks, your reports, your circle memberships, your daily usage counters, and the notifications your cheers left sitting in other people's apps.</p>
 
 <h3>What deletion does not remove, and why</h3>
 

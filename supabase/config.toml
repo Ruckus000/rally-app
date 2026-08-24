@@ -447,3 +447,12 @@ verify_jwt = false
 # function refuses every request when it is unset rather than treating "I
 # cannot tell who is asking" as permission to delete files.
 verify_jwt = false
+
+[functions.delete-account]
+# Called by `cron`, which is even less of a user than a trigger — nobody is
+# waiting on the answer and there is no session anywhere in the chain.
+# `DELETE_ACCOUNT_WEBHOOK_SECRET` is the whole gate. It refuses every request
+# when unset, and it takes no account id, so the worst a leaked secret can do
+# is bring forward by hours a deletion fourteen days of grace already made
+# certain.
+verify_jwt = false
