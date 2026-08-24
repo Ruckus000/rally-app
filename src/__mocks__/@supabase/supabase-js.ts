@@ -1473,6 +1473,28 @@ export function createClient(url: string, key: string, _options?: unknown) {
       }
     },
 
+    /**
+     * Edge functions, recorded rather than run.
+     *
+     * There is no runtime here and there should not be: what an edge function
+     * *does* is Deno code this suite cannot execute, and pretending otherwise
+     * would be a second implementation to keep in step. What is worth pinning
+     * from the unit side is only ever that the app called one, and with what —
+     * `link-apple` carries a one-time Apple grant, and a session flow that
+     * quietly stopped sending it would leave every account unrevokable with
+     * nothing else failing.
+     *
+     * Answers the real shape, `{ data, error }`, so a caller that starts
+     * reading the result does not have to change this first.
+     */
+    functions: {
+      async invoke(name: string, options: { body?: unknown } = {}) {
+        if (state.offline) throw new TypeError('Network request failed');
+        state.calls.push({ method: 'functions.invoke', table: name, body: options.body as Row });
+        return { data: null, error: null };
+      },
+    },
+
     channel(_name: string): never {
       throw new Error('realtime is not mocked; that belongs in the integration suite');
     },

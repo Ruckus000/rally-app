@@ -375,6 +375,33 @@ export async function endSessionLocally(): Promise<void> {
 }
 
 /**
+ * Hand Apple's one-time code to the server, so the account can be un-linked
+ * from Apple when it is eventually deleted.
+ *
+ * Best-effort, and awaited only so the request is actually in flight before
+ * the caller returns — exactly `forgetThisDevice`'s shape, for the same reason.
+ * Linking has already succeeded by the time this runs: the account is
+ * recoverable, which is what the person asked for. What a failure here costs is
+ * a revocation we would like to make in a fortnight, and Apple's guidance says
+ * *should* rather than must.
+ *
+ * The code is not sent anywhere else and is useless to this device: exchanging
+ * it needs a `.p8` private key that must never be on a phone. That is the whole
+ * reason there is a function on the other end of this rather than a fetch.
+ *
+ * Absent on a build whose `expo-apple-authentication` did not return one, which
+ * is a supported outcome rather than an error — see `appleAuth.ts`.
+ */
+async function rememberAppleGrant(code: string | null): Promise<void> {
+  if (!code) return;
+  try {
+    await getSupabase().functions.invoke('link-apple', { body: { code } });
+  } catch {
+    /* Offline, or the function is not deployed. Neither is worth a word here. */
+  }
+}
+
+/**
  * What the two Apple paths can tell the UI. `ok` needs no copy; the rest each
  * get one line, and the caller owns the wording.
  */
@@ -426,6 +453,11 @@ export async function linkApple(): Promise<AppleResult> {
     return { ok: false, reason: 'failed' };
   }
 
+  // After the link, not before: the function behind this authenticates the
+  // caller with its own JWT and writes the row against `auth.uid()`, so it has
+  // to run while the session it should be filed under is the current one.
+  await rememberAppleGrant(apple.authorizationCode);
+
   // gotrue has updated the user in place, so re-read rather than assuming: the
   // banner and the Me row both key off `anonymous`, and guessing it here would
   // be a third copy of a fact the session already has one home for.
@@ -473,6 +505,12 @@ export async function signInWithApple(): Promise<AppleResult> {
      * `ready` check in `ensureSession` and this needs the clear back.
      */
     ready(data.session.user.id, isAnonymous(data.session.user));
+
+    // Recovering on a new phone is a fresh authorisation, so it carries a fresh
+    // code — and the old device's credential is one Apple will no longer honour.
+    // Upserting here is what keeps the stored token the one that can actually be
+    // spent, rather than whichever phone linked first.
+    await rememberAppleGrant(apple.authorizationCode);
     return { ok: true };
   } catch {
     return { ok: false, reason: 'failed' };

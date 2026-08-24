@@ -48,8 +48,25 @@
  * `task-media` needs nothing from this function. The cascade deletes the rows,
  * `enqueue_media_gc` writes each path, and `nudge_media_gc` wakes
  * `collect-media`, which already knows how to empty a bucket.
+ *
+ * ─── Apple, and the one step that is allowed to fail ─────────────────────
+ *
+ * Apple asks that an account's tokens be revoked when it is deleted. The token
+ * is in `apple_credentials`, put there by `link-apple`, and it has to be spent
+ * *before* `deleteUser` — the row cascades away with the profile, so afterwards
+ * there is nothing left to revoke with.
+ *
+ * Unlike the avatar, a failure here does **not** stop the deletion, and the
+ * asymmetry is deliberate. A missed avatar is a file nothing will ever find
+ * again, and waiting a day costs the user nothing because they cannot see the
+ * account either way. A missed revocation is weighed against somebody's actual
+ * right to have their data erased: Apple's own wording is *should*, the law's
+ * is *without undue delay*, and holding a person's account hostage to
+ * `appleid.apple.com` being reachable gets that trade exactly backwards. So it
+ * is attempted, logged when it fails, and the deletion goes ahead.
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { clientSecret, revokeRefreshToken } from '../_shared/appleSecret.mjs';
 
 /** The one bucket nothing else collects. See the header. */
 const BUCKET = 'avatars';
@@ -129,10 +146,60 @@ Deno.serve(async (req) => {
     return error ? error.message : null;
   };
 
+  /**
+   * Ask Apple to forget us, if this account ever told it about us.
+   *
+   * Every failure answers false and none of them throws, because none of them
+   * is allowed to stop what follows. The `APPLE_*` secrets being unset is one
+   * of them: a project that has not configured Sign in with Apple has nothing
+   * to revoke, and should not have its deletions fail over it.
+   */
+  const revokeApple = async (uid: string): Promise<boolean> => {
+    const teamId = Deno.env.get('APPLE_TEAM_ID');
+    const keyId = Deno.env.get('APPLE_KEY_ID');
+    const privateKeyPem = Deno.env.get('APPLE_PRIVATE_KEY');
+    if (!teamId || !keyId || !privateKeyPem) return false;
+
+    const { data, error } = await db
+      .from('apple_credentials')
+      .select('refresh_token, client_id')
+      .eq('profile_id', uid)
+      .maybeSingle();
+
+    // No row is the ordinary case: most accounts never linked an Apple
+    // identity, and every Android one is incapable of it.
+    if (error || !data) return false;
+
+    try {
+      // The stored `client_id`, never a recomputed one. Apple refuses a
+      // revocation whose client_id differs from the authorisation's, so a row
+      // minted before a rename must be revoked with what it was minted under.
+      const secret = await clientSecret({
+        teamId,
+        keyId,
+        clientId: data.client_id,
+        privateKeyPem,
+      });
+      return await revokeRefreshToken({
+        token: data.refresh_token,
+        clientId: data.client_id,
+        secret,
+      });
+    } catch (err) {
+      console.error('apple revoke failed:', err instanceof Error ? err.message : 'unknown');
+      return false;
+    }
+  };
+
   let purged = 0;
   let failed = 0;
+  let revoked = 0;
 
   for (const uid of batch) {
+    // Before the avatar and before the delete, because the credential row
+    // cascades away with the profile and there is no second chance at it.
+    if (await revokeApple(uid)) revoked += 1;
+
     const trouble = await emptyAvatarFolder(uid);
     if (trouble) {
       // Left whole, and tried again tomorrow. `deleted_at` is still set, so the
@@ -154,6 +221,8 @@ Deno.serve(async (req) => {
 
   // No uuid in this line, and none in any line above it. The account is gone;
   // a log that named it would be the last copy of the thing being deleted.
-  console.log(`delete-account: purged ${purged}, failed ${failed}, due ${due.length}`);
-  return json({ purged, failed, due: due.length });
+  console.log(
+    `delete-account: purged ${purged}, failed ${failed}, revoked ${revoked}, due ${due.length}`,
+  );
+  return json({ purged, failed, revoked, due: due.length });
 });

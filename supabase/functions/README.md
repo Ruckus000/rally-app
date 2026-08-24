@@ -309,6 +309,62 @@ select vault.create_secret('https://<ref>.supabase.co/functions/v1/collect-media
 select vault.create_secret('<the same secret>', 'collect_media_webhook_secret');
 ```
 
+## `link-apple` — turn Apple's one-time code into something revocable
+
+Apple asks that an app revoke a user's tokens when their account is deleted.
+The app has never held a revocable one: `signInAsync` returns an **identity
+token**, which is a signed assertion about who somebody is and is what gotrue
+verifies, and it cannot be revoked. The revocable thing is a *refresh* token,
+and the only route to one is to spend the `authorizationCode` from the same
+sheet — which needs a client secret signed with a `.p8` private key that must
+never be on a phone. Hence a function.
+
+Behind `verify_jwt`, and **the subject is always the caller** — there is no
+profile id in the body and there must not be one, because a row in
+`apple_credentials` decides whose Apple tokens get revoked.
+
+Called best-effort from `src/sync/session.ts` after a link or a recovery, and
+its answer is ignored. Linking has already succeeded by then; a failure costs a
+revocation we would like to make in a fortnight, not anything the user is
+waiting on.
+
+### Secrets
+
+Four, from the developer portal. The key is a `.p8` downloaded once and never
+again — Apple will not re-issue it.
+
+```bash
+npx supabase secrets set APPLE_TEAM_ID=ABCDE12345
+npx supabase secrets set APPLE_KEY_ID=KEY1234567
+npx supabase secrets set APPLE_CLIENT_ID=app.rally.weekspine
+npx supabase secrets set APPLE_PRIVATE_KEY="$(cat AuthKey_KEY1234567.p8)"
+```
+
+`APPLE_CLIENT_ID` is the **bundle identifier**, not a Services ID: a native
+authorisation is issued against the App ID, and Apple refuses any call whose
+`client_id` differs from the one used at authorisation. The same value has to
+appear as the `sub` claim of the client secret, which
+`_shared/appleSecret.mjs` handles — that mismatch is what most `invalid_client`
+threads on Apple's forums turn out to be.
+
+### Deploying
+
+```bash
+npx supabase functions deploy link-apple
+```
+
+No `config.toml` block: it wants the default `verify_jwt = true`, like
+`rate-goal` and `screen-image`.
+
+### Running it locally
+
+The signing is covered by `src/lib/__tests__/appleSecret.test.ts`, which mints a
+secret with a generated P-256 key and verifies it with the public half — that is
+the only part testable without real Apple credentials. The exchange itself
+cannot be: it needs a genuine `.p8`, a genuine code, and Apple. Until somebody
+runs it against a real key, treat the round trip as unproven and check the
+function logs after the first real link.
+
 ## `delete-account` — finish a deletion the fortnight has run out on
 
 The second half of App Store Guideline 5.1.1(v).
@@ -316,10 +372,19 @@ The second half of App Store Guideline 5.1.1(v).
 everybody; this is what happens fourteen days later.
 
 Almost nothing here does the deleting — `auth.admin.deleteUser` fires the
-cascade, and a trigger takes the notifications the cascade cannot reach. Two
-things are left, and each is a thing SQL cannot do: remove the account's
-objects from the `avatars` bucket (the one bucket with no collector), and
-delete the `auth.users` row.
+cascade, and a trigger takes the notifications the cascade cannot reach. Three
+things are left, and each is a thing SQL cannot do: revoke the account's Apple
+token, remove its objects from the `avatars` bucket (the one bucket with no
+collector), and delete the `auth.users` row.
+
+The Apple step runs **first**, because `apple_credentials` cascades away with
+the profile and afterwards there is nothing left to revoke with. Unlike the
+avatar, a failure there does *not* stop the deletion: Apple's wording is
+*should*, the law's is *without undue delay*, and holding somebody's erasure
+hostage to `appleid.apple.com` being reachable gets that trade backwards. It
+needs the same four `APPLE_*` secrets as `link-apple`; without them the step is
+skipped silently, which is right for a project that never configured Sign in
+with Apple.
 
 **It takes no account id, and `accounts_due_for_purge()` takes no window.**
 That pair is the security story: the worst a leaked secret can do is bring

@@ -22,7 +22,26 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import { CryptoDigestAlgorithm, digestStringAsync, randomUUID } from 'expo-crypto';
 
 export type AppleOutcome =
-  | { ok: true; identityToken: string; rawNonce: string }
+  | {
+      ok: true;
+      identityToken: string;
+      rawNonce: string;
+      /**
+       * The one-time code, which is a different thing from the identity token
+       * beside it and is wanted for a different reason.
+       *
+       * The identity token is a signed assertion about who somebody is, it is
+       * what gotrue verifies, and it cannot be revoked. This is an
+       * authorisation grant: spent server-side it yields a refresh token, and a
+       * refresh token is the only thing Apple's `/auth/revoke` will accept.
+       * Apple's account-deletion guidance asks that tokens be revoked when an
+       * account goes, so the app captures this and `link-apple` exchanges it.
+       *
+       * Nullable, because Apple documents it as such and a build that cannot
+       * reach the exchange should still be able to sign in.
+       */
+      authorizationCode: string | null;
+    }
   /**
    * `cancelled` says nothing to the user. `unavailable` and `failed` are both
    * worth a line, and the caller owns the wording — Apple's own messages are
@@ -85,7 +104,15 @@ export async function requestAppleIdentity(): Promise<AppleOutcome> {
     // Documented as nullable, and there is nothing to send without it.
     if (!credential.identityToken) return { ok: false, reason: 'failed' };
 
-    return { ok: true, identityToken: credential.identityToken, rawNonce };
+    return {
+      ok: true,
+      identityToken: credential.identityToken,
+      rawNonce,
+      // Deliberately not a failure when absent. Signing in works without it;
+      // only the eventual revocation does not, and that is not this call's job
+      // to refuse over.
+      authorizationCode: credential.authorizationCode ?? null,
+    };
   } catch (err) {
     return { ok: false, reason: isCancellation(err) ? 'cancelled' : 'failed' };
   }
