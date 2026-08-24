@@ -79,3 +79,4 @@ npm run icons             # regenerates assets AND src/theme/mark.ts
 | Manual test walkthrough, config flags | `TESTING.md` |
 | Setup, the mark, scoring | `README.md` |
 | Edge functions | `supabase/functions/README.md` |
+| Privacy policy, support page, App Store steps | `docs/legal/README.md` |

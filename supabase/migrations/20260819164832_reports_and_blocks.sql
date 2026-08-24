@@ -48,10 +48,12 @@ create table reports (
   id            uuid primary key default gen_random_uuid(),
   reporter_id   uuid not null references profiles (id) on delete cascade,
 
-  -- `subject_kind` deliberately omits 'avatar'. Profile photos do not exist in
-  -- this app, so permitting a value nothing can produce would be a comment
-  -- pretending to be a check — it would read as though the moderation queue
-  -- handles images, and the first person to believe that would be wrong.
+  -- `subject_kind` deliberately omits 'avatar'. When this ran, profile photos did
+  -- not exist; they landed the same day in `20260819194501_avatars.sql`, and the
+  -- omission outlived the reason for it. It holds now on different ground: an
+  -- avatar is screened by `screen-image` before any other account can see it, and
+  -- one that gets past that is reported as the 'profile' it is drawn on. A fourth
+  -- kind would route nothing anywhere new.
   subject_kind  text not null,
 
   -- Not a foreign key, because it points at three different tables depending
