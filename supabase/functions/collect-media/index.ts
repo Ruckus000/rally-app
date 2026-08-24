@@ -166,10 +166,12 @@ Deno.serve(async (req) => {
 
   // ── 2. The guesses ─────────────────────────────────────────────────────
   //
-  // Runs on every nudge rather than on a schedule, because there is no
-  // scheduler: `pg_cron` is not installed and this is not worth installing one
-  // for. A nudge arrives with every photo or goal deleted anywhere in the app,
-  // which is often enough for garbage that is by definition already stale.
+  // Runs on every nudge rather than on a schedule. `pg_cron` does now exist —
+  // `20260824140000_purge_deleted_accounts.sql` brought it in, because elapsed
+  // time has no trigger to hang off and account deletion is measured in days.
+  // This still does not want it: a nudge arrives with every photo or goal
+  // deleted anywhere in the app, which is far more often than a daily job and
+  // lands at exactly the moment there is work.
   const { data: orphans, error: orphanError } = await db.rpc('orphaned_media', {
     p_min_age: GRACE,
   });

@@ -492,6 +492,63 @@ and are dropped on sign-out (`resetAvatarUrls`) since they're bearer tokens
 for objects the next account signed into this device has no business holding
 links to.
 
+## Deleting an account
+
+App Store Guideline 5.1.1(v) requires deletion to be initiated inside the app,
+to reach the whole account record, and not to be satisfied by deactivation.
+It is built in two halves that fail differently, and the split is deliberate:
+`20260824090000_account_deletion.sql` is policies, which are either right or
+wrong, and `20260824140000_purge_deleted_accounts.sql` is a scheduler, an HTTP
+call and a bucket, any of which can be down while the others are up.
+
+**A fortnight of grace, and it is forced by this app's accounts rather than
+chosen.** `canSecure()` is false off iOS, so every Android account is
+permanently anonymous, and nothing but the session on the user's own phone
+holds its uuid. Deleting on the spot would make a mistaken tap unrecoverable
+for exactly the people least able to recover from it. So `profiles.deleted_at`
+is set, the account leaves everybody's view at once, and fourteen days later it
+is destroyed.
+
+**Invisibility rides the rail blocking already built.** `private.account_gone`
+is threaded through the same nine SELECT policies `private.block_between`
+occupies, and `pull_world` is `security invoker` so it inherits the answer
+without changing. Two places depart from mechanical pattern-matching, and both
+are argued in the migration: `private.can_see_task` is guarded as well as
+`tasks_select`, or a live person's note outlives the goal it hangs on; and
+`week_rollups` is guarded here although blocking deliberately exempts it,
+because that exemption rests on per-viewer inconsistency and a deletion is
+global.
+
+A scheduled account also cannot write. The device is wiped to onboarding, but
+the session is deliberately left on disk so the way back works — and a session
+on disk is a bearer token somebody could point at the API directly.
+
+**What the cascade cannot reach, and what was done about each:**
+
+| | |
+|---|---|
+| `notifications.payload ->> 'actor_id'` | Every cheer left the sender's uuid *and display name* in someone else's feed, in `jsonb` with no FK. A `before delete` trigger on `profiles` takes them. It fires for every route out, including the manual one. |
+| `avatars` objects | No collector — `orphaned_media` is hardcoded to `task-media`. The `delete-account` function empties the folder through the storage API before it deletes the account, and leaves the account alone if it cannot. |
+| `task-media` objects | Nothing needed. The cascade deletes the rows, `enqueue_media_gc` writes the paths, `collect-media` drains them. |
+| `goal_ratings` | Genuinely unreachable, and disclosed as such: no user column, so nothing can find one person's rows. Adding one to make it deletable would turn the table into a list of what every person on the service has typed. |
+| `reports.subject_id` | Kept on purpose. Deleting an account must not erase a safety record. |
+| `circles.created_by` | `on delete set null` since `repair_write_paths.sql`, so a circle outlives its creator rather than blocking the delete. |
+
+**The scheduler is the one new dependency.** `pg_cron` was not installed here,
+and `collect-media` says in as many words that it was not worth installing —
+which was right for media, because a delete is a trigger that fires at exactly
+the moment there is work. Elapsed time has no trigger. Nothing happens on the
+fourteenth day to hang one off, so it is a scheduler or nothing, and a deletion
+that only completes when the user happens to open the app is not a deletion.
+
+**Two Vault secrets stand between "marked" and "deleted", and their absence is
+silent.** `private.purge_due_accounts` returns without calling out when
+`delete_account_function_url` or `delete_account_webhook_secret` is missing —
+which is what keeps every local stack and every integration run off the
+network, and is also how a production deploy can mark accounts forever and
+delete none of them. `docs/legal/README.md` lists it as the step whose omission
+looks exactly like success.
+
 ## Phasing
 
 Each phase leaves the app working.
@@ -567,6 +624,8 @@ Each phase leaves the app working.
   orphan to collect and no evidence those paths fail. Revisit when one is
   actually observed, or when avatars reach real users. Adding it is a bucket
   parameter on `public.orphaned_media`, which hardcodes `task-media` today.
+  Narrowed since: `delete-account` empties a departing account's folder, so the
+  gap is now only orphans left by a *live* account's failed replace.
 - **Cost.** The project sits in a separate Free-plan organisation, so it costs
   nothing. Free projects pause after 7 days of inactivity and restore within
   90; that is fine for development and is the thing to revisit before anyone

@@ -57,32 +57,42 @@ Every one of these is `{{UPPER_SNAKE}}` in double braces so a single
    collected and linked to identity; nothing used for tracking; no analytics,
    no advertising, no crash reporting.** The push token is the Device ID —
    declare it rather than arguing it is only a routing address.
-5. **Be ready to action a deletion email**, because there is no automation
-   behind it. See below.
+5. **Deploy `delete-account` and set both of its secrets**, or accounts are
+   marked for deletion and never actually deleted — silently, because the
+   schedule is written to be quiet when Vault has nothing in it. The commands
+   are in `supabase/functions/README.md`. This is the one step on this list
+   whose omission looks exactly like success.
+6. **Be ready to action a deletion email** from somebody who cannot reach the
+   in-app control. See below.
 
 ## Running an account deletion by hand
 
-Guideline 5.1.1(v) wants deletion initiated from inside the app, and there is no
-such control. Both pages say so plainly rather than describing a button that
-does not exist, which is the honest position but is not a compliant one — **an
-in-app deletion control is still outstanding work and Apple may reject the
-submission over it.** Until it exists, this is the runbook the support page
-promises:
+**The in-app control exists now**, under Me → Settings → Delete my account, and
+both pages describe it. Deletion is scheduled immediately, the account becomes
+invisible to everyone else at once, and `delete-account` destroys it fourteen
+days later.
+
+This runbook is therefore the fallback rather than the route: it is for
+somebody who cannot reach the control at all, because the app will not open or
+because they deleted it from their phone before deleting the account. Both
+pages offer the support address for exactly that case.
 
 1. Identify the account. There is no email address on file to match against, so
    it is display name plus circle name or invite code. Confirm with the person
    before deleting anything.
-2. Delete the `auth.users` row (Supabase dashboard, or the admin API). The
-   cascade is comprehensive and is documented in `docs/backend.md`: profile,
-   tasks, task pairs, task media rows, notes, reactions, notifications, device
-   tokens, blocks, reports filed *by* them, week rollups, circle memberships,
-   invites and LLM usage counters all go with it.
-3. **Delete their object in the `avatars` bucket by hand.** This is the one
-   thing the cascade misses. `task-media` objects are swept by the
-   `collect-media` function once their rows go; `avatars` has no equivalent
-   collector, and the bucket's select policy is readable by any signed-in
-   account that knows the object name. The path is `<user_id>/<avatar_id>.jpg`.
-4. Reply to say it is done.
+2. **Set `deleted_at`, rather than deleting the row.** One statement in the SQL
+   editor — `update public.profiles set deleted_at = now() where id = '…'` —
+   and the account is invisible to everybody from that moment, exactly as if
+   they had tapped the button. Do not delete the `auth.users` row by hand: the
+   avatar object is not reached by any cascade, `avatars` has no collector, and
+   the bucket is readable by any signed-in account that knows the name. The
+   scheduled path removes it; a dashboard delete does not, and leaves nothing
+   behind that knows to look.
+3. If they should not wait a fortnight, backdate it — `now() - interval '15
+   days'` — and either wait for 03:17 UTC or invoke `delete-account` yourself
+   with the webhook secret. `supabase/functions/README.md` has the `curl`.
+4. Reply to say it is done, and say which of the two it was: hidden now,
+   destroyed on a date, or destroyed already.
 
 What deletion does **not** reach, and what the privacy policy therefore says it
 does not reach: `goal_ratings`, the permanent cache of goal text. It holds no
@@ -108,8 +118,9 @@ matching edit here, in the same pass:
 - **Any new column holding user data**, particularly anything resembling an
   email address, a phone number, a location or a device identifier. The policy
   currently denies all four flatly.
-- **An in-app deletion control**, whenever it lands — it makes half of the
-  deletion sections on both pages obsolete.
+- **The fourteen-day window changing.** It is stated on both pages, on the
+  confirm screen in the app, and in `accounts_due_for_purge()` — and the last
+  of those is the one that decides. They have to move together.
 - **Renaming the app.** Both pages say *Rally* throughout, which is what
   `app.json` says (`expo.name`, bundle id `app.rally.weekspine`). If the App
   Store listing name differs, the two must be reconciled: a reviewer comparing
