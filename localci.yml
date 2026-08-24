@@ -1,0 +1,68 @@
+# Local CI for rally-app. See ~/Documents/Coding/localci.
+#
+# Mirrors .github/workflows/ci.yml. Two things in that file are deliberately
+# absent here.
+#
+# `npm ci` -- it deletes node_modules and reinstalls. On a runner that is
+# necessary; here the suite runs detached, in the background, while you keep
+# working, and wiping the tree underneath yourself is not a trade worth making.
+# The working tree is what local CI should be testing.
+#
+# `sudo sysctl -w net.ipv4.ip_local_reserved_ports` -- net.ipv4.* does not exist
+# on Darwin. The hazard it guards against is real here too (config.toml pins
+# 55320-55329 and macOS hands out 49152-65535 as ephemeral ports, which overlaps)
+# but macOS has no reserved-ports knob to set. If `supabase start` ever fails
+# with "address already in use" on a port nothing is listening on, that is this.
+
+# Blocks `git push`. 23s. Typecheck first because it is the cheaper of the two
+# and the run stops at the first failure.
+gate:
+  - npm run typecheck
+  - npm run lint
+
+suite:
+  # 1232 tests across 86 suites, ~25s.
+  - npm test -- --ci
+  # One step, not five, because of the trap. CI marks `supabase stop` with
+  # `if: always()`; localci stops at the first non-zero exit, so a failing
+  # integration run would otherwise leave the whole Postgres/GoTrue/PostgREST
+  # stack running on this machine until someone noticed. On a shared runner that
+  # is nobody's problem. Here it is yours, and it holds the ports the next run
+  # needs.
+  #
+  # No supabase/setup-cli equivalent, matching CI: @supabase/cli is an
+  # optionalDependency in package-lock.json, so the local CLI is already the
+  # exact version that wrote and verified these migrations.
+  #
+  # `supabase start` here has NO `-x` exclusions, and that is a deliberate
+  # divergence from ci.yml. With the exclusions, `db reset` fails at
+  # "Initialising schema" -- realtime's init cannot reach Postgres and the
+  # container exits, surfacing only as LegacyDbSetupError "error running
+  # container: exit 1". Reproduced on a fully healthy stack, so it is not a race,
+  # and the db was on its own network at the address being refused, so it is not
+  # a subnet collision with the other Supabase projects on this machine. A plain
+  # `supabase start` then the same reset succeeds every time.
+  #
+  # The exclusions exist on CI to save runner minutes pulling images. That is not
+  # a cost here -- the images are already local -- so nothing is lost.
+  #
+  # `db reset --local` is gone too, and that is not a shortcut. Read a run log:
+  # `supabase start` on a stopped stack applies every migration and runs seed.sql
+  # itself. CI resets afterwards because its runner may carry a stack over
+  # between steps; here the trap stops the stack on the way out and the `stop`
+  # above guarantees it, so every run starts cold and there is nothing to reset.
+  # It was also the step that kept failing -- redundant work that could only cost
+  # time or lie.
+  - |
+    set -e
+    npx supabase stop --no-backup || true
+    # Docker removes containers asynchronously. `start` immediately after `stop`
+    # races that removal and dies with "container is marked for removal and
+    # cannot be started". Wait for them to actually be gone.
+    for _ in $(seq 1 60); do
+      docker ps -a --format '{{.Names}}' | grep -q '_rally-app$' || break
+      sleep 1
+    done
+    npx supabase start
+    trap 'npx supabase stop --no-backup' EXIT
+    npm run test:integration -- --ci
