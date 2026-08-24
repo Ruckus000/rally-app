@@ -137,9 +137,19 @@ That gap has since been closed by `integration/`, not by phase 1.
 user is paired on — with real JWTs rather than the `anon` key.
 
 What is *still* outstanding is neither of those: it is everything no test can
-stand in for — **two people, two devices, a real network, a whole week.** Phase
-1 shipped; that test has not been run. It is the last unticked box before
-anyone outside this repo is handed a build.
+stand in for — **two people, two devices, a real network, a whole week.**
+
+Half of that is now done. On 2026-08-23 two live accounts on two simulators ran
+the loop against the deployed project: circle created, joined by invite code,
+membership propagating both ways, a closed goal reaching the other device's feed
+with the right audience label, and a cheer coming back as a notification. See
+`TESTING.md` for the seven legs.
+
+What that leaves is the half a single session cannot fake: **two real people,
+over a whole week.** Everything above happened inside twenty minutes on one
+machine, so it exercised the sync layer but not the things only elapsed time
+surfaces — a rollover, a token refresh, a device asleep for a day, two people
+editing while genuinely apart.
 
 ## The decision that matters: local-first
 
