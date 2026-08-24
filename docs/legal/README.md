@@ -62,7 +62,13 @@ Every one of these is `{{UPPER_SNAKE}}` in double braces so a single
    schedule is written to be quiet when Vault has nothing in it. The commands
    are in `supabase/functions/README.md`. This is the one step on this list
    whose omission looks exactly like success.
-6. **Be ready to action a deletion email** from somebody who cannot reach the
+6. **Set the four `APPLE_*` secrets and deploy `link-apple`**, if the App Store
+   listing offers Sign in with Apple — Apple asks that an account's tokens be
+   revoked when it is deleted, and without these nothing is ever stored to
+   revoke. Unlike step 5 this one is a *should* rather than a must, and
+   `delete-account` skips it quietly when the secrets are absent, which is the
+   right behaviour for a project that never configured Apple at all.
+7. **Be ready to action a deletion email** from somebody who cannot reach the
    in-app control. See below.
 
 ## Running an account deletion by hand
@@ -118,6 +124,9 @@ matching edit here, in the same pass:
 - **Any new column holding user data**, particularly anything resembling an
   email address, a phone number, a location or a device identifier. The policy
   currently denies all four flatly.
+- **Storing anything else from Apple.** The policy now says exactly one token is
+  kept and names its single purpose. Requesting a scope, or keeping an access
+  token alongside the refresh one, would make that paragraph untrue.
 - **The fourteen-day window changing.** It is stated on both pages, on the
   confirm screen in the app, and in `accounts_due_for_purge()` — and the last
   of those is the one that decides. They have to move together.

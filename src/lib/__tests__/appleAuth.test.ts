@@ -31,6 +31,11 @@ describe('when Apple answers', () => {
       ok: true,
       identityToken: 'apple-identity-token',
       rawNonce: expect.any(String),
+      // The grant, carried beside the identity token and wanted for a different
+      // job: the identity token proves who somebody is and cannot be revoked,
+      // this is spent server-side for a refresh token, and a refresh token is
+      // the only thing Apple's `/auth/revoke` accepts.
+      authorizationCode: 'apple-auth-code',
     });
   });
 

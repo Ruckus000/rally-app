@@ -94,6 +94,7 @@
 
 <ul>
   <li>We ask Apple for <strong>no name and no email address</strong>. The app requests zero scopes. What we receive and keep is an Apple-issued identifier that says "this Apple account belongs to this Rally account".</li>
+  <li>We also keep <strong>one Apple-issued token</strong>, and it has a single purpose: when your account is deleted we use it to tell Apple this app is finished with your Apple ID, so Rally stops appearing in your Apple account's sign-in list. Apple asks apps to do this and we would rather do it than leave it to you. The token is stored where no signed-in account can read it — not even yours — it is never sent to your phone, and it is destroyed with the account. The only request we ever make with it is that revocation.</li>
   <li>Your Rally account keeps the same identifier, so nothing you have written has to move.</li>
   <li>Your interaction with Apple's sign-in sheet is between you and Apple, and Apple's own privacy policy governs it.</li>
 </ul>
@@ -192,8 +193,8 @@
     <td>Your push token, and the contents of the notification: the display name of the person who cheered you and the title of the goal they cheered.</td>
   </tr>
   <tr>
-    <td><strong>Apple</strong> — only if you use Sign in with Apple, and only at the moment you do.</td>
-    <td>Handled by Apple's own sign-in sheet. We request no name and no email.</td>
+    <td><strong>Apple</strong> — only if you use Sign in with Apple.</td>
+    <td>Signing in is handled by Apple's own sheet, and we request no name and no email. Afterwards we hold one token for your Apple relationship with this app, used once, to revoke it when your account is deleted.</td>
   </tr>
 </table>
 </div>
@@ -269,6 +270,8 @@
 <p>Deleting the app from your phone removes everything stored locally, but it does <strong>not</strong> delete what is on our server. On Android in particular, deleting the app leaves you with no way back into the account — so if you want the account gone, email us before you uninstall.</p>
 
 <h3>What deletion removes</h3>
+
+<p>Before anything else is removed, we ask Apple to revoke the token described above, so this app stops appearing in your Apple account. If Apple cannot be reached at that moment we go ahead with the deletion anyway rather than delay it — your data going is the more important half, and you can always remove the app yourself from your Apple ID settings.</p>
 
 <p>Your profile and display name, your profile picture, every goal you wrote, every photo attached to them, every note you wrote or received, your cheers, your pairings, your weekly totals, your notifications, your push tokens, your blocks, your reports, your circle memberships, your daily usage counters, and the notifications your cheers left sitting in other people's apps.</p>
 

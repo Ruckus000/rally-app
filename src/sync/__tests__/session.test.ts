@@ -288,6 +288,38 @@ describe('attaching an Apple identity', () => {
     expect(body?.token).toBe('apple-identity-token');
   });
 
+  it('hands the one-time grant to link-apple, so the account can be revoked later', async () => {
+    // The identity token proves who somebody is and cannot be revoked. This
+    // separate code is the only route to a refresh token, which is the only
+    // thing Apple's `/auth/revoke` accepts — so a flow that quietly stopped
+    // sending it would leave every Apple account unrevokable at deletion, and
+    // nothing else anywhere would fail.
+    await signedIn();
+
+    await linkApple();
+
+    const call = fakeSupabase.calls.find((c) => c.method === 'functions.invoke');
+    expect(call?.table).toBe('link-apple');
+    expect(call?.body).toEqual({ code: 'apple-auth-code' });
+  });
+
+  it('does not fail the link when that call cannot be made', async () => {
+    // Best-effort by design, like `unregister_device`. Linking has already
+    // succeeded by this point — the account is recoverable, which is what the
+    // person asked for — and a missed revocation a fortnight from now is not
+    // worth telling them their sign-in failed.
+    const me = await signedIn();
+    const invoke = jest
+      .spyOn(getSupabase().functions, 'invoke')
+      .mockRejectedValue(new Error('offline'));
+
+    await expect(linkApple()).resolves.toEqual({ ok: true });
+
+    expect(invoke).toHaveBeenCalled();
+    // The link itself still landed: same account, no longer anonymous.
+    expect(await ensureSession()).toEqual({ status: 'ready', userId: me, anonymous: false });
+  });
+
   it('says nothing when the sheet is dismissed', async () => {
     await signedIn();
     fakeApple.cancels();

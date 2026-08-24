@@ -33,6 +33,10 @@ const DOMAIN_TABLES = [
   'public.notifications',
   'public.invites',
   'public.bot_goal_candidates',
+  // Not domain data, but it cascades from `profiles` — which this deliberately
+  // does not truncate — so a row written for a *seeded* account would outlive
+  // the test that wrote it and be there for the next one.
+  'public.apple_credentials',
 ] as const;
 
 export async function resetDomainTables(): Promise<void> {

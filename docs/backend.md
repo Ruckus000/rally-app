@@ -532,6 +532,7 @@ on disk is a bearer token somebody could point at the API directly.
 | `task-media` objects | Nothing needed. The cascade deletes the rows, `enqueue_media_gc` writes the paths, `collect-media` drains them. |
 | `goal_ratings` | Genuinely unreachable, and disclosed as such: no user column, so nothing can find one person's rows. Adding one to make it deletable would turn the table into a list of what every person on the service has typed. |
 | `reports.subject_id` | Kept on purpose. Deleting an account must not erase a safety record. |
+| Apple's own record of this app | Not ours to cascade at all. `link-apple` stores one refresh token in `apple_credentials`; `delete-account` spends it on `appleid.apple.com/auth/revoke` before it deletes the user, because that row cascades away with the profile. |
 | `circles.created_by` | `on delete set null` since `repair_write_paths.sql`, so a circle outlives its creator rather than blocking the delete. |
 
 **The scheduler is the one new dependency.** `pg_cron` was not installed here,
@@ -540,6 +541,14 @@ which was right for media, because a delete is a trigger that fires at exactly
 the moment there is work. Elapsed time has no trigger. Nothing happens on the
 fourteenth day to hang one off, so it is a scheduler or nothing, and a deletion
 that only completes when the user happens to open the app is not a deletion.
+
+**The Apple step is allowed to fail, and the avatar step is not.** A missed
+avatar is a file nothing will ever find again, and a day's delay costs the user
+nothing because the account is invisible either way — so a failure there leaves
+the account whole for the next run. A missed revocation is weighed against
+somebody's actual right to erasure: Apple's wording is *should*, the law's is
+*without undue delay*, and blocking a deletion on `appleid.apple.com` being
+reachable gets that backwards. It is attempted, logged, and stepped over.
 
 **Two Vault secrets stand between "marked" and "deleted", and their absence is
 silent.** `private.purge_due_accounts` returns without calling out when
