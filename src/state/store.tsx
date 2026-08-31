@@ -1223,6 +1223,19 @@ export function reducer(state: State, action: Action): State {
         week,
         day: week.today,
         ...seedFor(action.mode, week),
+        // The same rule `SET_ACCOUNT` follows, and it has to be stated twice
+        // because `seedFor` cannot see the session. Left as the sentinel, the
+        // next pull files your own `profiles` row as a stranger — you appear
+        // twice in your own circle until the app is restarted.
+        //
+        // The queue this used to clear as a side effect of that sentinel flip
+        // is now cleared on purpose, by `clearQueuesForReset`, before the
+        // dispatch. Read that file before changing this line: reset promises
+        // to take unsent work with it, and nothing here enforces that any more.
+        selfId:
+          action.mode === 'live' && state.session.status === 'ready'
+            ? state.session.userId
+            : SELF_DEMO_ID,
         // Same warning to the engine as `SET_ACCOUNT` gives, and for the same
         // reason: `initialState` would otherwise take this back to zero.
         worldEpoch: state.worldEpoch + 1,
