@@ -145,6 +145,11 @@ export function rowToTask(row: Record<string, unknown>): Task {
     pairKind: null,
     cmts: [],
     source: row.source === 'quicklog' ? 'quicklog' : 'staked',
+    // Omitted rather than set to undefined when the row names no circle, for
+    // the reason `media` gives below: `tasksAreSound` is all-or-nothing, and a
+    // key it cannot read costs the whole persisted payload rather than the one
+    // field. A key that is absent is never read.
+    ...(typeof row.circle_id === 'string' ? { circleId: row.circle_id } : null),
   };
 }
 
@@ -310,6 +315,8 @@ export function taskRowToMoment(
     // lose the photo — it loses the whole persisted state, week included. A
     // key that is absent is never read.
     ...(media ? { media } : null),
+    // Same treatment, and the same reason. `rowToTask` has already narrowed it.
+    ...(task.circleId ? { circleId: task.circleId } : null),
   };
 }
 

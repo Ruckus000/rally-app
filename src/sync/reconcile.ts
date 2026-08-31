@@ -28,7 +28,11 @@ const sameServerFields = (a: Task, b: Task): boolean =>
   a.pts === b.pts &&
   a.done === b.done &&
   a.aud === b.aud &&
-  a.source === b.source;
+  a.source === b.source &&
+  // Server-owned like the rest of this list. Left out, a goal moved into
+  // another circle on another device would compare equal here and the move
+  // would never reach this one.
+  a.circleId === b.circleId;
 
 /** The server's version of a row, wearing the local row's companion fields. */
 const adopt = (local: Task, server: Task): Task => ({

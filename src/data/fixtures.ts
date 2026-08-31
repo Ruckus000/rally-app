@@ -107,6 +107,18 @@ export type Task = {
   fromSuggestion?: string;
   /** The photo on it, if there is one. See `TaskMedia`. */
   media?: TaskMedia;
+  /**
+   * The circle this goal was staked in.
+   *
+   * Optional, and it stays optional: a `private` goal belongs to no room, a
+   * fixture has no circle at all, and somebody riding solo has none to name.
+   * Since `20260831210000_a_goal_belongs_to_a_circle.sql` the server reads it —
+   * a `friends` goal reaches that circle and nowhere else, and a goal with no
+   * circle reaches its owner alone.
+   *
+   * Read off the wire and carried; nothing decides anything by it yet.
+   */
+  circleId?: string;
 };
 
 /**
@@ -247,6 +259,15 @@ export type Moment = {
    * ask, which is what this is for.
    */
   done?: boolean;
+  /**
+   * Which circle this reached you through.
+   *
+   * `state.moments` is one flat slice of other people's rows, and once a row is
+   * in it nothing on this device can recover which room it came from — so the
+   * attribution has to ride along rather than be worked out later. Absent for
+   * every fixture, and for a row from before the column meant anything.
+   */
+  circleId?: string;
   /**
    * What the row behind this is about. Carried for the same reason `done` is —
    * not for the card, which never shows it, but so Plan can offer a friend's

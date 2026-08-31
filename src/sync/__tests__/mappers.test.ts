@@ -121,6 +121,69 @@ describe('rowToTask', () => {
   });
 });
 
+describe('the circle a goal was staked in', () => {
+  const CIRCLE = '33333333-3333-4333-8333-333333333333';
+
+  it('carries it onto the task, and onto the moment the feed draws', () => {
+    const task = rowToTask({
+      id: 'x',
+      day: 1,
+      title: 'Swim 2k',
+      category: 'Fitness',
+      points: 40,
+      aud: 'friends',
+      source: 'staked',
+      circle_id: CIRCLE,
+    });
+    expect(task.circleId).toBe(CIRCLE);
+
+    const moment = taskRowToMoment({
+      id: 'x',
+      owner_id: '22222222-2222-4222-8222-222222222222',
+      day: 1,
+      title: 'Swim 2k',
+      category: 'Fitness',
+      points: 40,
+      aud: 'friends',
+      source: 'staked',
+      created_at: '2026-08-12T09:00:00.000Z',
+      circle_id: CIRCLE,
+    });
+    expect(moment.circleId).toBe(CIRCLE);
+  });
+
+  it('leaves the key absent when the row names none, rather than undefined', () => {
+    // Absent, not `circleId: undefined`, and the distinction is the whole
+    // reason this is asserted with `in`. `tasksAreSound` and `momentsAreSound`
+    // reject a key they cannot read, and rejection is all-or-nothing: it does
+    // not lose the attribution, it loses the persisted week along with it.
+    const task = rowToTask({
+      id: 'x',
+      day: 1,
+      title: 'Swim 2k',
+      category: 'Fitness',
+      points: 40,
+      aud: 'friends',
+      source: 'staked',
+      circle_id: null,
+    });
+    expect('circleId' in task).toBe(false);
+
+    const moment = taskRowToMoment({
+      id: 'x',
+      owner_id: '22222222-2222-4222-8222-222222222222',
+      day: 1,
+      title: 'Swim 2k',
+      category: 'Fitness',
+      points: 40,
+      aud: 'friends',
+      source: 'staked',
+      created_at: '2026-08-12T09:00:00.000Z',
+    });
+    expect('circleId' in moment).toBe(false);
+  });
+});
+
 describe('mondayOf', () => {
   it('takes the Monday of a context built this session', () => {
     // FIXTURE_WEEK is anchored on Thursday Aug 13 2026; its Monday is Aug 10.

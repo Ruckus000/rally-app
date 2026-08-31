@@ -242,6 +242,50 @@ describe('an unanswered rollover prompt', () => {
   });
 });
 
+describe('the circle a goal was staked in', () => {
+  it('survives a restart, on the task and on the moment', async () => {
+    const CIRCLE = '33333333-3333-4333-8333-333333333333';
+    const staked = {
+      ...base,
+      myTasks: [{ ...base.myTasks[0], circleId: CIRCLE }],
+      moments: [{ ...base.moments[0], circleId: CIRCLE }],
+    };
+    save(staked);
+    await flush();
+
+    const restored = await load();
+    expect(restored?.myTasks[0].circleId).toBe(CIRCLE);
+    expect(restored?.moments[0].circleId).toBe(CIRCLE);
+  });
+
+  it('is not required, so a payload written before it existed still loads', async () => {
+    // No `VERSION` bump for this field, which is only defensible if an older
+    // payload is *loadable* rather than merely un-crashing. Asserted, because
+    // the alternative — discarding — costs the staked week, the history and
+    // the year grid.
+    const older = pick(base);
+    await AsyncStorage.setItem(KEY, envelope(older));
+
+    const restored = await load();
+    expect(restored).not.toBeNull();
+    expect('circleId' in restored!.myTasks[0]).toBe(false);
+  });
+
+  it('discards the whole payload when it comes back malformed', async () => {
+    // Not a nicety: `isSound` is all-or-nothing. This is the behaviour the
+    // mappers exist to keep unreachable — they omit a key they could not read
+    // rather than carrying something this check would reject, because failing
+    // here does not lose the attribution, it loses the week with it.
+    const bad = {
+      ...pick(base),
+      myTasks: [{ ...base.myTasks[0], circleId: 'x'.repeat(200) }],
+    };
+    await AsyncStorage.setItem(KEY, envelope(bad));
+
+    expect(await load()).toBeNull();
+  });
+});
+
 describe('failure handling', () => {
   it('does not throw when the disk rejects the write', async () => {
     setItem.mockRejectedValueOnce(new Error('disk full'));

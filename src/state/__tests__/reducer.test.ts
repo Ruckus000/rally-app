@@ -866,6 +866,37 @@ describe('merging rows from the server', () => {
     expect(s.people[maya.id]?.bot).toBe(true);
   });
 
+  it('adopts a row that differs only by which circles the person is in', () => {
+    // The `bot` bug, one field over, and pre-empted rather than found on a
+    // device this time. A directory written before memberships existed carries
+    // no `circleIds`; the pull carries them. If `samePerson` did not look, every
+    // row would compare equal and an upgrading install would never learn who is
+    // in which circle — which, once the roster is per-circle, empties every
+    // circle on the screen.
+    const stale = { ...maya, circleIds: undefined };
+    const s = reducer(
+      { ...base, account: 'live', people: { [maya.id]: stale } },
+      { type: 'SERVER_MERGE', merge: { people: [{ ...maya, circleIds: ['c-one'] }] } },
+    );
+    expect(s.people[maya.id]?.circleIds).toEqual(['c-one']);
+  });
+
+  it('does not rebuild the directory when only the order of the circles moved', () => {
+    // The other half, and the reason the comparison is a set rather than a
+    // join: the server does not promise an order. Treating a reordering as
+    // news would dispatch a merge, rebuild the directory and re-render every
+    // screen once a minute, for a payload that said nothing.
+    const held = { ...maya, circleIds: ['c-one', 'c-two'] };
+    const live: State = { ...base, account: 'live', people: { [maya.id]: held } };
+
+    expect(
+      reducer(live, {
+        type: 'SERVER_MERGE',
+        merge: { people: [{ ...maya, circleIds: ['c-two', 'c-one'] }] },
+      }),
+    ).toBe(live);
+  });
+
   /**
    * `merge.people` is the whole live directory — your circles and the bots, in
    * one payload — so an id it does not name is an id this account can no longer

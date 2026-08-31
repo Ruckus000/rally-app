@@ -57,6 +57,20 @@ export type Person = {
   trend?: Trend;
   stats?: MemberStats;
   /**
+   * Which of *your* circles this person is in.
+   *
+   * Absent means "not known", never "in none" — a payload written before this
+   * existed, or a server too old to say. That distinction is load-bearing for
+   * the roster: read as "in none" it would empty every circle on the first
+   * launch after an upgrade.
+   *
+   * Populated from `pull_world`'s `memberships` edge list rather than from a
+   * field on the person's own row. The server keeps them apart on purpose —
+   * a person in two of your circles is one directory row and two edges — and
+   * this is the client side of the same distinction.
+   */
+  circleIds?: string[];
+  /**
    * An Oz bot. They share the directory with real people — every avatar and
    * name on the public feed resolves through it, and an author missing from it
    * renders as "Someone" — but they are in nobody's circle, and `circleMembers`
