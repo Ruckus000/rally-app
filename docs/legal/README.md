@@ -7,8 +7,9 @@
 > - Support URL — <https://rally-app-legal.vercel.app/support>
 >
 > Pasting those two into App Store Connect is still a human step, as are the
-> App Privacy questionnaire and the two edge-function deploys. They are listed
-> below, and steps 1 and 2 are marked done rather than deleted so that the
+> App Privacy questionnaire and the Sign in with Apple secrets. Step 5 — the
+> one whose omission used to look exactly like success — is now done and
+> verified. The steps below are marked done rather than deleted so that the
 > order still reads.
 
 ## Why they are HTML and why they live here
@@ -110,11 +111,25 @@ order.
    collected and linked to identity; nothing used for tracking; no analytics,
    no advertising, no crash reporting.** The push token is the Device ID —
    declare it rather than arguing it is only a routing address.
-5. **Deploy `delete-account` and set both of its secrets**, or accounts are
-   marked for deletion and never actually deleted — silently, because the
-   schedule is written to be quiet when Vault has nothing in it. The commands
-   are in `supabase/functions/README.md`. This is the one step on this list
-   whose omission looks exactly like success.
+5. ~~**Deploy `delete-account` and set both of its secrets.**~~ **Done, and
+   verified end to end on 2026-08-31.** The function is deployed, the cron job
+   `purge-due-accounts` runs at 03:17 UTC, and both `delete_account_function_url`
+   and `delete_account_webhook_secret` are in Vault.
+
+   It was verified rather than assumed, because this is the step whose omission
+   looks exactly like success: for a while the function was deployed and the
+   cron job was active while Vault held neither secret, and everything on every
+   screen still said the account had been deleted. Two test accounts were
+   deleted through Me → Settings → Delete my account, backdated past the
+   fortnight, and put through `private.purge_due_accounts()` by hand. The edge
+   function answered `{"purged":1,"failed":0,"revoked":0,"due":1}` with HTTP 200
+   both times, and the `profiles` and `auth.users` rows were gone afterwards. A
+   secret that does not match answers 401, so the 200 is the part that proves
+   the CLI half and the Vault half agree — checking that the two names exist
+   would not have.
+
+   `revoked: 0` because both were anonymous accounts. The Apple revocation
+   branch has still never run against a real token; see step 6.
 6. **Set the four `APPLE_*` secrets and deploy `link-apple`**, if the App Store
    listing offers Sign in with Apple — Apple asks that an account's tokens be
    revoked when it is deleted, and without these nothing is ever stored to
