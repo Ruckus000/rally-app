@@ -150,11 +150,11 @@ describe('mergedFeed: your own content is never filtered', () => {
 
 describe('circleMembers: blocking does not remove anyone from the circle', () => {
   it('a blocked member still counts toward the circle', () => {
-    const before = circleMembers(baseState);
+    const before = circleMembers(baseState, null);
     expect(before).toContain('maya');
 
     const withBlock: State = { ...baseState, blocked: ['maya'] };
-    const after = circleMembers(withBlock);
+    const after = circleMembers(withBlock, null);
 
     // Deliberately unchanged. `circleMembers` feeds `ranking()` and the circle
     // total — rollups over the whole circle, not a per-viewer view of it — so

@@ -12,7 +12,7 @@ import { Avatar, ProgressRing } from '../components/Avatar';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
 import { Icon } from '../components/Icon';
 import { useStore, usePeople } from '../state/store';
-import { RankedMember, ranking } from '../state/selectors';
+import { activeCircle, RankedMember, ranking } from '../state/selectors';
 import { EmptyState } from '../components/FeedCards';
 
 const TREND_GLYPH = { up: '▲', down: '▼', same: '–' } as const;
@@ -41,9 +41,23 @@ export function CircleScreen() {
   // moment — too much to redo on renders where none of its inputs moved.
   // Keyed on the slices `ranking` actually reads (via `myStats`).
   const ranked = React.useMemo(
-    () => ranking(state),
+    () => ranking(state, activeCircle(state)?.id ?? null),
+    // `circles` and `activeCircleId` are in the deps because the memo is keyed
+    // on what `ranking` reads, and it now reads both. Without them, switching
+    // circles would draw the previous circle's podium under the new circle's
+    // name — no error, no visual tell.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.myTasks, state.acted, state.moments, state.people, state.selfId, state.account, state.profile],
+    [
+      state.myTasks,
+      state.acted,
+      state.moments,
+      state.people,
+      state.selfId,
+      state.account,
+      state.profile,
+      state.circles,
+      state.activeCircleId,
+    ],
   );
   const top3 = ranked.slice(0, 3);
   const rest = ranked.slice(3);
