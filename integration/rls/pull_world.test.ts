@@ -114,6 +114,76 @@ describe('for a circle-mate (dre shares basement with maya)', () => {
   });
 });
 
+describe('the circle it names, for someone in two', () => {
+  /**
+   * maya is in basement *and* gym (`integration/fixtures/world.ts`), which
+   * makes her the only seeded account this can be asked of — and the reason
+   * the fixtures put her in two in the first place.
+   *
+   * `my_circle` used to be `limit 1` with no `order by`: an arbitrary row, and
+   * Postgres is free to pick a different one on the next call. The client does
+   * not treat it as arbitrary — it is the Me header's subtitle, the Circle
+   * tab's roster, and the invite code the share sheet hands out.
+   */
+  it('answers with the same circle twice', async () => {
+    const first = await worldOf('maya');
+    const second = await worldOf('maya');
+
+    expect(first.circle).not.toBeNull();
+    // Two calls, because one cannot catch a plan that is free to change its
+    // mind. This is the whole assertion; the value itself is below.
+    expect(second.circle).toEqual(first.circle);
+  });
+
+  /**
+   * The assertion with teeth.
+   *
+   * The two above pin the intent but cannot fail against the old code: with
+   * `limit 1` and no `order by`, Postgres on tables this small answers in
+   * insertion order, which is basement — the same circle the new rule names.
+   * You cannot write a test that reliably fails against nondeterminism.
+   *
+   * So this pins the *rule* instead, in the one case where the two candidate
+   * orderings disagree: a circle joined later whose id sorts earlier. `joined_at`
+   * says basement, `id` says the newcomer. If anyone ever "simplifies" the
+   * ordering to `order by c.id`, this is what stops them.
+   */
+  it('prefers the older membership over the smaller id', async () => {
+    const earlierId = '00000000-0000-4000-8000-000000000000';
+    await sql(
+      `insert into public.circles (id, name, invite_code, created_by)
+       values ($1, 'Sorts First', 'sorts-first-0123456789abcdef', $2)`,
+      [earlierId, idOf('maya')],
+    );
+    // Joined now, so `joined_at` is unambiguously later than the seeded rows —
+    // this is the one membership in the suite whose timestamp does not tie.
+    await sql('insert into public.circle_members (circle_id, profile_id) values ($1, $2)', [
+      earlierId,
+      idOf('maya'),
+    ]);
+
+    const world = await worldOf('maya');
+
+    expect(world.circle?.id).toBe(CIRCLE_IDS.basement);
+    expect(world.circle?.id).not.toBe(earlierId);
+
+    await sql('delete from public.circle_members where circle_id = $1', [earlierId]);
+    await sql('delete from public.circles where id = $1', [earlierId]);
+  });
+
+  it('answers with the membership she has held longest', async () => {
+    const world = await worldOf('maya');
+
+    // `seed.sql` writes every membership in one statement, so `joined_at` ties
+    // to the microsecond and the circle id is what actually breaks it. That
+    // makes this assertion a fact about the tiebreak rather than about time,
+    // which is the honest way to pin it: whichever circle sorts first by id is
+    // the one the pull must keep naming.
+    const expected = [CIRCLE_IDS.basement, CIRCLE_IDS.gym].sort()[0];
+    expect(world.circle?.id).toBe(expected);
+  });
+});
+
 describe('for a stranger (jordan shares no circle with maya)', () => {
   it('shows none of maya — not her profile, not even her everyone-audience task', async () => {
     const world = await worldOf('jordan');

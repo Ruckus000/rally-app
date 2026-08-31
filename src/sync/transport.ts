@@ -1099,10 +1099,22 @@ export function supabaseTransport(): Transport {
   const pullMyCircle = async (userId: string): Promise<CircleRef | null> => {
     const supabase = getSupabase();
 
+    // Ordered, not merely limited. `limit(1)` on its own is whichever row the
+    // database felt like returning, and it is free to feel differently on the
+    // next call — so an account in two circles could see the name, the roster
+    // and the invite code change between pulls, with the share sheet handing
+    // out a code for the circle it is not showing. Oldest membership wins, and
+    // `circle_id` breaks the tie because `seed.sql` writes every membership in
+    // one statement and `now()` is transaction time, so `joined_at` ties. Same
+    // ordering as `pull_world`'s `my_circle`, and it has to stay that way: this
+    // is the fallback for a server too old to have that function, and the two
+    // disagreeing would be a bug that only appears on old backends.
     const mine = await supabase
       .from('circle_members')
-      .select('circle_id')
+      .select('circle_id,joined_at')
       .eq('profile_id', userId)
+      .order('joined_at', { ascending: true })
+      .order('circle_id', { ascending: true })
       .limit(1);
     if (mine.error) fail(mine.error);
     const circleId = (mine.data ?? [])[0]?.circle_id;
