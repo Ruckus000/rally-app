@@ -5,6 +5,7 @@
 import { reducer } from '../store';
 import { personOf, type PersonId } from '../../data/people';
 import {
+  activeCircle,
   allTasksDone,
   cheersGiven,
   circleCheersGiven,
@@ -328,5 +329,52 @@ describe('pick it back up', () => {
 
   it('says nothing when the circle has staked nothing', () => {
     expect(circleSuggestions(withCircle([]))).toEqual([]);
+  });
+});
+
+/**
+ * `activeCircleId` is a preference and `circles` is server-derived, and the two
+ * are allowed to disagree — which is exactly why resolution lives here rather
+ * than in the reducer. A reducer that corrected the id would erase the user's
+ * choice on every cold start, because `circles` is empty for one pull.
+ */
+describe('which circle the app is about', () => {
+  const A = { id: 'c-a', name: 'The Basement', inviteCode: 'basement-aaaa' };
+  const B = { id: 'c-b', name: 'Gym', inviteCode: 'gym-bbbb' };
+  const withCircles = (circles: typeof A[], activeCircleId: string | null) => ({
+    ...base,
+    circles,
+    activeCircleId,
+  });
+
+  it('resolves the one that was chosen', () => {
+    expect(activeCircle(withCircles([A, B], B.id))?.name).toBe('Gym');
+  });
+
+  it('falls back to the first when nothing has been chosen', () => {
+    // Oldest membership, which is the order the pull hands them over in.
+    expect(activeCircle(withCircles([A, B], null))?.name).toBe('The Basement');
+  });
+
+  it('falls back when the choice names a circle the pull has not delivered', () => {
+    // The cold-start window: `activeCircleId` is on disk, `circles` is not, so
+    // for one pull the preference names something the list does not hold. The
+    // screen shows a circle rather than nothing, and repairs itself.
+    expect(activeCircle(withCircles([A], B.id))?.name).toBe('The Basement');
+  });
+
+  it('answers null when there are none, without inventing one', () => {
+    expect(activeCircle(withCircles([], B.id))).toBeNull();
+  });
+
+  it('keeps the preference even while it resolves to something else', () => {
+    // The half that would be lost to a normalising reducer: the id survives, so
+    // when the circle comes back — a partial pull, a slow launch — the user is
+    // where they left off rather than wherever the fallback put them.
+    const s = reducer(withCircles([A], null), { type: 'SET_ACTIVE_CIRCLE', id: B.id });
+
+    expect(s.activeCircleId).toBe(B.id);
+    expect(activeCircle(s)?.name).toBe('The Basement');
+    expect(activeCircle({ ...s, circles: [A, B] })?.name).toBe('Gym');
   });
 });

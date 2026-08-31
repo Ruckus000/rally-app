@@ -29,7 +29,7 @@ import {
 } from '../data/fixtures';
 import { DAY_NAMES } from '../data/week';
 import { CIRCLE_NAME_MAX, useStore } from '../state/store';
-import { myStats, visibleNotes } from '../state/selectors';
+import { activeCircle, myStats, visibleNotes } from '../state/selectors';
 import { SHEET_DURATION, sheetEasing, useReducedMotion } from '../theme/motion';
 import { Avatar } from '../components/Avatar';
 import { Icon } from '../components/Icon';
@@ -755,7 +755,7 @@ function InviteSheet() {
    * gets the real thing: the code `create_circle` minted, which is the only
    * string that will actually let anyone in.
    */
-  const code = live ? (state.circle?.inviteCode ?? '') : ME.inviteLink;
+  const code = live ? (activeCircle(state)?.inviteCode ?? '') : ME.inviteLink;
 
   /**
    * The OS share sheet, not a clipboard. `Share` is core React Native, so this
@@ -782,10 +782,10 @@ function InviteSheet() {
   // persisted. So the invite affordance is there, off disk, in a window where
   // this branch could only answer "you have no circle" about somebody who
   // does. One tap and a name later they have a second one.
-  if (live && state.worldSeen && !state.circle) {
+  if (live && state.worldSeen && state.circles.length === 0) {
     return <StartCircle />;
   }
-  if (live && !state.worldSeen && !state.circle) {
+  if (live && !state.worldSeen && state.circles.length === 0) {
     return <LookingForYourCircle />;
   }
 

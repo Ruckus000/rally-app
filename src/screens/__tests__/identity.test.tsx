@@ -36,7 +36,7 @@ const liveMe = (over: { circle?: CircleRef | null; name?: string } = {}) =>
         account: 'live',
         selfId: ME_ID,
         people: indexPeople([personOf(ME_ID, over.name ?? 'Maya Chen')]),
-        circle: over.circle === undefined ? CIRCLE : over.circle,
+        circles: over.circle === undefined ? [CIRCLE] : over.circle ? [over.circle] : [],
       }}
     >
       <MeScreen />
@@ -64,7 +64,7 @@ const inviteSheet = (
       restored={{
         account,
         selfId: account === 'live' ? ME_ID : undefined,
-        circle: account === 'live' ? circle : null,
+        circles: account === 'live' && circle ? [circle] : [],
         worldSeen,
         sheet: { type: 'invite', id: null },
       }}
@@ -138,7 +138,7 @@ describe('renaming yourself', () => {
       <StoreProvider
         persist={false}
         sync={false}
-        restored={{ account: 'live', selfId: ME_ID, circle: CIRCLE }}
+        restored={{ account: 'live', selfId: ME_ID, circles: [CIRCLE] }}
       >
         <MeScreen />
       </StoreProvider>,

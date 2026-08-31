@@ -5,7 +5,7 @@ import { useColors } from '../theme/ThemeProvider';
 import { Bri, Sans, Tap, row } from '../components/primitives';
 import { Icon } from '../components/Icon';
 import { useStore } from '../state/store';
-import { circleMembers, unreadNeedsCount } from '../state/selectors';
+import { activeCircle, circleMembers, unreadNeedsCount } from '../state/selectors';
 import { ME } from '../data/fixtures';
 import type { Scope, State } from '../state/store';
 
@@ -47,7 +47,7 @@ export function Header({ topInset }: { topInset: number }) {
           `${members} ${members === 1 ? 'person' : 'people'}, ` +
           (config.showRank ? 'ranked by follow-through' : 'checking in on each other')
         : live
-          ? (state.circle?.name ?? 'Your week, on the record')
+          ? (activeCircle(state)?.name ?? 'Your week, on the record')
           : `${ME.shortHandle} · ${ME.since}`;
 
   return (
