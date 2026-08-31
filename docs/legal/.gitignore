@@ -1,0 +1,6 @@
+# Written by `vercel link`, kept. These two pages are deployed from this folder
+# as a static project, so the CLI's local state lands here rather than at the
+# repo root: .vercel is the project link, and .env.local is a short-lived OIDC
+# token the CLI refreshes on its own. Neither belongs in the repository.
+.vercel
+.env*
