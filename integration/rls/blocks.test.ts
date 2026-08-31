@@ -57,7 +57,16 @@ const block = (who: SeedHandle, target: SeedHandle) =>
 const unblock = (who: SeedHandle, target: SeedHandle) =>
   asUser(who).rpc('unblock_person', { p_blocked: idOf(target) });
 
-/** Setup only. `asService` bypasses RLS, so nothing seeded here is a subject. */
+/**
+ * Setup only. `asService` bypasses RLS, so nothing seeded here is a subject.
+ *
+ * `circle_id: null` is survivable here *only* because this defaults to
+ * `everyone`, which ignores the circle. Since
+ * `20260831210000_a_goal_belongs_to_a_circle.sql` a `friends` goal with no
+ * circle reaches nobody but its owner — so the first person to write
+ * `makeTask('maya', 'friends')` in this file will write a test that asserts
+ * nothing. Give it `CIRCLE_IDS.basement` when you do.
+ */
 async function makeTask(owner: SeedHandle, aud: 'everyone' | 'friends' | 'private' = 'everyone') {
   const { data, error } = await asService()
     .from('tasks')

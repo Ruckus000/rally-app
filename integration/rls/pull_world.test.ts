@@ -148,8 +148,23 @@ describe('the circle it names, for someone in two', () => {
    * says basement, `id` says the newcomer. If anyone ever "simplifies" the
    * ordering to `order by c.id`, this is what stops them.
    */
+  /**
+   * Cleanup in `afterEach`, not at the end of the test body.
+   *
+   * It was at the end, and when the assertion below failed the circle it
+   * creates outlived the file — `circles.test.ts` then reported maya in three
+   * circles, in a different file, for a reason neither file mentioned. A
+   * fixture a failing test leaves behind turns one red test into two.
+   */
+  const SORTS_FIRST = '00000000-0000-4000-8000-000000000000';
+
+  afterEach(async () => {
+    await sql('delete from public.circle_members where circle_id = $1', [SORTS_FIRST]);
+    await sql('delete from public.circles where id = $1', [SORTS_FIRST]);
+  });
+
   it('prefers the older membership over the smaller id', async () => {
-    const earlierId = '00000000-0000-4000-8000-000000000000';
+    const earlierId = SORTS_FIRST;
     await sql(
       `insert into public.circles (id, name, invite_code, created_by)
        values ($1, 'Sorts First', 'sorts-first-0123456789abcdef', $2)`,
@@ -166,9 +181,6 @@ describe('the circle it names, for someone in two', () => {
 
     expect(world.circle?.id).toBe(CIRCLE_IDS.basement);
     expect(world.circle?.id).not.toBe(earlierId);
-
-    await sql('delete from public.circle_members where circle_id = $1', [earlierId]);
-    await sql('delete from public.circles where id = $1', [earlierId]);
   });
 
   it('answers with the membership she has held longest', async () => {
@@ -181,6 +193,26 @@ describe('the circle it names, for someone in two', () => {
     // the one the pull must keep naming.
     const expected = [CIRCLE_IDS.basement, CIRCLE_IDS.gym].sort()[0];
     expect(world.circle?.id).toBe(expected);
+  });
+});
+
+describe('for someone in a different circle (sofia shares gym, not basement)', () => {
+  it('carries the public half of maya’s week and not the circle half', async () => {
+    // The scoping reaching the *pull*, not just the table. `owner_tasks` names
+    // whose rows to ask about and leaves what is visible to `tasks_select` —
+    // so this passing is the function's central claim holding under a policy
+    // that changed underneath it, without the function being touched.
+    //
+    // `W_friends` is tagged to basement in the `beforeEach` above; sofia is in
+    // gym. Before
+    // `20260831210000_a_goal_belongs_to_a_circle.sql` she saw both.
+    const world = await worldOf('sofia');
+
+    expect(titlesOf(world.owner_tasks)).toEqual(['W_everyone']);
+    // She is still in the directory — `profiles_select` keeps
+    // `shares_circle_with`, deliberately. Sharing any circle is the right
+    // reason to know who somebody is; only a goal belongs to one room.
+    expect(world.people.map((p) => p.id)).toContain(idOf('maya'));
   });
 });
 

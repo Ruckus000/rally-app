@@ -87,15 +87,20 @@ describe('a reaction is as visible as the thing it hangs off', () => {
     expect(await reactionsSeenBy('jordan', task)).toEqual([]);
   });
 
-  it('a cheer on a friends task IS visible to someone who shares a different circle', async () => {
-    // sofia shares gym with maya, not basement. She still sees it, because
-    // `friends` resolves through shares_circle_with(owner_id) and never reads
-    // tasks.circle_id. Asserted deliberately: if the product ever decides
-    // `friends` should mean *that* circle, this is the test that fails.
+  it('a cheer on a basement task is not visible to someone who is only in gym', async () => {
+    // sofia shares gym with maya, not basement. This asserted the opposite
+    // until `20260831210000_a_goal_belongs_to_a_circle.sql`, and named the
+    // condition: "if the product ever decides `friends` should mean *that*
+    // circle, this is the test that fails." It decided.
+    //
+    // `reactions_select` was not restated by that migration either — it goes
+    // through `private.can_see_task` — so this inverting is the second
+    // independent proof that the five delegating policies moved without being
+    // touched.
     const task = await makeTask('maya', 'friends');
     await react('dre', task);
 
-    expect(await reactionsSeenBy('sofia', task)).toHaveLength(1);
+    expect(await reactionsSeenBy('sofia', task)).toEqual([]);
   });
 
   it('cannot be placed on a target the actor cannot see', async () => {

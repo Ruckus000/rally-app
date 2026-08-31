@@ -10,6 +10,7 @@
  * `tasks_insert` or `task_pairs_insert` regress, this file fails at setup.
  */
 import { asAnon, asService, asUser, idOf } from '../support/clients';
+import { sql } from '../support/reset';
 import { CIRCLE_IDS, type SeedHandle } from '../fixtures/world';
 
 /** 2026-08-10 is a Monday, which is what `week_start` means. */
@@ -92,16 +93,24 @@ describe('someone who shares the circle the task is tagged to', () => {
 });
 
 describe('someone who shares a different circle', () => {
-  it('a friends task is visible to someone who shares a different circle — the audience is not scoped to circle_id', async () => {
+  it('a friends task is scoped to the circle it was staked in', async () => {
     // sofia is in gym; T_friends is tagged to basement, which she is not in.
-    // `tasks_select` resolves 'friends' with private.shares_circle_with(owner_id)
-    // and never reads tasks.circle_id, so any circle-mate of maya's qualifies.
+    // Sharing *a* circle with maya is no longer enough — the goal belongs to
+    // one room, and this is not that room.
     //
-    // This is a consequence of how the policy is written, not a product
-    // decision anyone has stated. If "friends" is later meant to mean "the
-    // circle this task is tagged to", this is the test that fails first, and
-    // the policy — not this file — is what should change.
-    expect(await canSee('sofia', 'T_friends')).toBe(true);
+    // This test used to assert the opposite, and said so: "if 'friends' is
+    // later meant to mean 'the circle this task is tagged to', this is the test
+    // that fails first, and the policy — not this file — is what should
+    // change." The policy changed in
+    // `20260831210000_a_goal_belongs_to_a_circle.sql`. This is the record of
+    // when, and the file working exactly as it was written to.
+    expect(await canSee('sofia', 'T_friends')).toBe(false);
+  });
+
+  it('and is visible to someone who shares *that* circle', async () => {
+    // The other half, without which a policy that simply refused everyone
+    // would pass the case above. dre is in basement, where T_friends lives.
+    expect(await canSee('dre', 'T_friends')).toBe(true);
   });
 
   it('sofia sees the everyone task', async () => {
@@ -145,6 +154,184 @@ describe('a pair', () => {
   });
 });
 
+/**
+ * The column the audience now reads.
+ *
+ * These stake their own rows rather than joining the shared four, because the
+ * matrix above is a fixed set and every row added to it has to be accounted
+ * for in six expectations. `sees` asks about one id directly, which is all
+ * these cases need.
+ */
+describe('which circle a goal was staked in', () => {
+  const stake = async (
+    over: Record<string, unknown>,
+  ): Promise<{ id: string; error: { code: string } | null }> => {
+    const { data, error } = await asUser('maya')
+      .from('tasks')
+      .insert({
+        owner_id: idOf('maya'),
+        week_start: WEEK,
+        category: 'move',
+        points: 3,
+        day: 4,
+        title: 'T_scoped',
+        aud: 'friends',
+        ...over,
+      })
+      .select('id')
+      .maybeSingle();
+    return {
+      id: (data as { id: string } | null)?.id ?? '',
+      error: error as { code: string } | null,
+    };
+  };
+
+  const sees = async (viewer: SeedHandle, id: string): Promise<boolean> => {
+    const { data, error } = await asUser(viewer).from('tasks').select('id').eq('id', id);
+    expect(error).toBeNull();
+    return (data ?? []).length === 1;
+  };
+
+  it('reaches that circle and no other', async () => {
+    // The half the inverted assertion above cannot prove on its own: a policy
+    // that simply refused every non-owner would pass "sofia cannot see the
+    // basement goal" and fail nobody. Staked in gym, so the answers swap.
+    const { id, error } = await stake({ circle_id: CIRCLE_IDS.gym });
+    expect(error).toBeNull();
+
+    expect(await sees('sofia', id)).toBe(true);
+    expect(await sees('dre', id)).toBe(false);
+    expect(await sees('nana', id)).toBe(false);
+  });
+
+  it('is owner-only when it names no circle', async () => {
+    // The most important assertion in this file. NULL is what a client that
+    // forgets the column writes, so if NULL were permissive it would be a
+    // bypass that never fails loudly — every un-updated write path would get
+    // the old wide behaviour and nothing would say so.
+    const { id, error } = await stake({ circle_id: null });
+    expect(error).toBeNull();
+
+    expect(await sees('maya', id)).toBe(true);
+    expect(await sees('dre', id)).toBe(false);
+    expect(await sees('sofia', id)).toBe(false);
+  });
+
+  it('ignores the circle entirely when the audience is everyone', async () => {
+    // A goal can be staked in a room *and* published. The circle is still
+    // recorded — that is what lets a per-circle board count it — but it stops
+    // being what decides who may read.
+    const { id, error } = await stake({
+      aud: 'everyone',
+      circle_id: CIRCLE_IDS.basement,
+    });
+    expect(error).toBeNull();
+
+    expect(await sees('jordan', id)).toBe(true);
+  });
+
+  it('refuses a circle the owner is not in', async () => {
+    // maya is in basement and gym, not outsiders. `tasks_insert` is data
+    // hygiene rather than the boundary — a goal tagged to a room its owner is
+    // not in is readable by nobody, because the predicate checks the owner too
+    // — but a column that can hold a lie is a column the next reader trusts.
+    const { error } = await stake({ circle_id: CIRCLE_IDS.outsiders });
+
+    expect(error?.code).toBe('42501');
+  });
+
+  it('lets a goal move rooms, and the audience moves with it', async () => {
+    const { id } = await stake({ circle_id: CIRCLE_IDS.basement });
+    expect(await sees('dre', id)).toBe(true);
+    expect(await sees('sofia', id)).toBe(false);
+
+    const { error } = await asUser('maya')
+      .from('tasks')
+      .update({ circle_id: CIRCLE_IDS.gym })
+      .eq('id', id);
+    expect(error).toBeNull();
+
+    expect(await sees('dre', id)).toBe(false);
+    expect(await sees('sofia', id)).toBe(true);
+  });
+
+  it('lets an owner tag a goal into a room they are not in, and it reaches nobody', async () => {
+    // `tasks_update` deliberately carries no circle clause: `WITH CHECK` sees
+    // only NEW, so it could not tell a moved circle from a ticked box, and
+    // adding one would make every goal in a circle you left un-tickable — a
+    // permanent 42501 at the head of the outbox.
+    //
+    // This is what that costs, and why it costs nothing that matters: the
+    // update succeeds, and the goal is then visible to its owner alone,
+    // because `shares_circle_on` checks the owner's membership too. Delete
+    // this test and somebody will "fix" the policy.
+    const { id } = await stake({ circle_id: CIRCLE_IDS.basement });
+
+    const { error } = await asUser('maya')
+      .from('tasks')
+      .update({ circle_id: CIRCLE_IDS.outsiders })
+      .eq('id', id);
+    expect(error).toBeNull();
+
+    expect(await sees('maya', id)).toBe(true);
+    expect(await sees('dre', id)).toBe(false);
+    expect(await sees('jordan', id)).toBe(false);
+    expect(await sees('tomas', id)).toBe(false);
+  });
+});
+
+/**
+ * The predicate is two-sided, and this is the half that says so.
+ *
+ * `is_circle_member(circle_id)` would have been the obvious spelling and would
+ * have asked only about the viewer — so an owner who left a circle would keep
+ * publishing into it forever. `shares_circle_on` asks about both, which is the
+ * property `shares_circle_with` had and which this change had to keep.
+ */
+describe('when the owner leaves the circle', () => {
+  /**
+   * The seeded `joined_at`, put back exactly as it was.
+   *
+   * Re-inserting with a fresh `now()` is the obvious restore and it is wrong:
+   * maya is in basement *and* gym, seeded in one statement so both timestamps
+   * tie, and `pull_world` breaks that tie on circle id. A basement row rewritten
+   * with a later timestamp makes gym her oldest membership — so the two
+   * ordering tests in `pull_world.test.ts` start failing, in a different file,
+   * for a reason nothing in either file mentions. Cost an hour once.
+   */
+  let seededJoinedAt: string | null = null;
+
+  afterEach(async () => {
+    if (seededJoinedAt === null) return;
+    await sql(
+      `insert into public.circle_members (circle_id, profile_id, joined_at)
+         values ($1, $2, $3::timestamptz)
+       on conflict (circle_id, profile_id) do nothing`,
+      [CIRCLE_IDS.basement, idOf('maya'), seededJoinedAt],
+    );
+    seededJoinedAt = null;
+  });
+
+  it('her basement goal stops reaching basement', async () => {
+    expect(await canSee('dre', 'T_friends')).toBe(true);
+
+    const held = await sql<{ joined_at: string }>(
+      'select joined_at from public.circle_members where circle_id = $1 and profile_id = $2',
+      [CIRCLE_IDS.basement, idOf('maya')],
+    );
+    seededJoinedAt = held[0].joined_at;
+
+    await sql('delete from public.circle_members where circle_id = $1 and profile_id = $2', [
+      CIRCLE_IDS.basement,
+      idOf('maya'),
+    ]);
+
+    expect(await canSee('dre', 'T_friends')).toBe(false);
+    // And it has not merely become invisible to everyone: she still has it.
+    expect(await canSee('maya', 'T_friends')).toBe(true);
+  });
+});
+
 describe('the visible set as a whole', () => {
   // A per-row lookup can only prove a row is reachable; it cannot catch a
   // policy that also hands back rows nobody asked about. One unfiltered select
@@ -153,7 +340,9 @@ describe('the visible set as a whole', () => {
     ['maya', ['T_everyone', 'T_friends', 'T_private_alone', 'T_private_paired']],
     ['dre', ['T_everyone', 'T_friends']],
     ['nana', ['T_everyone', 'T_friends']],
-    ['sofia', ['T_everyone', 'T_friends']],
+    // sofia shares gym with maya, not basement — so the everyone goal and
+    // nothing else. This row is the whole change, stated as a set.
+    ['sofia', ['T_everyone']],
     ['jordan', ['T_everyone']],
     ['tomas', ['T_everyone', 'T_private_paired']],
   ])('%s sees exactly %p and nothing else', async (viewer, expected) => {
@@ -526,11 +715,12 @@ describe('reading a circle-mate’s week', () => {
     return data ?? [];
   };
 
-  // Note there is deliberately no "sofia cannot see it" case here: `friends`
-  // resolves through `shares_circle_with(owner_id)` and ignores
-  // `tasks.circle_id`, so sharing *any* circle is enough. That decision is
-  // pinned above, at the `canSee` matrix, and duplicating it here would mean
-  // two places to change if it is ever revisited.
+  // Still deliberately no "sofia cannot see it" case here, for the reason it
+  // always gave: the rule is pinned above at the `canSee` matrix, and a second
+  // copy would mean two places to change. The rule itself has since been
+  // revisited — `friends` now resolves through `shares_circle_on(circle_id,
+  // owner_id)`, so sharing *any* circle is no longer enough — and the matrix
+  // moved with it.
   it('shows dre what maya put on the line for her circle', async () => {
     const rows = await feed('dre', ['maya']);
 
