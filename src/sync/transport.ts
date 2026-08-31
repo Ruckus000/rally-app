@@ -933,6 +933,34 @@ export function supabaseTransport(): Transport {
    * membership hop has to be explicit anyway — you can only see the profiles of
    * people who share a circle with you, and that is a join RLS enforces per row.
    */
+  /**
+   * Hang the edge list on the people it names.
+   *
+   * The server keeps the two apart on purpose — a person in two of your circles
+   * is one directory row and two edges — and this is the seam where the client
+   * puts them back together. Shared by both pull paths so they cannot answer
+   * differently: `pull_world` sends `memberships`, and the per-table fallback
+   * reads the same rows one query earlier.
+   *
+   * A person the edge list does not name gets `[]`, not `undefined`. Both pulls
+   * ask about every circle the caller is in, so silence here is an answer —
+   * "in none of yours" — and it is the bots this mostly means. `undefined` is
+   * reserved for the case neither pull can produce: a payload from before any
+   * of this existed.
+   */
+  const stampMemberships = (people: Person[], edges: Record<string, unknown>[]): Person[] => {
+    const byPerson = new Map<string, string[]>();
+    for (const edge of edges) {
+      const person = String(edge.profile_id ?? '');
+      const circle = String(edge.circle_id ?? '');
+      if (!person || !circle) continue;
+      const held = byPerson.get(person);
+      if (held) held.push(circle);
+      else byPerson.set(person, [circle]);
+    }
+    return people.map((p) => ({ ...p, circleIds: byPerson.get(p.id) ?? [] }));
+  };
+
   const pullCircle = async (userId: string): Promise<Person[]> => {
     const supabase = getSupabase();
 
@@ -940,8 +968,15 @@ export function supabaseTransport(): Transport {
     if (mine.error) fail(mine.error);
     const circleIds = (mine.data ?? []).map((r) => (r as { circle_id: unknown }).circle_id);
 
+    // `circle_id` as well as `profile_id`, which this query was already
+    // returning and discarding. That one extra column is the whole of per-circle
+    // membership on the fallback path — no new read, no new policy, and it works
+    // against a server that predates `pull_world` entirely.
     const members = circleIds.length
-      ? await supabase.from('circle_members').select('profile_id').in('circle_id', circleIds)
+      ? await supabase
+          .from('circle_members')
+          .select('circle_id,profile_id')
+          .in('circle_id', circleIds)
       : { data: [] as unknown[], error: null };
     if (members.error) fail(members.error);
     // Your own row, always, whether or not you are in a circle with anybody.
@@ -957,7 +992,10 @@ export function supabaseTransport(): Transport {
 
     const profiles = await supabase.from('profiles').select(PROFILE_COLUMNS).in('id', profileIds);
     if (profiles.error) fail(profiles.error);
-    return (profiles.data ?? []).map((row) => rowToPerson(row as Record<string, unknown>));
+    return stampMemberships(
+      (profiles.data ?? []).map((row) => rowToPerson(row as Record<string, unknown>)),
+      (members.data ?? []) as Record<string, unknown>[],
+    );
   };
 
   /**
@@ -1257,8 +1295,11 @@ export function supabaseTransport(): Transport {
     }
 
     return {
-      people: rows(w.people).map(rowToPerson),
-      bots: rows(w.bots).map(rowToPerson),
+      // The same stamp the fallback applies, from the key `pull_world` sends
+      // instead of the query it would have run. `bots` are stamped too: they
+      // are in none of your circles, and `[]` is how that is said.
+      people: stampMemberships(rows(w.people).map(rowToPerson), rows(w.memberships)),
+      bots: stampMemberships(rows(w.bots).map(rowToPerson), rows(w.memberships)),
       circles,
       notifications: rows(w.notifications),
       // Null and empty stay distinct across the wire — see `World.myTasks`.

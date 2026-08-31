@@ -9,8 +9,15 @@ import { activeCircle, circleMembers, unreadNeedsCount } from '../state/selector
 import { ME } from '../data/fixtures';
 import type { Scope, State } from '../state/store';
 
-/** Includes you, which is what makes "1 person" the honest circle-of-one. */
-const memberCount = (state: State): number => circleMembers(state).length;
+/**
+ * Includes you, which is what makes "1 person" the honest circle-of-one.
+ *
+ * The active circle's, because this caption sits directly under a title that
+ * names it — a count of anything else would be a subtitle disagreeing with its
+ * own heading.
+ */
+const memberCount = (state: State): number =>
+  circleMembers(state, activeCircle(state)?.id ?? null).length;
 
 /**
  * Two: your own week, and everyone else's. Global and Friends were the same

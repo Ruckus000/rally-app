@@ -26,7 +26,12 @@ import { DAY_NAMES, DayIndex } from '../data/week';
 import { useStore } from '../state/store';
 import { useGoalRating } from '../hooks/useGoalRating';
 import { hasSupabaseConfig } from '../lib/supabase';
-import { circleMembers, circleSuggestions, stakedPoints } from '../state/selectors';
+import {
+  activeCircle,
+  circleMembers,
+  circleSuggestions,
+  stakedPoints,
+} from '../state/selectors';
 import { Avatar, FaceStack } from '../components/Avatar';
 import { Icon } from '../components/Icon';
 import { Bri, Caps, GlowBloom, GradientHairline, Sans, Tap, fill, row } from '../components/primitives';
@@ -48,7 +53,14 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
   const hasBest = best > 0;
   const over = hasBest && staked >= best;
   const barPct = hasBest ? Math.min(100, (staked / best) * 100) : staked > 0 ? 100 : 0;
-  const pairable = circleMembers(state).filter((k) => !people.isSelf(k));
+  // Scoped to the circle this goal is going into — the active one until the
+  // composer can choose (a later slice). A pair reaching across circles is not
+  // untidy but broken: everyone else in the goal's circle sees a face belonging
+  // to somebody they share no circle with, and `profiles_select` is
+  // membership-scoped, so it renders as "Someone".
+  const pairable = circleMembers(state, activeCircle(state)?.id ?? null).filter(
+    (k) => !people.isSelf(k),
+  );
   const draftDay = (state.draftDay ?? state.day) as DayIndex;
   const hasDraft = !!state.draft.trim();
   const editing = !!state.editingId;

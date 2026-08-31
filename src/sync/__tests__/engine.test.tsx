@@ -129,7 +129,7 @@ function Probe() {
       {/* Who the Circle screen counts and ranks. Not the same as `people`: the
           bots are in the directory so their cards have names, and in nobody's
           circle. */}
-      <Text testID="members">{[...circleMembers(store.state)].sort().join(',')}</Text>
+      <Text testID="members">{[...circleMembers(store.state, null)].sort().join(',')}</Text>
       {/* Your own name as a screen would draw it — the thing that used to read
           "Someone" no matter what you typed. */}
       <Text testID="myname">{store.state.people[store.state.selfId]?.name ?? ''}</Text>
@@ -139,6 +139,21 @@ function Probe() {
       <Text testID="circle">{activeCircle(store.state)?.inviteCode ?? ''}</Text>
       {/* Every circle, so a test can tell "one" from "two" from "none". */}
       <Text testID="circles">{store.state.circles.map((c) => c.name).join(',')}</Text>
+      {/* Who is in which, by name rather than uuid so a failure is readable.
+          Bots are left out: they are in none of your circles, and saying so on
+          every row would bury the two that matter. */}
+      <Text testID="circleIds">
+        {Object.values(store.state.people)
+          .filter((p) => p && !p.bot)
+          .map((p) => {
+            const names = (p!.circleIds ?? [])
+              .map((id) => store.state.circles.find((c) => c.id === id)?.name ?? id)
+              .join('+');
+            return `${p!.id}:${names}`;
+          })
+          .sort()
+          .join(',')}
+      </Text>
       {/* Other people's weeks, and the thread this device has left on them. */}
       <Text testID="feed">{store.state.moments.map((m) => m.title ?? '').join(',')}</Text>
       {/* The Oz bots' week — the Global tab, and a different set of owners
@@ -1814,6 +1829,25 @@ describe('an account in two circles', () => {
     // The active one, with no picker yet, is the first — and it is the invite
     // code the share sheet would hand out.
     expect(screen.getByTestId('circle')).toHaveTextContent('basement-0123456789abcdef');
+  });
+
+  it('says which circle each member is in, and survives the directory pipeline', async () => {
+    // The pipeline is the risk, not the read. A person goes through
+    // `dedupePeople` → the `isBot` stamp → `withStats` before reaching the
+    // reducer, and `dedupePeople`'s own comment names this hazard for `bot`:
+    // it keeps the *first* copy of an id, so anything the later copy carried is
+    // dropped. Memberships come from the circle read, which is first — asserted
+    // rather than assumed, because the last field to be dropped this way was
+    // only ever found on a device.
+    mount();
+    await settle();
+    const me = currentUserId() as string;
+    inTwoCircles(me);
+    await settle(60_000);
+
+    expect(screen.getByTestId('circleIds')).toHaveTextContent(
+      `${me}:The Basement+Gym,${OTHER}:The Basement`,
+    );
   });
 
   it('says nothing on a second pull that carries the same two', async () => {

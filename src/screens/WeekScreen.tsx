@@ -276,7 +276,10 @@ function Feed() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.moments, state.globalPosts, config.quietComebacks],
   );
-  const alone = circleMembers(state).length < 2;
+  // `null`, not the active circle. "Alone" here means nobody at all is
+  // watching — and being the only person in one of three circles is not being
+  // alone. The copy underneath would be a lie.
+  const alone = circleMembers(state, null).length < 2;
 
   // Only reachable before the first pull lands, or on an account with no bots
   // to show. It is no longer the circle-of-one case — that one has content now,

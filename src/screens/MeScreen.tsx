@@ -68,7 +68,7 @@ export function MeScreen() {
    */
   const subtitle = live
     ? (activeCircle(state)?.name ?? '')
-    : circleMembers(state).length > 1
+    : circleMembers(state, null).length > 1
       ? `${ME.handle} · ${CIRCLE_NAME}`
       : ME.handle;
 
@@ -120,7 +120,11 @@ export function MeScreen() {
   };
 
   // Null unless there is a circle to be ranked in and ranking is switched on.
-  const rank = config.showRank && circleMembers(state).length > 1 ? myRank(state) : 0;
+  // The active circle, both halves: a rank is a position in one room, and the
+  // gate has to count the same room the number comes from.
+  const activeId = activeCircle(state)?.id ?? null;
+  const rank =
+    config.showRank && circleMembers(state, activeId).length > 1 ? myRank(state, activeId) : 0;
 
   const won = allTasksDone(state);
   const gave = cheersGiven(state);

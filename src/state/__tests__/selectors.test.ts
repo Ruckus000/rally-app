@@ -52,33 +52,33 @@ describe('points', () => {
 
 describe('ranking', () => {
   it('ranks everyone in the circle', () => {
-    expect(ranking(base)).toHaveLength(seedCircle('seeded').length);
+    expect(ranking(base, null)).toHaveLength(seedCircle('seeded').length);
   });
 
   it('sorts by follow-through, so a full week beats a bigger partial one', () => {
-    const order = ranking(base).map((r) => r.k);
+    const order = ranking(base, null).map((r) => r.k);
     expect(order[0]).toBe('maya'); // 7/7
     expect(order.indexOf('nana')).toBeLessThan(order.indexOf('dre')); // 6/6 over 5/7
     expect(order[order.length - 1]).toBe('you'); // 1/6
   });
 
   it('states the metric the sort actually uses', () => {
-    const dre = ranking(base).find((r) => r.k === 'dre');
+    const dre = ranking(base, null).find((r) => r.k === 'dre');
     expect(dre?.sub).toBe('71% · 5 of 7 · 🔥 2w');
   });
 
   it('omits the streak from the metric when there is none', () => {
-    const jordan = ranking(base).find((r) => r.k === 'jordan');
+    const jordan = ranking(base, null).find((r) => r.k === 'jordan');
     expect(jordan?.sub).toBe('20% · 1 of 5');
   });
 
   it('moves you up as you close stakes', () => {
-    const before = myRank(base);
+    const before = myRank(base, null);
     const all = base.myTasks.reduce(
       (s, t) => (t.done ? s : reducer(s, { type: 'TOGGLE_TASK', id: t.id })),
       base,
     );
-    expect(myRank(all)).toBeLessThan(before);
+    expect(myRank(all, null)).toBeLessThan(before);
   });
 });
 
@@ -91,9 +91,9 @@ describe('cheers', () => {
   });
 
   it('feeds the circle total', () => {
-    const before = totalCheersExchanged(base);
+    const before = totalCheersExchanged(base, null);
     const s = reducer(base, { type: 'ACT', id: 'f1', kind: 'cheer' });
-    expect(totalCheersExchanged(s)).toBe(before + 1);
+    expect(totalCheersExchanged(s, null)).toBe(before + 1);
   });
 
   describe('scope', () => {
@@ -103,20 +103,20 @@ describe('cheers', () => {
       const s = reducer(base, { type: 'ACT', id: 'f1', kind: 'cheer' });
       expect(cheersGiven(s)).toBe(cheersGiven(base) + 1);
       expect(circleCheersGiven(s)).toBe(circleCheersGiven(base) + 1);
-      expect(totalCheersExchanged(s)).toBe(totalCheersExchanged(base) + 1);
+      expect(totalCheersExchanged(s, null)).toBe(totalCheersExchanged(base, null) + 1);
     });
 
     it('a cheer on a global post counts on Me but not in the circle', () => {
       const s = reducer(base, { type: 'ACT', id: 'g1', kind: 'cheer' });
       expect(cheersGiven(s)).toBe(cheersGiven(base) + 1);
       expect(circleCheersGiven(s)).toBe(circleCheersGiven(base));
-      expect(totalCheersExchanged(s)).toBe(totalCheersExchanged(base));
+      expect(totalCheersExchanged(s, null)).toBe(totalCheersExchanged(base, null));
     });
 
     it('does not reorder the leaderboard — the sort ignores cheers given', () => {
-      const before = ranking(base).map((r) => r.k);
+      const before = ranking(base, null).map((r) => r.k);
       const s = reducer(base, { type: 'ACT', id: 'g1', kind: 'cheer' });
-      expect(ranking(s).map((r) => r.k)).toEqual(before);
+      expect(ranking(s, null).map((r) => r.k)).toEqual(before);
     });
 
     it('counts nothing toward the circle on an account that has none', () => {
@@ -167,14 +167,14 @@ describe('who counts as your circle', () => {
   it('leaves the bots out', () => {
     // Seen on device: "5 people, ranked by follow-through" over a leaderboard
     // of Wizard of Oz characters, on an account that knew nobody.
-    expect(circleMembers(live)).toEqual(['u-1']);
+    expect(circleMembers(live, null)).toEqual(['u-1']);
   });
 
   it('so an account with only bots is still a circle of one', () => {
     // Which is what the feed's invite prompt keys off. While the bots counted,
     // a brand-new account was never alone and never saw it.
     const { 'u-1': _, ...botsOnly } = live.people;
-    expect(circleMembers({ ...live, people: botsOnly })).toEqual([]);
+    expect(circleMembers({ ...live, people: botsOnly }, null)).toEqual([]);
   });
 });
 
@@ -329,6 +329,103 @@ describe('pick it back up', () => {
 
   it('says nothing when the circle has staked nothing', () => {
     expect(circleSuggestions(withCircle([]))).toEqual([]);
+  });
+});
+
+/**
+ * Who is in *which* circle, now that there can be more than one.
+ *
+ * `circleMembers` used to define "my circle" as the whole non-bot directory,
+ * which was only ever correct because the pull unions the members of every
+ * circle you are in. With two circles that union is the wrong answer to every
+ * question a screen actually asks.
+ */
+describe('who counts as a particular circle', () => {
+  const A = { id: 'c-a', name: 'The Basement', inviteCode: 'basement-aaaa' };
+  const B = { id: 'c-b', name: 'Gym', inviteCode: 'gym-bbbb' };
+  const ME = 'u-me' as PersonId;
+
+  const inBoth = {
+    ...base,
+    account: 'live' as const,
+    selfId: ME,
+    circles: [A, B],
+    activeCircleId: A.id,
+    people: {
+      [ME]: { ...personOf(ME, 'Me'), circleIds: [A.id, B.id] },
+      'u-1': { ...personOf('u-1' as PersonId, 'Rae Silva'), circleIds: [A.id] },
+      'u-2': { ...personOf('u-2' as PersonId, 'Sam Cole'), circleIds: [B.id] },
+      'b-1': { ...personOf('b-1' as PersonId, 'Dorothy Gale'), bot: true, circleIds: [] },
+    },
+  };
+
+  it('answers for one room at a time', () => {
+    expect(circleMembers(inBoth, A.id).sort()).toEqual([ME, 'u-1'].sort());
+    expect(circleMembers(inBoth, B.id).sort()).toEqual([ME, 'u-2'].sort());
+  });
+
+  it('still answers the union when asked for it', () => {
+    // Not a leftover: "is anybody at all watching" is a different question from
+    // "who is in this room", and the Week feed's empty state asks the first.
+    expect(circleMembers(inBoth, null).sort()).toEqual([ME, 'u-1', 'u-2'].sort());
+  });
+
+  it('leaves the bots out of both', () => {
+    expect(circleMembers(inBoth, A.id)).not.toContain('b-1');
+    expect(circleMembers(inBoth, null)).not.toContain('b-1');
+  });
+
+  it('ranks one circle without the other', () => {
+    // The consequence that matters: a leaderboard of people who cannot see
+    // each other is a board nobody is on together.
+    expect(ranking(inBoth, A.id).map((r) => r.k).sort()).toEqual([ME, 'u-1'].sort());
+    expect(ranking(inBoth, B.id).map((r) => r.k).sort()).toEqual([ME, 'u-2'].sort());
+  });
+
+  it('falls back to the whole directory when nothing knows its memberships', () => {
+    // The upgrade path, and it has to be a fact about the data rather than a
+    // version flag: a directory written before memberships existed carries
+    // none. Read as "in no circles" this would show every account "A circle of
+    // one" on the first launch after an upgrade, until a pull landed.
+    const older = {
+      ...inBoth,
+      people: {
+        [ME]: personOf(ME, 'Me'),
+        'u-1': personOf('u-1' as PersonId, 'Rae Silva'),
+        'u-2': personOf('u-2' as PersonId, 'Sam Cole'),
+      },
+    };
+
+    expect(circleMembers(older, A.id).sort()).toEqual([ME, 'u-1', 'u-2'].sort());
+  });
+
+  it('self-heals the moment one row knows', () => {
+    // The other half of the fallback: it is checked per-directory, not
+    // per-person, so a single row carrying the key switches the whole selector
+    // over — and anyone still without one is genuinely in no circle of yours.
+    const mixed = {
+      ...inBoth,
+      people: {
+        ...inBoth.people,
+        'u-2': personOf('u-2' as PersonId, 'Sam Cole'),
+      },
+    };
+
+    expect(circleMembers(mixed, A.id).sort()).toEqual([ME, 'u-1'].sort());
+  });
+
+  it('never drops you from a circle you are in', () => {
+    // The window where the directory knows about others and not yet about you.
+    // Without the self-guard you vanish from your own leaderboard.
+    const meUnknown = {
+      ...inBoth,
+      people: { ...inBoth.people, [ME]: personOf(ME, 'Me') },
+    };
+
+    expect(circleMembers(meUnknown, A.id)).toContain(ME);
+    // …and not from a circle you are *not* in, which is the same guard read
+    // the other way: `circleId` is checked against `state.circles`.
+    expect(circleMembers(meUnknown, 'c-never')).not.toContain(ME);
   });
 });
 

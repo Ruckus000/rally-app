@@ -180,10 +180,15 @@ const UNKNOWN = -1;
 /** What a member with no week to report shows instead of a fabricated 0%. */
 const NO_WEEK = 'No week synced yet';
 
-export function ranking(state: State): RankedMember[] {
+/**
+ * `circleId` threaded rather than resolved here, because a leaderboard is
+ * always *of* something: ranking people who cannot see each other is a board
+ * nobody is on together. Callers say which room they are drawing.
+ */
+export function ranking(state: State, circleId: string | null): RankedMember[] {
   const mine = myStats(state);
   const p = makePeople(state.people, state.selfId);
-  return circleMembers(state)
+  return circleMembers(state, circleId)
     .map((k) => {
       // `p.get(k).stats`, not `p.stats(k)`: the resolver's EMPTY_STATS is a
       // convenience for rendering, and here it would be a claim. A live circle
@@ -211,12 +216,12 @@ export function ranking(state: State): RankedMember[] {
     }));
 }
 
-export const myRank = (state: State) =>
-  ranking(state).find((r) => r.k === state.selfId)?.rank ?? 0;
+export const myRank = (state: State, circleId: string | null) =>
+  ranking(state, circleId).find((r) => r.k === state.selfId)?.rank ?? 0;
 
 /** Counts the members whose week we actually have. An unknown adds nothing. */
-export const totalCheersExchanged = (state: State) =>
-  ranking(state).reduce((a, r) => a + (r.given ?? 0), 0);
+export const totalCheersExchanged = (state: State, circleId: string | null) =>
+  ranking(state, circleId).reduce((a, r) => a + (r.given ?? 0), 0);
 
 /**
  * Who's on the leaderboard, and the only correct answer to "who is in this
@@ -242,10 +247,42 @@ export const totalCheersExchanged = (state: State) =>
  * blocked members out here, they will have reintroduced a per-viewer rollup —
  * read this note first.
  */
-export const circleMembers = (state: State): PersonId[] =>
-  state.account === 'live'
-    ? Object.keys(state.people).filter((id) => !state.people[id]?.bot)
-    : seedCircle(state.account);
+/**
+ * `circleId` is required, with no default, deliberately.
+ *
+ * A default would have kept all eleven call sites on the old union semantics
+ * with the compiler saying nothing — and the union is exactly the wrong answer
+ * once a person can be in two of your circles. Making it required is what turns
+ * `tsc` into the list of places that had to think about which circle they meant.
+ *
+ * `null` still means the union, and that is a real question two callers ask:
+ * "is anybody at all watching" is not the same question as "who is in this
+ * room".
+ */
+export const circleMembers = (state: State, circleId: string | null): PersonId[] => {
+  if (state.account !== 'live') return seedCircle(state.account);
+
+  const ids = Object.keys(state.people).filter((id) => !state.people[id]?.bot);
+  if (circleId === null) return ids;
+
+  // The upgrade path, and it has to be a fact about the data rather than a
+  // version flag: a directory written before memberships existed carries none,
+  // and so does one from a server too old to send them. Read as "in no
+  // circles" that would empty every roster on screen — so until *something*
+  // knows, the honest answer is the one this selector has always given.
+  // Self-healing: the instant one row carries the key, the scoped answer takes
+  // over.
+  if (!ids.some((id) => state.people[id]?.circleIds)) return ids;
+
+  return ids.filter((id) => {
+    // You are never dropped from a circle you are in. `circleId` comes from
+    // `state.circles`, which *is* your membership list — but in the window
+    // where some rows carry the key and your own does not, this is what stops
+    // you vanishing from your own leaderboard.
+    if (id === state.selfId && state.circles.some((c) => c.id === circleId)) return true;
+    return state.people[id]?.circleIds?.includes(circleId) ?? false;
+  });
+};
 
 /**
  * Unread drives the bell badge, and only the "needs you" tier counts.
