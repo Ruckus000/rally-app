@@ -466,6 +466,25 @@ describe('accounts', () => {
     expect(live.selfId).toBe(MINE);
   });
 
+  it('keeps the id of a resolved session through a reset, too', () => {
+    // The other half of the same rule. `RESET` reseeds through `seedFor` just
+    // as `SET_ACCOUNT` does, and left as the sentinel the next pull files your
+    // own row as a stranger — you appear twice in your own circle.
+    //
+    // Note what this test cannot see: keeping the id is also what stops the
+    // store's `lastSelfId` effect firing, which is what used to clear the
+    // outbox on this path. That guarantee moved to `clearQueuesForReset`, and
+    // `screens/__tests__/resetTakesTheQueue.test.tsx` is where it is pinned.
+    const ready: State = {
+      ...undecided,
+      account: 'live',
+      session: { status: 'ready', userId: MINE, anonymous: true },
+    };
+
+    expect(reducer(ready, { type: 'RESET', mode: 'live' }).selfId).toBe(MINE);
+    expect(reducer(ready, { type: 'RESET', mode: 'seeded' }).selfId).toBe(SELF_DEMO_ID);
+  });
+
   it('keeps the sentinel for a demo, and until a session resolves', () => {
     // The sentinel is what the demo worlds mean by "you", and it is also the
     // honest answer before anyone has authenticated.

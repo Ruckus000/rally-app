@@ -300,13 +300,18 @@ describe('reset', () => {
     spy.mockRestore();
   });
 
-  it('empties the account when fresh start is chosen', () => {
+  it('empties the account when fresh start is chosen', async () => {
     const spy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     open();
     fireEvent.press(screen.getByLabelText('Me'));
     fireEvent.press(screen.getByLabelText('Reset app data'));
     const buttons = spy.mock.calls[0][2] ?? [];
-    act(() => buttons.find((b) => b.text === 'Fresh start')?.onPress?.());
+    // Awaited, because the wipe is no longer the first thing that happens:
+    // `clearQueuesForReset` empties the outbox and the media queue first, and
+    // the dispatch is what follows. See `screens/__tests__/resetTakesTheQueue`.
+    await act(async () => {
+      await buttons.find((b) => b.text === 'Fresh start')?.onPress?.();
+    });
     spy.mockRestore();
 
     // An emptied account opens on Global, because the two tabs that would be

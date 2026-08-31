@@ -12,6 +12,7 @@ import { linkApple } from '../sync/session';
 import { appleTrouble } from '../lib/appleCopy';
 import { Trouble } from '../components/Trouble';
 import { deadLetters } from '../sync/outbox';
+import { clearQueuesForReset } from '../overlays/settings/resetAppData';
 import { nextWeekAfter, useStore } from '../state/store';
 import { canSecure } from '../overlays/settings/guards';
 import { allTasksDone, cheersGiven, circleMembers, myRank, weekPoints } from '../state/selectors';
@@ -641,6 +642,20 @@ function DevControls() {
   const color = useColors();
   const { state, dispatch } = useStore();
 
+  /**
+   * Queues first, dispatch second, and in that order for the reason
+   * `signOut.ts` gives about its own: the dispatch changes state the store's
+   * effects watch, and letting it go first means racing them. Here there is
+   * nothing left to race — `RESET` on a live account moves neither `account`
+   * nor, since it keeps a resolved session's id, `selfId` — so the clear is
+   * the only thing that takes unsent work off the device, and it has to have
+   * finished before the wipe it belongs to.
+   */
+  const startOver = async (mode: 'fresh' | 'seeded' | 'live') => {
+    await clearQueuesForReset();
+    dispatch({ type: 'RESET', mode });
+  };
+
   const confirm = () =>
     Alert.alert(
       'Reset app data',
@@ -650,11 +665,11 @@ function DevControls() {
         {
           text: 'Fresh start',
           style: 'destructive',
-          onPress: () => dispatch({ type: 'RESET', mode: 'fresh' }),
+          onPress: () => void startOver('fresh'),
         },
         {
           text: 'Reload demo',
-          onPress: () => dispatch({ type: 'RESET', mode: 'seeded' }),
+          onPress: () => void startOver('seeded'),
         },
       ],
       { cancelable: true },
@@ -675,7 +690,7 @@ function DevControls() {
         {
           text: 'Go live',
           style: 'destructive',
-          onPress: () => dispatch({ type: 'RESET', mode: 'live' }),
+          onPress: () => void startOver('live'),
         },
       ],
       { cancelable: true },
