@@ -729,7 +729,18 @@ const carryThreads = (prev: Moment[], next?: Moment[]): Moment[] => {
         was.title === m.title &&
         was.cmts === m.cmts &&
         was.media?.id === m.media?.id &&
-        was.media?.url === m.media?.url
+        was.media?.url === m.media?.url &&
+        // The two the server owns and the card draws. Left out, they were only
+        // ever safe by accident: a moment with no thread gets a fresh `cmts`
+        // from every pull, so the clause above failed and the merge was taken
+        // anyway. Write one note on that moment and the thread is carried
+        // across by reference, this whole test starts passing, and the count
+        // freezes at whatever it was when you wrote — for the life of the
+        // install. `time` stays out on purpose: it is recomputed from the clock
+        // every pull, and comparing it would report a change every minute
+        // forever.
+        was.cheers === m.cheers &&
+        was.done === m.done
       );
     });
   return unchanged ? prev : merged;

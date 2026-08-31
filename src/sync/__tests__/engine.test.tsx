@@ -826,6 +826,37 @@ describe('other people’s weeks', () => {
     expect(screen.getByTestId('cheers')).toHaveTextContent('2');
   });
 
+  it('updates the count when a cheer lands on a moment already on screen', async () => {
+    // The case the test above cannot reach: it seeds both cheers before the
+    // moment is ever delivered, so `prev` is empty and `carryThreads` has
+    // nothing to compare against. Once the card is on screen the comparison
+    // runs, and it was reading `id`, `title`, `cmts` and the photo only — so a
+    // pull whose only news was a cheer got as far as the reducer and was
+    // dropped there. The count never moved until the app was restarted.
+    mount();
+    await settle();
+    const me = currentUserId() as string;
+    inACircleWith(me);
+    mayaStakes();
+    await settle(60_000);
+    expect(screen.getByTestId('feed')).toHaveTextContent('Swim 2k');
+    expect(screen.getByTestId('cheers')).toHaveTextContent('0');
+
+    fakeSupabase.seed({
+      reactions: [
+        {
+          actor_id: OTHER,
+          target_type: 'task',
+          target_id: '99999999-9999-4999-8999-999999999999',
+          kind: 'cheer',
+        },
+      ],
+    });
+    await settle(60_000);
+
+    expect(screen.getByTestId('cheers')).toHaveTextContent('1');
+  });
+
   it('leaves your own cheer out of the count, so the screen can add it once', async () => {
     mount();
     await settle();
@@ -866,6 +897,43 @@ describe('other people’s weeks', () => {
     // `time` is recomputed from the clock on every pull, so a comparison that
     // included it would report a change every cycle, forever.
     expect(rendered.count).toBe(renders);
+  });
+
+  it('updates the cheer count on a moment you have written on', async () => {
+    // `carryThreads` returns `prev` by identity when nothing it compares has
+    // moved, which is what lets an unchanged feed skip a render. It compared
+    // `id`, `title`, `cmts` and the photo — not `cheers`. On a moment with no
+    // thread the comparison never fired, because the pull builds a fresh
+    // `cmts` every time and reference equality failed. On a moment you *have*
+    // written on, the thread is carried across by reference, that clause
+    // passes, and the whole merge is discarded — so the count froze at
+    // whatever it was when you wrote the note, until the app restarted.
+    mount();
+    await settle();
+    inACircleWith(currentUserId() as string);
+    mayaStakes();
+    await settle(60_000);
+
+    say('99999999-9999-4999-8999-999999999999', 'proud of you');
+    await settle(10_000);
+    expect(screen.getByTestId('feedNotes')).toHaveTextContent('proud of you');
+    expect(screen.getByTestId('cheers')).toHaveTextContent('0');
+
+    fakeSupabase.seed({
+      reactions: [
+        {
+          actor_id: OTHER,
+          target_type: 'task',
+          target_id: '99999999-9999-4999-8999-999999999999',
+          kind: 'cheer',
+        },
+      ],
+    });
+    await settle(60_000);
+
+    expect(screen.getByTestId('cheers')).toHaveTextContent('1');
+    // And the note is still there — the carry-over is what this must not cost.
+    expect(screen.getByTestId('feedNotes')).toHaveTextContent('proud of you');
   });
 
   it('keeps a note you left on a friend’s task when the feed refreshes', async () => {
