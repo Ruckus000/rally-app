@@ -633,6 +633,32 @@ function PersonSheet({ who }: { who: PersonId }) {
  * invite surface, onboarding was the only place a circle could be made, and
  * neither could be reached again. One field and the call that already exists.
  */
+/**
+ * The honest answer while the first pull is still out.
+ *
+ * Not a spinner over the invite code, and not the create form: both of those
+ * claim to know something. This says only what is true — nobody has answered
+ * yet — and it is replaced the moment one does, because `worldSeen` and
+ * `circle` land in the same merge.
+ */
+function LookingForYourCircle() {
+  const color = useColors();
+  return (
+    <ScrollView
+      style={{ flexShrink: 1 }}
+      contentContainerStyle={{ paddingTop: 6, paddingHorizontal: 18, paddingBottom: 20 }}
+    >
+      <Bri size={20} weight={800} tracking={-0.4}>
+        One moment
+      </Bri>
+      <Sans size={13} color={color.muted} style={{ marginTop: 6, lineHeight: 18.5 }}>
+        Checking whether you’re already in a circle. If you are, its code will be here in a
+        second.
+      </Sans>
+    </ScrollView>
+  );
+}
+
 function StartCircle() {
   const color = useColors();
   const keyboard = useKeyboardAppearance();
@@ -749,8 +775,18 @@ function InviteSheet() {
   // A live account with no circle has, until now, had no way to make one after
   // onboarding — this sheet was the end of the road. It reuses the same
   // `createCircle` the onboarding step calls; there is no second creation path.
-  if (live && !state.circle) {
+  //
+  // `worldSeen` is the half that stops this being a trap. `circle` is not
+  // persisted, so on every cold start it is `null` until the first pull lands —
+  // and the Circle tab behind this sheet is drawn from `people`, which *is*
+  // persisted. So the invite affordance is there, off disk, in a window where
+  // this branch could only answer "you have no circle" about somebody who
+  // does. One tap and a name later they have a second one.
+  if (live && state.worldSeen && !state.circle) {
     return <StartCircle />;
+  }
+  if (live && !state.worldSeen && !state.circle) {
+    return <LookingForYourCircle />;
   }
 
   return (

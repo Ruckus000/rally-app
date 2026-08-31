@@ -27,6 +27,8 @@ export const baseState: State = {
   // A fixture has never been reseeded. The engine reads this to tell a world
   // being replaced from one the user emptied by hand; a fixture is neither.
   worldEpoch: 0,
+  // A fixture is the answer, so nothing is waiting on a pull to give one.
+  worldSeen: true,
   // Seeded like every other demo slice. These two used to be empty here and
   // filled from the world object instead, which is exactly the arrangement
   // that let a live account read the demo's.

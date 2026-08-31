@@ -50,7 +50,13 @@ const demoMe = () =>
     </StoreProvider>,
   );
 
-const inviteSheet = (account: 'live' | 'seeded', circle: CircleRef | null = CIRCLE) =>
+const inviteSheet = (
+  account: 'live' | 'seeded',
+  circle: CircleRef | null = CIRCLE,
+  // Whether a pull has answered yet. `true` for most of these because they are
+  // about what the sheet draws once it knows, not about the window before.
+  worldSeen = true,
+) =>
   render(
     <StoreProvider
       persist={false}
@@ -59,6 +65,7 @@ const inviteSheet = (account: 'live' | 'seeded', circle: CircleRef | null = CIRC
         account,
         selfId: account === 'live' ? ME_ID : undefined,
         circle: account === 'live' ? circle : null,
+        worldSeen,
         sheet: { type: 'invite', id: null },
       }}
     >
@@ -185,6 +192,19 @@ describe('the invite code', () => {
 
     expect(screen.getByLabelText('Circle name')).toBeTruthy();
     expect(screen.getByLabelText('Create circle')).toBeTruthy();
+  });
+
+  it('does not offer to start one before the first pull has answered', () => {
+    // `circle` is not persisted, so it is null on every cold start until the
+    // pull lands — while the Circle tab behind this sheet is drawn from
+    // `people`, which is. Reading that null as "you have no circle" offered
+    // the create form to somebody who had one, and a name and a tap later
+    // they had two.
+    inviteSheet('live', null, false);
+
+    expect(screen.queryByLabelText('Circle name')).toBeNull();
+    expect(screen.queryByLabelText('Create circle')).toBeNull();
+    expect(screen.getByText(/Checking whether you’re already in a circle/)).toBeTruthy();
   });
 
   it('leaves the demo alone — the control', () => {
