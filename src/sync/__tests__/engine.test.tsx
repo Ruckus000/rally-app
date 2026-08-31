@@ -1713,3 +1713,147 @@ describe('a goal deleted with a photo on it', () => {
     expect(ops()).not.toContain('media.detach');
   });
 });
+
+/**
+ * A reseed that happens while the engine keeps running.
+ *
+ * `SET_ACCOUNT` and `RESET` both clear every slice the pull owns, on the
+ * reasoning that the server they came from belongs to the account being left
+ * behind. But choosing `live` again does not move `syncOn`, so the engine is
+ * not rebuilt — and its "did this move?" baselines are private to the closure.
+ * A baseline that outlives the clear makes the next pull answer "nothing to
+ * do" about a slice the store no longer has, and the answer never comes back
+ * until the process restarts.
+ *
+ * That is the resumed-onboarding bug in its smallest form: the circle is the
+ * slice people notice, but the same tap takes the feed, the Global tab, the
+ * bell and the Me screen's cheer count with it.
+ */
+describe('a reseed while the engine keeps running', () => {
+  const FRIEND_TASK = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+  /** Every slice only a pull can fill, populated: circle, feed, globals, bell, count. */
+  const everythingTheServerOwns = async () => {
+    mount();
+    await settle();
+    const me = currentUserId() as string;
+    inACircleWith(me);
+    aBotStakes();
+    fakeSupabase.seed({
+      tasks: [
+        {
+          id: FRIEND_TASK,
+          owner_id: OTHER,
+          week_start: weekOnScreen(),
+          day: 2,
+          title: 'Swim 2k',
+          category: 'Fitness',
+          points: 40,
+          aud: 'friends',
+          source: 'staked',
+        },
+      ],
+    });
+    stake('ride to the bridge');
+    await settle(10_000);
+    const mine = taskIds()[0] as string;
+    fakeSupabase.seed({
+      // The cheer twice over: the reaction row is what the Me screen counts,
+      // and the notification row is what the bell draws. They are separate
+      // tables answered by separate reads, so seeding one proves nothing about
+      // the other.
+      reactions: [{ actor_id: OTHER, target_type: 'task', target_id: mine, kind: 'cheer' }],
+      notifications: [
+        {
+          id: 'aaaaaaaa-1111-4111-8111-111111111111',
+          recipient_id: me,
+          tier: 'circle',
+          kind: 'cheer',
+          payload: {
+            actor_id: OTHER,
+            actor_name: 'Maya Chen',
+            task_id: mine,
+            task_title: 'ride to the bridge',
+          },
+        },
+      ],
+    });
+    await settle(60_000);
+    return me;
+  };
+
+  const fiveSlices = () => ({
+    circle: screen.getByTestId('circle').props.children,
+    feed: screen.getByTestId('feed').props.children,
+    globals: screen.getByTestId('globals').props.children,
+    notifs: screen.getByTestId('notifs').props.children,
+    received: screen.getByTestId('received').props.children,
+  });
+
+  it('makes every slice the pull owns come back', async () => {
+    await everythingTheServerOwns();
+    expect(fiveSlices()).toEqual({
+      circle: 'basement-0123456789abcdef',
+      feed: 'Swim 2k',
+      globals: 'Walked the whole way',
+      notifs: 'Maya Chen cheered “ride to the bridge”',
+      received: '1',
+    });
+
+    // Choosing `live` again — what the welcome screen dispatches when onboarding
+    // resumes after a force-quit. Everything server-derived goes.
+    act(() => dispatch({ type: 'SET_ACCOUNT', mode: 'live' }));
+    expect(fiveSlices()).toEqual({
+      circle: '',
+      feed: '',
+      globals: '',
+      notifs: '',
+      received: '0',
+    });
+
+    // One pull is all it should take. Nothing about the server changed, so
+    // every one of these is the engine deciding whether to speak.
+    await settle(60_000);
+    expect(fiveSlices()).toEqual({
+      circle: 'basement-0123456789abcdef',
+      feed: 'Swim 2k',
+      globals: 'Walked the whole way',
+      notifs: 'Maya Chen cheered “ride to the bridge”',
+      received: '1',
+    });
+  });
+
+  it('does not mistake the reseed for the user deleting their week', async () => {
+    // The reseed empties `myTasks`, and a reference diff cannot tell that from
+    // somebody clearing their week by hand — so it enqueued a `task.delete`
+    // per goal, and they drained against real rows. What made this survivable
+    // for so long was an accident: reseeding also pinned `selfId` back to the
+    // sentinel, which tripped the store's identity-change effect, which threw
+    // the queue away first. That clear is async and this one is not a race
+    // worth keeping.
+    await everythingTheServerOwns();
+    expect(fakeSupabase.rows('tasks').map((r) => r.title)).toContain('ride to the bridge');
+
+    act(() => dispatch({ type: 'SET_ACCOUNT', mode: 'live' }));
+    await settle(60_000);
+
+    expect(pending().map((e) => e.op)).not.toContain('task.delete');
+    // The row itself, which is the thing a friend's feed is reading.
+    expect(fakeSupabase.rows('tasks').map((r) => r.title)).toContain('ride to the bridge');
+  });
+
+  it('goes quiet again once it has spoken', async () => {
+    // The failure mode of the obvious fix. Mirroring the baselines onto state
+    // every commit would make a slice the reducer declines to adopt disagree
+    // with the pull forever, and dispatch a merge a minute for the life of the
+    // app. Re-arming only on a slice the store has emptied can fire once.
+    await everythingTheServerOwns();
+    act(() => dispatch({ type: 'SET_ACCOUNT', mode: 'live' }));
+    await settle(60_000);
+
+    const renders = rendered.count;
+    await settle(180_000);
+
+    expect(rendered.count).toBe(renders);
+  });
+});

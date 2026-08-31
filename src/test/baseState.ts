@@ -24,6 +24,9 @@ export const baseState: State = {
   deletionAt: null,
   selfId: SELF_DEMO_ID,
   circle: null,
+  // A fixture has never been reseeded. The engine reads this to tell a world
+  // being replaced from one the user emptied by hand; a fixture is neither.
+  worldEpoch: 0,
   // Seeded like every other demo slice. These two used to be empty here and
   // filled from the world object instead, which is exactly the arrangement
   // that let a live account read the demo's.

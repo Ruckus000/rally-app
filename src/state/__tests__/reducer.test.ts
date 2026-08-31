@@ -17,9 +17,12 @@ import {
   seedNotifications,
   seedProfile,
 } from '../../data/seed';
-import { personOf } from '../../data/people';
+import { personOf, SELF_DEMO_ID } from '../../data/people';
 import { baseState as base, freshState } from '../../test/baseState';
 import { weekAfter } from '../../data/week';
+
+/** The uuid an anonymous sign-in would have handed back. */
+const MINE = '11111111-1111-4111-8111-111111111111';
 
 /** RFC 4122, any version — the shape, not a particular generator. */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -445,6 +448,33 @@ describe('accounts', () => {
     expect(live.profile.allTimePoints).toBe(0);
     // Acted-on ids belonged to the world being left.
     expect(live.acted).toEqual({});
+  });
+
+  it('keeps the id of a session that has already resolved', () => {
+    // Onboarding resuming after a force-quit: the anonymous session landed
+    // while the welcome screen was on screen, and then the user tapped `Get
+    // started`. `seedFor` pins the sentinel on the reasoning that the real id
+    // arrives with the session — but it already did, and `SESSION` returns
+    // early for a re-broadcast it reads as equal, so nothing announces it
+    // again. Left as `'you'`, the next pull files your own row as a stranger.
+    const ready: State = {
+      ...undecided,
+      session: { status: 'ready', userId: MINE, anonymous: true },
+    };
+    const live = reducer(ready, { type: 'SET_ACCOUNT', mode: 'live' });
+
+    expect(live.selfId).toBe(MINE);
+  });
+
+  it('keeps the sentinel for a demo, and until a session resolves', () => {
+    // The sentinel is what the demo worlds mean by "you", and it is also the
+    // honest answer before anyone has authenticated.
+    const ready: State = {
+      ...undecided,
+      session: { status: 'ready', userId: MINE, anonymous: true },
+    };
+    expect(reducer(ready, { type: 'SET_ACCOUNT', mode: 'seeded' }).selfId).toBe(SELF_DEMO_ID);
+    expect(reducer(undecided, { type: 'SET_ACCOUNT', mode: 'live' }).selfId).toBe(SELF_DEMO_ID);
   });
 
   it('going solo in the demo drops the circle it had granted', () => {

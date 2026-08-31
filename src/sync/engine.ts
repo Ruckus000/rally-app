@@ -844,8 +844,12 @@ export function createEngine(
   let mergingNotes: Set<string> | null = null;
   /**
    * The circle the last pull answered with. Held here rather than read back off
-   * state because the reducer is not the engine's memory — and the comparison
-   * has to be field-wise anyway, since every pull builds a new object.
+   * state on every comparison, because the comparison has to be field-wise
+   * anyway — every pull builds a new object.
+   *
+   * But the reducer *is* the record of what was delivered, and it clears these
+   * slices on its own. See `rearmCleared` in `observe` for the half of the
+   * arrangement that keeps the two from drifting apart.
    */
   let lastCircle: CircleRef | null = null;
   /**
@@ -872,8 +876,66 @@ export function createEngine(
    * backend) starts a new engine and asks again.
    */
   let worldSupported = true;
+  /**
+   * The reseed counter the last observation saw. `null` until the first, which
+   * is the mount — and a mount adopts everything anyway.
+   */
+  let lastWorldEpoch: number | null = null;
+
+  /**
+   * Re-arm the pull's baselines against a slice the reducer has emptied.
+   *
+   * The baselines above answer one question — "would this merge move
+   * anything?" — by remembering what the last pull said. That is only the same
+   * as what the store holds for as long as the store is the only thing that
+   * changes it. It is not: `seedFor` (`SET_ACCOUNT`, `RESET`) clears every
+   * slice below, and `COMMIT_ROLLOVER` clears the feed and the cheer count.
+   * Neither moves `syncOn`, so the engine is not rebuilt and its baselines
+   * outlive the clear — after which the pull answers "nothing to do" about a
+   * slice the store no longer has, forever, and the circle you are a member of
+   * simply never comes back.
+   *
+   * Emptiness is the trigger, not equality. Mirroring these onto state every
+   * commit is the obvious version and it is wrong: `carryThreads` declines a
+   * merge whose only news is a cheer, so the baseline would become the rejected
+   * value and the next pull would disagree again — a merge, and a render of
+   * every screen, once a minute for the life of the app. Re-arming only what
+   * the store has emptied can fire at most once per clear, because the merge
+   * that follows always fills the slice.
+   *
+   * Runs before the first-call seeding below, so a clear can never be skipped.
+   * `seenNotes` is deliberately not in this list: it doubles as the ledger of
+   * notes judged unsendable, and re-arming it would offer the server's own
+   * notes back to it as inserts.
+   */
+  function rearmCleared(state: State): void {
+    if (!state.circle) lastCircle = null;
+    if (state.moments.length === 0) lastFeed = [];
+    if (state.globalPosts.length === 0) lastGlobal = [];
+    if (state.notifications.length === 0) lastNotificationIds = '';
+    if (state.profile.cheersReceived === 0) lastReceived = 0;
+  }
 
   function observe(state: State): void {
+    rearmCleared(state);
+    /**
+     * A reseed is adopted, never diffed.
+     *
+     * `SET_ACCOUNT` and `RESET` replace the world wholesale, and the reference
+     * diff below cannot tell that from the user clearing their week by hand —
+     * it sees the tasks it was holding disappear and enqueues a `task.delete`
+     * for each one. Those are real deletes against real rows: reseeding a live
+     * account would destroy the week on the server, for everyone who can see
+     * it.
+     *
+     * This was previously masked rather than handled. Reseeding also pinned
+     * `selfId` back to the demo sentinel, which tripped the identity-change
+     * effect in the store, which threw the queue away before it drained — an
+     * accident, and a racing one, since the clear is async. `selfId` now
+     * survives a reseed, so the guard has to be the real thing.
+     */
+    const reseeded = lastWorldEpoch !== null && lastWorldEpoch !== state.worldEpoch;
+    lastWorldEpoch = state.worldEpoch;
     const tasks = state.myTasks;
     const merged = merging;
     const mergedActed = mergingActed;
@@ -889,7 +951,7 @@ export function createEngine(
     const rolled = lastWeek !== null && lastWeek.number !== state.week.number;
     lastWeek = state.week;
 
-    if (seen === null) {
+    if (seen === null || reseeded) {
       seen = index(tasks);
       lastTasks = tasks;
       lastActed = state.acted;

@@ -452,7 +452,14 @@ export function OnboardOverlay({
             stakeSum={stakeSum}
             pickCount={picked.length}
             circle={state.circle?.name ?? flow.circle}
-            joined={flow.joined}
+            // `flow.joined` is what happened *in this conversation*, and a
+            // conversation that was interrupted has forgotten. Somebody who
+            // joined before a force-quit is a member the server has never
+            // stopped believing in — and `StakedScreen` gates every line it
+            // draws on this flag, so without the second half it computes the
+            // right circle name and then announces "Solo for now." to someone
+            // whose Week header names the circle two seconds later.
+            joined={flow.joined || !!state.circle}
             weekNumber={state.week.number}
             onEnter={finish}
           />

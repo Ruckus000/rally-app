@@ -200,6 +200,21 @@ export type State = {
    */
   circle: CircleRef | null;
   /**
+   * How many times the world under this session has been reseeded.
+   *
+   * `SET_ACCOUNT` and `RESET` empty every slice the server owns, and choosing
+   * `live` while already live changes nothing else about the state — same
+   * account, and (since the session's id is kept) same `selfId`. So there is
+   * no other way for the sync engine to tell "the world was replaced" from
+   * "the user deleted all of it", and those two need opposite answers: the
+   * first must be adopted, the second sent. Read by `observe`, and by nothing
+   * that renders.
+   *
+   * Not persisted. It is a within-process signal between the reducer and the
+   * engine, and a launch builds both of them fresh.
+   */
+  worldEpoch: number;
+  /**
    * Your notification feed on a live account. Persisted, unlike `circle` — the
    * argument that covers the circle sheet does not survive contact with the
    * bell. An empty circle sheet for one pull is a screen you opened knowing it
@@ -346,6 +361,7 @@ const initialState: State = {
   deletionAt: null,
   selfId: SELF_DEMO_ID,
   circle: null,
+  worldEpoch: 0,
   notifications: seedNotifications(null),
   globalPosts: seedGlobalPosts(null),
   session: { status: 'off' },
@@ -1128,6 +1144,21 @@ export function reducer(state: State, action: Action): State {
         // already emptied the list `Got it` would have had to clear.
         unsaved: 0,
         ...seedFor(action.mode, state.week),
+        // `seedFor` pins the demo sentinel, on the reasoning that the real id
+        // arrives with the session. On a resumed launch it has already arrived,
+        // and `SESSION` returns early for a re-broadcast it reads as equal — so
+        // nothing would ever announce it again. Left as the sentinel, the next
+        // pull files your own `profiles` row as a stranger: you appear twice in
+        // your own circle and `isSelf` is false for your own id, until the next
+        // launch. The demo modes keep the sentinel, which is what it is for.
+        selfId:
+          action.mode === 'live' && state.session.status === 'ready'
+            ? state.session.userId
+            : SELF_DEMO_ID,
+        // The engine's only warning that the slices it diffs against were
+        // replaced rather than emptied by hand. Without it, reseeding a live
+        // account enqueues a delete for every goal on it — see `observe`.
+        worldEpoch: state.worldEpoch + 1,
         acted: {},
         replied: {},
         pending: {},
@@ -1163,6 +1194,9 @@ export function reducer(state: State, action: Action): State {
         week,
         day: week.today,
         ...seedFor(action.mode, week),
+        // Same warning to the engine as `SET_ACCOUNT` gives, and for the same
+        // reason: `initialState` would otherwise take this back to zero.
+        worldEpoch: state.worldEpoch + 1,
         onboardStep: null,
         tab: 'week',
         // The feed, for every mode. It used to branch — the demo opened on its
@@ -1191,7 +1225,10 @@ export function reducer(state: State, action: Action): State {
      */
     case 'SIGN_OUT': {
       const week = liveWeek();
-      return { ...initialState, week, day: week.today };
+      // The epoch counts up rather than restarting, here and below: these two
+      // leave `live` and so tear the engine down, but a counter that can go
+      // backwards is a counter a future caller can make collide.
+      return { ...initialState, week, day: week.today, worldEpoch: state.worldEpoch + 1 };
     }
 
     /**
@@ -1210,7 +1247,13 @@ export function reducer(state: State, action: Action): State {
      */
     case 'DELETION_SCHEDULED': {
       const week = liveWeek();
-      return { ...initialState, week, day: week.today, deletionAt: action.at };
+      return {
+        ...initialState,
+        week,
+        day: week.today,
+        deletionAt: action.at,
+        worldEpoch: state.worldEpoch + 1,
+      };
     }
 
     /**
