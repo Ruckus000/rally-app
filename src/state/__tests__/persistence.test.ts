@@ -242,6 +242,41 @@ describe('an unanswered rollover prompt', () => {
   });
 });
 
+describe('which circle the app was left on', () => {
+  it('survives a relaunch, while the circles themselves do not', async () => {
+    // The asymmetry is the design. `circles` is server-derived and refetched on
+    // launch, so persisting it would buy a soundness validator and a staleness
+    // question for one pull's worth of latency. `activeCircleId` is a choice,
+    // and it is the one thing here the server cannot re-derive — unpersisted,
+    // the app opens on a different circle from the one it was left on, every
+    // single launch.
+    save({
+      ...base,
+      activeCircleId: 'c-gym',
+      circles: [{ id: 'c-gym', name: 'Gym', inviteCode: 'gym-0123456789abcdef' }],
+    });
+    await flush();
+
+    const restored = await load();
+    expect(restored?.activeCircleId).toBe('c-gym');
+
+    // Asserted against what actually reached the disk, not against the restored
+    // object: `Persisted` has no `circles` at all, so a check on the way out
+    // would be the type system agreeing with itself. `PERSISTED_KEYS` is the
+    // thing under test, and this is where it can be caught adding a key.
+    const raw = JSON.parse((await AsyncStorage.getItem(KEY)) ?? '{}');
+    expect('circles' in raw.data).toBe(false);
+    expect(raw.data.activeCircleId).toBe('c-gym');
+  });
+
+  it('is discarded, payload and all, if it comes back as something absurd', async () => {
+    const bad = { ...pick(base), activeCircleId: 'x'.repeat(200) };
+    await AsyncStorage.setItem(KEY, envelope(bad));
+
+    expect(await load()).toBeNull();
+  });
+});
+
 describe('the circle a goal was staked in', () => {
   it('survives a restart, on the task and on the moment', async () => {
     const CIRCLE = '33333333-3333-4333-8333-333333333333';

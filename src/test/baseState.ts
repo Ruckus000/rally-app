@@ -23,7 +23,8 @@ export const baseState: State = {
   account: 'seeded',
   deletionAt: null,
   selfId: SELF_DEMO_ID,
-  circle: null,
+  circles: [],
+  activeCircleId: null,
   // A fixture has never been reseeded. The engine reads this to tell a world
   // being replaced from one the user emptied by hand; a fixture is neither.
   worldEpoch: 0,

@@ -38,6 +38,7 @@ import { StakeScreen } from './onboard/StakeScreen';
 import { CircleScreen } from './onboard/CircleScreen';
 import { NotificationsScreen } from './onboard/NotificationsScreen';
 import { StakedScreen } from './onboard/StakedScreen';
+import { activeCircle } from '../state/selectors';
 
 /** Screens 0, 3 and 6 are dark; 1, 2, 4 and 5 are paper. */
 const DARK_STEPS = [0, 3, 6];
@@ -451,7 +452,7 @@ export function OnboardOverlay({
           <StakedScreen
             stakeSum={stakeSum}
             pickCount={picked.length}
-            circle={state.circle?.name ?? flow.circle}
+            circle={activeCircle(state)?.name ?? flow.circle}
             // `flow.joined` is what happened *in this conversation*, and a
             // conversation that was interrupted has forgotten. Somebody who
             // joined before a force-quit is a member the server has never
@@ -459,7 +460,7 @@ export function OnboardOverlay({
             // draws on this flag, so without the second half it computes the
             // right circle name and then announces "Solo for now." to someone
             // whose Week header names the circle two seconds later.
-            joined={flow.joined || !!state.circle}
+            joined={flow.joined || state.circles.length > 0}
             weekNumber={state.week.number}
             onEnter={finish}
           />

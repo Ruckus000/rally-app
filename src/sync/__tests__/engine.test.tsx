@@ -27,7 +27,7 @@ import {
 } from '../realtime';
 import { __resetSessionForTests, currentUserId } from '../session';
 import { personOf } from '../../data/people';
-import { circleMembers } from '../../state/selectors';
+import { activeCircle, circleMembers } from '../../state/selectors';
 
 const OTHER = '22222222-2222-4222-8222-222222222222';
 const CIRCLE = '33333333-3333-4333-8333-333333333333';
@@ -133,8 +133,12 @@ function Probe() {
       {/* Your own name as a screen would draw it — the thing that used to read
           "Someone" no matter what you typed. */}
       <Text testID="myname">{store.state.people[store.state.selfId]?.name ?? ''}</Text>
-      {/* The invite code, which is the only string that lets anyone in. */}
-      <Text testID="circle">{store.state.circle?.inviteCode ?? ''}</Text>
+      {/* The invite code, which is the only string that lets anyone in. It
+          is the active circle's, which for every test in this file is the only
+          one — a picker is a later slice. */}
+      <Text testID="circle">{activeCircle(store.state)?.inviteCode ?? ''}</Text>
+      {/* Every circle, so a test can tell "one" from "two" from "none". */}
+      <Text testID="circles">{store.state.circles.map((c) => c.name).join(',')}</Text>
       {/* Other people's weeks, and the thread this device has left on them. */}
       <Text testID="feed">{store.state.moments.map((m) => m.title ?? '').join(',')}</Text>
       {/* The Oz bots' week — the Global tab, and a different set of owners
@@ -1779,6 +1783,68 @@ describe('a goal deleted with a photo on it', () => {
     await settle();
 
     expect(ops()).not.toContain('media.detach');
+  });
+});
+
+/**
+ * More than one circle, which the pull has answered for since
+ * `20260901090000_pull_world_all_circles.sql` and the client has carried since
+ * `state.circle` became `state.circles`.
+ */
+describe('an account in two circles', () => {
+  const SECOND = '44444444-4444-4444-8444-444444444444';
+
+  const inTwoCircles = (me: string) => {
+    inACircleWith(me);
+    fakeSupabase.seed({
+      circles: [
+        { id: SECOND, name: 'Gym', invite_code: 'gym-0123456789abcdef', created_by: me },
+      ],
+      circle_members: [{ circle_id: SECOND, profile_id: me }],
+    });
+  };
+
+  it('lands both, oldest first', async () => {
+    mount();
+    await settle();
+    inTwoCircles(currentUserId() as string);
+    await settle(60_000);
+
+    expect(screen.getByTestId('circles')).toHaveTextContent('The Basement,Gym');
+    // The active one, with no picker yet, is the first — and it is the invite
+    // code the share sheet would hand out.
+    expect(screen.getByTestId('circle')).toHaveTextContent('basement-0123456789abcdef');
+  });
+
+  it('says nothing on a second pull that carries the same two', async () => {
+    mount();
+    await settle();
+    inTwoCircles(currentUserId() as string);
+    await settle(60_000);
+
+    const renders = rendered.count;
+    await settle(120_000);
+
+    // Every pull mints new objects for the same circles, so this is the
+    // field-wise comparison holding. Without it the provider would re-render
+    // every screen once a minute for a payload that said nothing.
+    expect(rendered.count).toBe(renders);
+  });
+
+  it('brings both back after a reseed empties them', async () => {
+    mount();
+    await settle();
+    inTwoCircles(currentUserId() as string);
+    await settle(60_000);
+    expect(screen.getByTestId('circles')).toHaveTextContent('The Basement,Gym');
+
+    act(() => dispatch({ type: 'SET_ACCOUNT', mode: 'live' }));
+    expect(screen.getByTestId('circles')).toHaveTextContent('');
+
+    // `rearmCleared` generalised to a list: emptiness is still the trigger, and
+    // `[]` is what emptiness looks like when the slice is an array.
+    await settle(60_000);
+    expect(screen.getByTestId('circles')).toHaveTextContent('The Basement,Gym');
   });
 });
 

@@ -125,7 +125,7 @@ export type PushResult =
 export type World = {
   people: Person[];
   bots: Person[];
-  circle: CircleRef | null;
+  circles: CircleRef[];
   notifications: Record<string, unknown>[];
   myTasks: Task[] | null;
   ownerTasks: Record<string, unknown>[];
@@ -147,7 +147,7 @@ export type Transport = {
   pullWorld(weekStart: string | null, notifLimit: number): Promise<World | null>;
   pullTasks(userId: string, weekStart: string): Promise<Task[]>;
   pullCircle(userId: string): Promise<Person[]>;
-  pullMyCircle(userId: string): Promise<CircleRef | null>;
+  pullMyCircles(userId: string): Promise<CircleRef[]>;
   pullNotifications(userId: string, limit: number): Promise<Record<string, unknown>[]>;
   pullTasksByOwners(ownerIds: string[], weekStart: string): Promise<Record<string, unknown>[]>;
   pullBots(): Promise<Person[]>;
@@ -158,7 +158,7 @@ export type Transport = {
    * Kept separate from `pullTasks`, which answers a different question: this one
    * is "what did my closed weeks score", that one is "what is on my week now".
    * Folding them would fail the *describe it without "and"* test, the same way
-   * `pullCircle` and `pullMyCircle` are two functions rather than one.
+   * `pullCircle` and `pullMyCircles` are two functions rather than one.
    */
   pullRollups(userId: string): Promise<PulledRollup[]>;
   /**
@@ -1096,46 +1096,50 @@ export function supabaseTransport(): Transport {
     return (data ?? []).map((row) => String((row as { blocked_id: unknown }).blocked_id));
   };
 
-  const pullMyCircle = async (userId: string): Promise<CircleRef | null> => {
+  const pullMyCircles = async (userId: string): Promise<CircleRef[]> => {
     const supabase = getSupabase();
 
-    // Ordered, not merely limited. `limit(1)` on its own is whichever row the
-    // database felt like returning, and it is free to feel differently on the
-    // next call — so an account in two circles could see the name, the roster
-    // and the invite code change between pulls, with the share sheet handing
-    // out a code for the circle it is not showing. Oldest membership wins, and
-    // `circle_id` breaks the tie because `seed.sql` writes every membership in
-    // one statement and `now()` is transaction time, so `joined_at` ties. Same
-    // ordering as `pull_world`'s `my_circle`, and it has to stay that way: this
-    // is the fallback for a server too old to have that function, and the two
-    // disagreeing would be a bug that only appears on old backends.
+    // Ordered, and no longer limited to one. The ordering is the half that has
+    // to match `pull_world`'s: oldest membership first, `circle_id` breaking
+    // the tie because `seed.sql` writes every membership in one statement and
+    // `now()` is transaction time, so `joined_at` ties. This is the fallback
+    // for a server too old to have that function, and the two answering in
+    // different orders would be a bug that only ever appears on old backends.
     const mine = await supabase
       .from('circle_members')
       .select('circle_id,joined_at')
       .eq('profile_id', userId)
       .order('joined_at', { ascending: true })
-      .order('circle_id', { ascending: true })
-      .limit(1);
+      .order('circle_id', { ascending: true });
     if (mine.error) fail(mine.error);
-    const circleId = (mine.data ?? [])[0]?.circle_id;
-    if (!circleId) return null;
+    const circleIds = (mine.data ?? []).map((r) => String((r as { circle_id: unknown }).circle_id));
+    if (circleIds.length === 0) return [];
 
-    // `circles_select` is membership-scoped, so this can only ever answer for a
-    // circle the caller is in — the id above is not a capability on its own.
-    const row = await supabase
+    // `circles_select` is membership-scoped, so this can only ever answer for
+    // circles the caller is in — the ids above are not capabilities on their
+    // own.
+    const rows = await supabase
       .from('circles')
       .select('id,name,invite_code')
-      .eq('id', circleId)
-      .limit(1);
-    if (row.error) fail(row.error);
-    const circle = (row.data ?? [])[0];
-    if (!circle) return null;
+      .in('id', circleIds);
+    if (rows.error) fail(rows.error);
 
-    return {
-      id: String(circle.id),
-      name: String(circle.name ?? ''),
-      inviteCode: String(circle.invite_code ?? ''),
-    };
+    // Ordered by the membership query rather than by whatever `in` returned:
+    // this list is what the resolver's `[0]` fallback reads.
+    const byId = new Map(
+      (rows.data ?? []).map((r) => {
+        const row = r as Record<string, unknown>;
+        return [
+          String(row.id),
+          {
+            id: String(row.id),
+            name: String(row.name ?? ''),
+            inviteCode: String(row.invite_code ?? ''),
+          },
+        ] as const;
+      }),
+    );
+    return circleIds.map((id) => byId.get(id)).filter((c): c is CircleRef => !!c);
   };
 
   /**
@@ -1214,14 +1218,33 @@ export function supabaseTransport(): Transport {
     const rows = (v: unknown): Record<string, unknown>[] =>
       Array.isArray(v) ? (v as Record<string, unknown>[]) : [];
 
-    const circleRow = (w.circle ?? null) as Record<string, unknown> | null;
-    const circle: CircleRef | null = circleRow?.id
-      ? {
-          id: String(circleRow.id),
-          name: String(circleRow.name ?? ''),
-          inviteCode: String(circleRow.invite_code ?? ''),
-        }
-      : null;
+    const asCircle = (row: Record<string, unknown>): CircleRef => ({
+      id: String(row.id),
+      name: String(row.name ?? ''),
+      inviteCode: String(row.invite_code ?? ''),
+    });
+
+    /**
+     * Three cases, and conflating two of them is the bug worth avoiding.
+     *
+     * `circles` present — the current server, use it.
+     * `circles` absent but `circle` non-null — a server from before
+     *   `20260901090000`, which knows only the singular key. One circle, which
+     *   is all it can say.
+     * neither — genuinely no circles.
+     *
+     * The trap is reading a *missing* `circles` key as `[]`. That is not "you
+     * are in none", it is "this server cannot say", and the reducer treats an
+     * empty list as authoritative — so an old backend would read as every
+     * circle having been left.
+     */
+    const circleRows = w.circles;
+    const legacy = (w.circle ?? null) as Record<string, unknown> | null;
+    const circles: CircleRef[] = Array.isArray(circleRows)
+      ? (circleRows as Record<string, unknown>[]).filter((r) => r?.id).map(asCircle)
+      : legacy?.id
+        ? [asCircle(legacy)]
+        : [];
 
     // Counted server-side, but still narrowed here: a count is untrusted input
     // like any row, and NaN in a cheer chip is worse than no chip.
@@ -1236,7 +1259,7 @@ export function supabaseTransport(): Transport {
     return {
       people: rows(w.people).map(rowToPerson),
       bots: rows(w.bots).map(rowToPerson),
-      circle,
+      circles,
       notifications: rows(w.notifications),
       // Null and empty stay distinct across the wire — see `World.myTasks`.
       myTasks: w.my_tasks == null ? null : rows(w.my_tasks).map(rowToTask),
@@ -1258,7 +1281,7 @@ export function supabaseTransport(): Transport {
     pullWorld,
     pullTasks,
     pullCircle,
-    pullMyCircle,
+    pullMyCircles,
     pullRollups,
     pullNotifications,
     pullTasksByOwners,

@@ -188,17 +188,39 @@ export type State = {
   /** Everyone this account can name, by id. Lookups go through `makePeople`. */
   people: PeopleIndex;
   /**
-   * The circle this account is in, on a live account, or null. Deliberately
-   * *not* persisted: it is entirely server-derived and refetched on launch and
-   * on foreground, so persisting it would buy a soundness validator and a
-   * version question in exchange for one pull's worth of latency on a surface
-   * you could not use offline anyway.
+   * Every circle this account is in, oldest membership first. Deliberately
+   * *not* persisted: entirely server-derived and refetched on launch and on
+   * foreground, so persisting it would buy a soundness validator and a version
+   * question in exchange for one pull's worth of latency on a surface you
+   * could not use offline anyway. `[]` is a real answer — "you are in none" —
+   * and `worldSeen` is what separates it from "nobody has said yet".
    *
-   * One circle, not many. The schema allows several; every screen in this app
-   * has always assumed one, and inventing a picker for a case no user has is
-   * work for nobody.
+   * This was `circle: CircleRef | null` and the comment said "one circle, not
+   * many; the schema allows several and every screen has always assumed one".
+   * The schema still allows several and the product now wants them: a goal is
+   * staked in one room and read by that room, which is a sentence you cannot
+   * write with one circle. Replaced rather than kept alongside, so there is no
+   * second field to disagree with this one.
    */
-  circle: CircleRef | null;
+  circles: CircleRef[];
+  /**
+   * Which of them the app is currently *about* — the Circle tab's subject, and
+   * the room a new goal defaults into.
+   *
+   * A preference, not a fact, and the only thing here the server cannot
+   * re-derive — so unlike `circles` it *is* persisted, alongside `tab` and
+   * `scope`, which are the same kind of thing. Without it the app opens on a
+   * different circle from the one it was left on, every launch.
+   *
+   * It may legitimately name a circle that is not in `circles`: restored from
+   * disk before the first pull, or left on another device. Nothing may crash on
+   * that and **the reducer must never normalise it** — a cold start has
+   * `circles: []` for one pull, so a reducer that corrected it would erase the
+   * user's choice on every launch, and a circle briefly absent from a partial
+   * answer would lose their position in it permanently. Resolution happens at
+   * read time, in `activeCircle`, where a fallback is recoverable.
+   */
+  activeCircleId: string | null;
   /**
    * How many times the world under this session has been reseeded.
    *
@@ -374,7 +396,8 @@ const initialState: State = {
   account: null,
   deletionAt: null,
   selfId: SELF_DEMO_ID,
-  circle: null,
+  circles: [],
+  activeCircleId: null,
   worldEpoch: 0,
   worldSeen: false,
   notifications: seedNotifications(null),
@@ -503,6 +526,15 @@ export type Action =
    * a bucket every signed-in account can read.
    */
   | { type: 'SET_AVATAR'; path: string | null; state: AvatarState }
+  /**
+   * Which circle the app is about. The only writer of `activeCircleId`.
+   *
+   * Deliberately does not validate against `state.circles`: the picker can only
+   * offer circles that are in it, and a second gate that can disagree with the
+   * read-time resolver is a race waiting to be found. See the field's comment
+   * for why the reducer never corrects this on its own either.
+   */
+  | { type: 'SET_ACTIVE_CIRCLE'; id: string | null }
   | { type: 'OPEN_REPORT'; target: ReportTarget }
   | { type: 'CLOSE_REPORT' }
   | { type: 'REPORT_FILED'; id: string };
@@ -527,7 +559,7 @@ export type ServerMerge = {
    * answer and not the absence of one, so the engine only sets the key when the
    * value actually moved.
    */
-  circle?: CircleRef | null;
+  circles?: CircleRef[];
   /** Your own id, once the session and your profile row have both resolved. */
   selfId?: PersonId;
   /**
@@ -653,7 +685,10 @@ const seedFor = (mode: AccountMode, week: WeekContext) =>
     selfId: SELF_DEMO_ID,
     // Server-derived, and the server it came from belongs to the account being
     // left behind. Cleared here for the reason the outbox is.
-    circle: null,
+    circles: [],
+    // And the choice among them, which named a circle on a server this account
+    // is no longer talking to.
+    activeCircleId: null,
     // And with it, the fact that anybody had answered — this is a new world,
     // and nothing has been asked about it yet.
     worldSeen: false,
@@ -1504,6 +1539,9 @@ export function reducer(state: State, action: Action): State {
       return { ...state, people };
     }
 
+    case 'SET_ACTIVE_CIRCLE':
+      return action.id === state.activeCircleId ? state : { ...state, activeCircleId: action.id };
+
     case 'SET_AVATAR': {
       const current = state.people[state.selfId];
       if (!current) return state;
@@ -1744,7 +1782,11 @@ export function reducer(state: State, action: Action): State {
       // Assigned rather than folded: unlike the slices above, there is nothing
       // local to protect — no screen writes the circle, so the server's answer
       // is the only one there has ever been.
-      const circle = action.merge.circle !== undefined ? action.merge.circle : state.circle;
+      // Assigned rather than folded, as the single circle always was: no screen
+      // writes this, so the server's answer is the only one there has ever
+      // been. `undefined` means the pull had nothing to say; `[]` means it said
+      // you are in none.
+      const circles = action.merge.circles !== undefined ? action.merge.circles : state.circles;
 
       const notifications =
         action.merge.notifications !== undefined ? action.merge.notifications : state.notifications;
@@ -1798,7 +1840,7 @@ export function reducer(state: State, action: Action): State {
         restored === profile &&
         acted === state.acted &&
         personNotes === state.personNotes &&
-        circle === state.circle &&
+        circles === state.circles &&
         moments === state.moments &&
         globalPosts === state.globalPosts &&
         profile === state.profile &&
@@ -1812,7 +1854,7 @@ export function reducer(state: State, action: Action): State {
         myTasks,
         acted,
         personNotes,
-        circle,
+        circles,
         // The server has now answered about this world, whatever it said. Read
         // by the screens that must not mistake "we have not asked" for "you
         // have none".

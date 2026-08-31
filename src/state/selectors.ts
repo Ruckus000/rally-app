@@ -18,7 +18,7 @@ import {
 import type { Profile } from '../data/seed';
 import { MemberStats, PersonId, makePeople } from '../data/people';
 import { seedCircle } from '../data/seed';
-import type { State } from './store';
+import type { CircleRef, State } from './store';
 
 /** The ids you've cheered. Cheers only ever land on a moment or a global post. */
 const cheeredIds = (state: State) =>
@@ -509,6 +509,24 @@ export function circleSuggestions(state: State, limit = 6): Suggestion[] {
   }
   return out;
 }
+
+/**
+ * Which circle the app is currently about.
+ *
+ * Resolution lives here rather than in the reducer, and that is the whole
+ * design. `activeCircleId` is a *preference* — persisted, chosen by the user —
+ * while `circles` is server-derived and not persisted, so on every cold start
+ * there is a window where the preference names a circle the list does not yet
+ * contain. A reducer that corrected the id would erase the choice on that
+ * window, every launch. Here the same disagreement costs one pull's worth of
+ * falling back, and is repaired the moment the answer arrives.
+ *
+ * `circles[0]` rather than nothing, because the list is ordered oldest-first
+ * and a screen that has to name a circle would otherwise have to invent the
+ * same fallback itself.
+ */
+export const activeCircle = (state: State): CircleRef | null =>
+  state.circles.find((c) => c.id === state.activeCircleId) ?? state.circles[0] ?? null;
 
 /** "Maya", "Maya and Dre", "Maya, Dre and 2 others" — the card has one line. */
 const joinFirstNames = (names: string[]): string => {

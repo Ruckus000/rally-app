@@ -308,6 +308,27 @@ const sameCircle = (a: CircleRef | null, b: CircleRef | null): boolean =>
   a === b ||
   (!!a && !!b && a.id === b.id && a.name === b.name && a.inviteCode === b.inviteCode);
 
+/**
+ * Positional, and safe to be because the caller sorts first.
+ *
+ * The alternative — comparing as sets — would tolerate a server that changed
+ * its ordering, which sounds like robustness and is the opposite: `circles[0]`
+ * is what the resolver falls back to and what a picker lists first, so an order
+ * that drifts is a screen that reshuffles under a finger. Sorting once and
+ * walking is how both properties are had at the same price.
+ */
+const sameCircles = (a: CircleRef[], b: CircleRef[]): boolean =>
+  a === b || (a.length === b.length && a.every((c, i) => sameCircle(c, b[i])));
+
+/**
+ * Oldest-first is the server's order, but the fallback path assembles the list
+ * itself and a fallback that sorted differently would make every pull look like
+ * news. By id, because it is the only field guaranteed present and stable —
+ * `pull_world` orders by `joined_at` and breaks ties on exactly this.
+ */
+const sortedCircles = (circles: CircleRef[]): CircleRef[] =>
+  [...circles].sort((x, y) => x.id.localeCompare(y.id));
+
 /** `task:<uuid>` — the coalescing key `observe` enqueues under. */
 const TASK_KEY = 'task:';
 
@@ -851,7 +872,7 @@ export function createEngine(
    * slices on its own. See `rearmCleared` in `observe` for the half of the
    * arrangement that keeps the two from drifting apart.
    */
-  let lastCircle: CircleRef | null = null;
+  let lastCircles: CircleRef[] = [];
   /**
    * The feed the last pull answered with. Its own baseline rather than
    * `lastMoments`, which is `observe`'s note-diffing reference — one variable
@@ -909,7 +930,7 @@ export function createEngine(
    * notes back to it as inserts.
    */
   function rearmCleared(state: State): void {
-    if (!state.circle) lastCircle = null;
+    if (state.circles.length === 0) lastCircles = [];
     if (state.moments.length === 0) lastFeed = [];
     if (state.globalPosts.length === 0) lastGlobal = [];
     if (state.notifications.length === 0) lastNotificationIds = '';
@@ -1156,11 +1177,11 @@ export function createEngine(
         // the previous one — which is exactly what `pull_world` moves into
         // one statement on the server.
         ...(await (async () => {
-          const [people, bots, myCircle, notifications, myTasks, reactions, notes, rollups] =
+          const [people, bots, myCircles, notifications, myTasks, reactions, notes, rollups] =
             await Promise.all([
               wire.pullCircle(userId),
               wire.pullBots(),
-              wire.pullMyCircle(userId),
+              wire.pullMyCircles(userId),
               wire.pullNotifications(userId, NOTIFICATION_MAX),
               weekStart ? wire.pullTasks(userId, weekStart) : Promise.resolve(null),
               wire.pullReactions(userId),
@@ -1196,14 +1217,14 @@ export function createEngine(
           // writing. Empty would mean "these goals have no photos", which the
           // merge treats as authoritative and acts on by deleting every photo
           // this device holds, on every pull, for ever.
-          return { people, bots, circle: myCircle, notifications, myTasks, ownerTasks, media: null, reactions, notes, rollups, cheerCounts };
+          return { people, bots, circles: myCircles, notifications, myTasks, ownerTasks, media: null, reactions, notes, rollups, cheerCounts };
         })()),
       };
 
       const {
         people,
         bots,
-        circle: myCircle,
+        circles: myCircles,
         notifications,
         myTasks: rows,
         ownerTasks: ownerRows,
@@ -1395,9 +1416,10 @@ export function createEngine(
       // saying the same thing would re-render every screen for nothing. `null`
       // is a real answer here — "you left the circle" — so the key is only set
       // when the answer actually moved.
-      if (!sameCircle(lastCircle, myCircle)) {
-        merge.circle = myCircle;
-        lastCircle = myCircle;
+      const sorted = sortedCircles(myCircles);
+      if (!sameCircles(lastCircles, sorted)) {
+        merge.circles = sorted;
+        lastCircles = sorted;
       }
 
       if (
@@ -1412,7 +1434,7 @@ export function createEngine(
         merge.media === undefined &&
         !merge.notifications &&
         merge.cheersReceived === undefined &&
-        merge.circle === undefined
+        merge.circles === undefined
       ) {
         return;
       }

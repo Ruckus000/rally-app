@@ -15,7 +15,14 @@ import { deadLetters } from '../sync/outbox';
 import { clearQueuesForReset } from '../overlays/settings/resetAppData';
 import { nextWeekAfter, useStore } from '../state/store';
 import { canSecure } from '../overlays/settings/guards';
-import { allTasksDone, cheersGiven, circleMembers, myRank, weekPoints } from '../state/selectors';
+import {
+  activeCircle,
+  allTasksDone,
+  cheersGiven,
+  circleMembers,
+  myRank,
+  weekPoints,
+} from '../state/selectors';
 import { Avatar } from '../components/Avatar';
 import { Bri, Caps, GlowBloom, Sans, Tap, fill, row } from '../components/primitives';
 
@@ -60,7 +67,7 @@ export function MeScreen() {
    * which is machine noise rather than an identity worth showing.
    */
   const subtitle = live
-    ? (state.circle?.name ?? '')
+    ? (activeCircle(state)?.name ?? '')
     : circleMembers(state).length > 1
       ? `${ME.handle} · ${CIRCLE_NAME}`
       : ME.handle;

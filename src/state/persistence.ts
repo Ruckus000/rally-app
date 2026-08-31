@@ -40,6 +40,17 @@ const PERSISTED_KEYS = [
   'onboardStep',
   'tab',
   'scope',
+  /**
+   * Which circle the app is about. A preference, like the two above it, and the
+   * one thing in the circle work the server cannot re-derive — `circles` itself
+   * is deliberately not here. Without this the app opens on a different circle
+   * from the one it was left on, every launch.
+   *
+   * It may name a circle the next pull does not return. That is not corrupt:
+   * `activeCircle` falls back at read time, and correcting it on restore is the
+   * normalisation the reducer is forbidden from doing, for the same reason.
+   */
+  'activeCircleId',
   'myTasks',
   'moments',
   'acted',
@@ -342,6 +353,13 @@ function isSound(data: unknown): data is Persisted {
   // which means it also has to survive the trip intact.
   if (d.pendingRollover && !weekIsSound(d.pendingRollover.to)) return false;
   if (!peopleAreSound(d.people)) return false;
+  if (
+    d.activeCircleId !== undefined &&
+    d.activeCircleId !== null &&
+    !isBoundedString(d.activeCircleId, 128)
+  ) {
+    return false;
+  }
   if (d.selfId !== undefined && typeof d.selfId !== 'string') return false;
   // Parsed by `new Date()` to draw a date on the Welcome screen. Anything that
   // is neither absent nor a string would render "Invalid Date" at the one
