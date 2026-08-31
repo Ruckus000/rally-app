@@ -40,7 +40,7 @@
  */
 import { asAnon, asService, asUser, idOf } from '../support/clients';
 import { sql } from '../support/reset';
-import type { SeedHandle } from '../fixtures/world';
+import { CIRCLE_IDS, type SeedHandle } from '../fixtures/world';
 
 /** A Monday, as `tasks.week_start` requires. */
 const WEEK = '2026-08-10';
@@ -54,13 +54,22 @@ afterEach(async () => {
 const schedule = (who: SeedHandle) => asUser(who).rpc('schedule_account_deletion');
 const cancel = (who: SeedHandle) => asUser(who).rpc('cancel_account_deletion');
 
-/** Setup only. `asService` bypasses RLS, so nothing seeded here is a subject. */
+/**
+ * Setup only. `asService` bypasses RLS, so nothing seeded here is a subject.
+ *
+ * The circle is not decoration. This defaults to `friends`, and since
+ * `20260831210000_a_goal_belongs_to_a_circle.sql` a `friends` goal with no
+ * circle is visible to its owner alone — so with `circle_id: null` every
+ * "visible until the account is scheduled, then not" assertion below would
+ * pass against something already invisible, and this file would go green
+ * while testing nothing. basement, because maya and dre are both in it.
+ */
 async function makeTask(owner: SeedHandle, aud: 'everyone' | 'friends' | 'private' = 'friends') {
   const { data, error } = await asService()
     .from('tasks')
     .insert({
       owner_id: idOf(owner),
-      circle_id: null,
+      circle_id: CIRCLE_IDS.basement,
       week_start: WEEK,
       day: 0,
       title: `${owner} stakes something`,

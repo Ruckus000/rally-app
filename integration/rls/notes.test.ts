@@ -73,15 +73,21 @@ describe('a note on a task is seen by whoever can see the task', () => {
     expect(await canSee('dre', note)).toBe(true);
   });
 
-  it('sofia sees a note on a basement task, because friends means any shared circle', async () => {
-    // `tasks_select` tests shares_circle_with(owner_id), not circle_id — so a
-    // gym-only friend reaches a basement stake. Asserted rather than assumed:
-    // if that predicate is ever narrowed to the task's own circle, this is the
-    // test that says notes moved with it.
+  it('sofia sees no note on a basement task, because she is not in basement', async () => {
+    // This asserted the opposite until
+    // `20260831210000_a_goal_belongs_to_a_circle.sql`, and said what would
+    // change it: "if that predicate is ever narrowed to the task's own circle,
+    // this is the test that says notes moved with it." It did, and they did.
+    //
+    // Worth being clear about what this proves. `notes_select` was not
+    // touched by that migration — it delegates to `private.can_see_task`, and
+    // rewriting the five policies that delegate would have been the exact
+    // mistake this repo has a rule about. So this line inverting is the
+    // evidence that the inheritance works.
     const task = await makeTask('maya', 'friends');
     const note = await seedNote('maya', { task_id: task });
 
-    expect(await canSee('sofia', note)).toBe(true);
+    expect(await canSee('sofia', note)).toBe(false);
   });
 
   it('a stranger sees nothing on a friends task', async () => {
