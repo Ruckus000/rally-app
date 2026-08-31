@@ -31,6 +31,8 @@ type World = {
   people: Person[];
   bots: Person[];
   circle: { id: string; name: string; invite_code: string } | null;
+  circles: { id: string; name: string; invite_code: string; joined_at: string }[];
+  memberships: { circle_id: string; profile_id: string }[];
   notifications: unknown[];
   my_tasks: { id: string; title: string }[] | null;
   owner_tasks: { id: string; title: string; owner_id: string }[];
@@ -193,6 +195,55 @@ describe('the circle it names, for someone in two', () => {
     // the one the pull must keep naming.
     const expected = [CIRCLE_IDS.basement, CIRCLE_IDS.gym].sort()[0];
     expect(world.circle?.id).toBe(expected);
+  });
+});
+
+describe('every circle you are in, and who is in each', () => {
+  it('lists them all, oldest first', async () => {
+    const world = await worldOf('maya');
+
+    expect(world.circles.map((c) => c.name)).toEqual(['The Basement', 'Gym']);
+    // Same ordering rule as the singular key, which is what lets the client
+    // treat `circle` as `circles[0]` while it still reads it.
+    expect(world.circle?.id).toBe(world.circles[0].id);
+  });
+
+  it('lists one for someone in one, and none for someone in none', async () => {
+    expect((await worldOf('dre')).circles.map((c) => c.name)).toEqual(['The Basement']);
+    // `you` is the seeded account in no circle. `[]` is a real answer and has
+    // to be distinguishable from the key being absent — the client reads a
+    // missing key as "this pull cannot say" and an empty array as "none".
+    expect((await worldOf('you')).circles).toEqual([]);
+    expect((await worldOf('you')).circle).toBeNull();
+  });
+
+  it('names who is in which, without naming anyone twice in the directory', async () => {
+    const world = await worldOf('maya');
+
+    // maya is in both circles, so she appears in `memberships` twice — that is
+    // what an edge list is for, and it is the only key here allowed to repeat
+    // a person.
+    const mine = world.memberships.filter((m) => m.profile_id === idOf('maya'));
+    expect(mine.map((m) => m.circle_id).sort()).toEqual(
+      [CIRCLE_IDS.basement, CIRCLE_IDS.gym].sort(),
+    );
+
+    // …and exactly once in `people`. This pair is the regression test for the
+    // optimisation the migration header warns about: rewriting `owner_tasks`
+    // or `people` as a join to `memberships` returns a shared member twice,
+    // and the duplicate propagates into `cheer_counts` and `media`.
+    const ids = world.people.map((p) => p.id);
+    expect(ids.filter((id) => id === idOf('maya'))).toHaveLength(1);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('does not name a circle you are not in', async () => {
+    // `memberships` is bounded by *your* circles, so outsiders — which maya is
+    // not in — must not appear at all, nor its members.
+    const world = await worldOf('maya');
+
+    expect(world.memberships.some((m) => m.circle_id === CIRCLE_IDS.outsiders)).toBe(false);
+    expect(world.memberships.some((m) => m.profile_id === idOf('jordan'))).toBe(false);
   });
 });
 

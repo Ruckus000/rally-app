@@ -1190,6 +1190,24 @@ const RPC: Record<string, (args: Row) => unknown> = {
     const firstCircle = myMemberships
       .map((m) => rowsOf('circles').find((c) => c.id === m.circle_id))
       .find((c) => !!c);
+    // Every circle, in the same order, plus the edge list. Modelled here for
+    // the reason this whole fake exists: the fast path and the per-table
+    // fallback have to answer the same question the same way, and a test that
+    // only ever sees one of them cannot tell you when they stop agreeing.
+    const circles = myMemberships
+      .map((m) => rowsOf('circles').find((c) => c.id === m.circle_id))
+      .filter((c): c is NonNullable<typeof c> => !!c)
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        invite_code: c.invite_code,
+        joined_at: myMemberships.find((m) => m.circle_id === c.id)?.joined_at ?? null,
+      }));
+    // Bounded by the caller's circles, and the one key here that may name a
+    // person twice — which is what an edge list is.
+    const memberships = rowsOf('circle_members')
+      .filter((m) => myCircleIds.includes(m.circle_id))
+      .map((m) => ({ circle_id: m.circle_id, profile_id: m.profile_id }));
     const circle = firstCircle
       ? { id: firstCircle.id, name: firstCircle.name, invite_code: firstCircle.invite_code }
       : null;
@@ -1273,6 +1291,8 @@ const RPC: Record<string, (args: Row) => unknown> = {
       people,
       bots,
       circle,
+      circles,
+      memberships,
       notifications,
       my_tasks: myTasks,
       owner_tasks: ownerTasks,
