@@ -1,10 +1,15 @@
 # The two pages App Store Connect asks for
 
-> **Both pages are written and neither is published.** `privacy.html` and
-> `support.html` in this folder are the content; hosting them, filling in the
-> placeholders and pasting the URLs into App Store Connect are human steps and
-> are listed below. Until those are done, the submission cannot be made — a
-> privacy policy URL and a support URL are both required fields.
+> **Both pages are filled in and live.** They are served from this folder as a
+> Vercel static project, and the two URLs App Store Connect requires are:
+>
+> - Privacy Policy URL — <https://rally-app-legal.vercel.app/privacy>
+> - Support URL — <https://rally-app-legal.vercel.app/support>
+>
+> Pasting those two into App Store Connect is still a human step, as are the
+> App Privacy questionnaire and the two edge-function deploys. They are listed
+> below, and steps 1 and 2 are marked done rather than deleted so that the
+> order still reads.
 
 ## Why they are HTML and why they live here
 
@@ -27,8 +32,25 @@ second thing to remember to deploy, on two pages that will rarely change.
 
 ## Placeholders
 
-Every one of these is `{{UPPER_SNAKE}}` in double braces so a single
-`grep -r '{{' docs/legal/` finds the lot. Do not guess at any of them.
+Every one of these was `{{UPPER_SNAKE}}` in double braces so a single
+`grep -r '{{' docs/legal/` found the lot. **They are now filled**, with the
+values below; that grep should come back empty for `privacy.html` and
+`support.html`, and finding a brace in either again means a page was edited
+from an unfilled copy.
+
+| Placeholder | Filled with |
+|---|---|
+| `{{LEGAL_ENTITY}}` | Jean Luc Philistin |
+| `{{SUPPORT_EMAIL}}` | lordruckus.nb@gmail.com |
+| `{{PRIVACY_URL}}` | https://rally-app-legal.vercel.app/privacy |
+| `{{SUPPORT_URL}}` | https://rally-app-legal.vercel.app/support |
+| `{{JURISDICTION}}` | the State of Florida, United States |
+| `{{EFFECTIVE_DATE}}` | 30 August 2026 |
+| `{{RESPONSE_TIME}}` | 24 hours |
+
+The entity name has to keep matching the App Store seller name, and the
+response time is a promise both pages make five times over. What each one is
+for, and why it matters, is below.
 
 | Placeholder | What it is | Notes |
 |---|---|---|
@@ -40,13 +62,44 @@ Every one of these is `{{UPPER_SNAKE}}` in double braces so a single
 | `{{EFFECTIVE_DATE}}` | The date the policy takes effect | The day you publish it, not the day it was written. |
 | `{{RESPONSE_TIME}}` | How long a reply takes | Appears four times across both pages and is a promise you have to keep. Apple's Guideline 1.2 expects reports of objectionable content to be acted on within **24 hours**; anything slower than that stated here is worth thinking about before you write it down. |
 
+## Where they are hosted
+
+This folder *is* the site. It is linked to a Vercel project called
+`rally-app-legal`, deployed straight from here with no build step, which is the
+arrangement the two files were written for: a static host serving HTML it does
+not have to process. Redeploying after an edit is one command from this
+directory:
+
+```
+vercel deploy --prod
+```
+
+Three small files make that work, and nothing else in the repository is
+touched by it:
+
+- `vercel.json` — `cleanUrls`, so the published URLs are `/privacy` and
+  `/support` rather than `.html`, and a redirect from `/` to `/support` so the
+  bare domain is a useful page instead of a 404.
+- `.vercelignore` — keeps `README.md` out of the deploy. Every file in this
+  folder becomes a URL, and this one is instructions for us, not a page.
+- `.gitignore` — written by `vercel link`, keeping the project link and the
+  CLI's OIDC token file out of the repository.
+
+The project is named `rally-app-legal` rather than `rally-legal` because
+`rally-legal.vercel.app` is already taken by an unrelated site. A custom domain
+can be added later without breaking anything, but the two URLs would change,
+and both pages hardcode each other's — so that is a re-fill of `{{PRIVACY_URL}}`
+and `{{SUPPORT_URL}}`, a redeploy, and an edit in App Store Connect, in that
+order.
+
 ## The human steps, in order
 
-1. **Fill the placeholders.** Seven of them, one pass, both files.
-2. **Host the two files.** Any static host. They need no build, no framework and
-   no server-side anything; two files in a bucket is enough. Confirm both load
-   over HTTPS on a phone, in both light and dark mode, with no login and no
-   cookie banner — Apple's reviewer will open them cold.
+1. ~~**Fill the placeholders.**~~ **Done.** Seven of them, one pass, both
+   files. The values are in the table above.
+2. ~~**Host the two files.**~~ **Done.** They are on Vercel — see *Where they
+   are hosted* above. Both were checked over HTTPS at phone width in light and
+   dark mode, with no login and no cookie banner, which is how Apple's reviewer
+   will open them.
 3. **Paste the URLs into App Store Connect.** Privacy Policy URL is under *App
    Information*; Support URL is under the version's *App Review Information*
    and also appears on the listing. They must resolve at review time and stay

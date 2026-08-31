@@ -1,0 +1,5 @@
+# What Vercel must not serve. This folder is deployed as-is — every file in it
+# becomes a URL — so anything here that is documentation rather than a page has
+# to be named. README.md is the instructions for publishing these pages, which
+# is for us and not for the reviewer or the user.
+README.md
