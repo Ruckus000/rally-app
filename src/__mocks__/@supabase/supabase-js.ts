@@ -1175,7 +1175,21 @@ const RPC: Record<string, (args: Row) => unknown> = {
       .map(person);
     const botIds = new Set(bots.map((b) => b.id));
 
-    const firstCircle = rowsOf('circles').find((c) => myCircleIds.includes(c.id));
+    // Ordered the same way `pull_world`'s `my_circle` is — oldest membership,
+    // then circle id to break the tie. A bare `.find()` here answered in the
+    // fake's insertion order, which is stable, so a test could pass against a
+    // rule this fake was not actually applying. The point of modelling the RPC
+    // is that the fast path and the real one agree.
+    const myMemberships = rowsOf('circle_members')
+      .filter((m) => m.profile_id === caller)
+      .sort(
+        (a, b) =>
+          String(a.joined_at ?? '').localeCompare(String(b.joined_at ?? '')) ||
+          String(a.circle_id).localeCompare(String(b.circle_id)),
+      );
+    const firstCircle = myMemberships
+      .map((m) => rowsOf('circles').find((c) => c.id === m.circle_id))
+      .find((c) => !!c);
     const circle = firstCircle
       ? { id: firstCircle.id, name: firstCircle.name, invite_code: firstCircle.invite_code }
       : null;
