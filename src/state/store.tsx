@@ -667,6 +667,23 @@ const seedFor = (mode: AccountMode, week: WeekContext) =>
     profile: seedProfile(mode),
   }) satisfies Partial<State>;
 
+/**
+ * Order-insensitive, because the server does not promise one.
+ *
+ * `absent` and `[]` are deliberately different: absent means the payload could
+ * not say, `[]` means it said none. Comparing them equal would be the `bot` bug
+ * again — the pull carries the key, the directory on disk predates it, every
+ * row compares equal, and an upgrading install never learns anybody's
+ * membership. Only a device would find that.
+ */
+const sameCircleIds = (a?: string[], b?: string[]): boolean => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  const mine = new Set(a);
+  return b.every((id) => mine.has(id));
+};
+
 const sameStats = (a?: MemberStats, b?: MemberStats): boolean =>
   a === b ||
   (!!a && !!b && a.done === b.done && a.total === b.total && a.streak === b.streak && a.given === b.given);
@@ -694,6 +711,7 @@ const samePerson = (a: Person, b: Person): boolean =>
     // `ready` under the same name, which is the merge that turns a face on.
     a.avatarPath === b.avatarPath &&
     a.avatarState === b.avatarState &&
+    sameCircleIds(a.circleIds, b.circleIds) &&
     sameStats(a.stats, b.stats));
 
 /**
@@ -740,7 +758,11 @@ const carryThreads = (prev: Moment[], next?: Moment[]): Moment[] => {
         // every pull, and comparing it would report a change every minute
         // forever.
         was.cheers === m.cheers &&
-        was.done === m.done
+        was.done === m.done &&
+        // A goal can move rooms, and both rooms can be yours. Left out, the
+        // card would keep naming the circle it was staked in first — the same
+        // omission `cheers` and `done` were, found the same way.
+        was.circleId === m.circleId
       );
     });
   return unchanged ? prev : merged;

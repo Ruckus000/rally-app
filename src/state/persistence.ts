@@ -128,6 +128,7 @@ function tasksAreSound(value: unknown): value is Task[] {
       AUDIENCES.includes(t.aud) &&
       Array.isArray(t.pair) &&
       Array.isArray(t.cmts) &&
+      circleIdIsSound(t.circleId) &&
       mediaIsSound(t.media),
   );
 }
@@ -185,8 +186,24 @@ function momentsAreSound(value: unknown): boolean {
       // back, so nothing this build persists reaches here malformed — which
       // matters, because failing is not losing the photo. `isSound` is
       // all-or-nothing: it loses the week too.
-      mediaIsSound(m.media),
+      mediaIsSound(m.media) &&
+      circleIdIsSound(m.circleId),
   );
+}
+
+/**
+ * A circle id, or nothing.
+ *
+ * Additive and optional, so no `VERSION` bump — the same argument `media` makes
+ * above and `blocked` makes below it. Bounded because it is a uuid off the
+ * wire and this is the backstop, not the gate: the mappers omit the key
+ * entirely rather than carry something they could not read, so nothing this
+ * build writes reaches here malformed. That matters, because failing here does
+ * not lose the attribution — `isSound` is all-or-nothing, and it loses the
+ * week, the history and the year grid with it.
+ */
+function circleIdIsSound(value: unknown): boolean {
+  return value === undefined || isBoundedString(value, 128);
 }
 
 /**
@@ -296,7 +313,11 @@ function peopleAreSound(value: unknown): boolean {
       isBoundedString(r.id, 128) &&
       isBoundedString(r.name) &&
       isBoundedString(r.first) &&
-      isBoundedString(r.initials, 8)
+      isBoundedString(r.initials, 8) &&
+      // Absent is the normal case and stays meaningful — it is "not known",
+      // which the roster reads differently from "in none".
+      (r.circleIds === undefined ||
+        (Array.isArray(r.circleIds) && r.circleIds.every((c) => isBoundedString(c, 128))))
     );
   });
 }

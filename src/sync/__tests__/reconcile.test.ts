@@ -133,6 +133,21 @@ describe('reconcileTasks', () => {
       expect(out[1].title).toBe('New');
     });
 
+    it('takes a circle the server moved, which no other field would show', () => {
+      // The one change that is invisible to every other clause in
+      // `sameServerFields`: same title, same day, same points, same audience —
+      // the goal simply belongs to a different room now, moved on another
+      // device. Left out of that comparison the row would read as unchanged
+      // and this phone would never learn.
+      const local = [aTask({ id: 'a', circleId: 'c-one' })];
+      const server = [fromWire({ ...local[0], circleId: 'c-two' })];
+
+      const out = reconcileTasks(local, server, clean, allAcked);
+
+      expect(out).not.toBe(local);
+      expect(out[0].circleId).toBe('c-two');
+    });
+
     it('returns the original array when a dirty row differs from the server', () => {
       const local = [aTask({ id: 'a', title: 'Mine' })];
       const server = [fromWire({ id: 'a', title: 'Theirs' })];
