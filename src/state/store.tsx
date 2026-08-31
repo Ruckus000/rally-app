@@ -215,6 +215,20 @@ export type State = {
    */
   worldEpoch: number;
   /**
+   * Whether a pull has answered yet, this launch, for this world.
+   *
+   * `circle` is `null` for two different reasons — "you are in none" and "we
+   * have not asked yet" — and it is not persisted, so every cold start begins
+   * in the second one. Anything that treats `null` as the first answer is
+   * wrong for as long as the first pull takes: the invite sheet offered to
+   * *start* a circle to people who were already in one, which is one tap away
+   * from a duplicate nobody meant to make.
+   *
+   * Not persisted, for the same reason `circle` is not: it describes what this
+   * process has been told, and a launch has been told nothing.
+   */
+  worldSeen: boolean;
+  /**
    * Your notification feed on a live account. Persisted, unlike `circle` — the
    * argument that covers the circle sheet does not survive contact with the
    * bell. An empty circle sheet for one pull is a screen you opened knowing it
@@ -362,6 +376,7 @@ const initialState: State = {
   selfId: SELF_DEMO_ID,
   circle: null,
   worldEpoch: 0,
+  worldSeen: false,
   notifications: seedNotifications(null),
   globalPosts: seedGlobalPosts(null),
   session: { status: 'off' },
@@ -639,6 +654,9 @@ const seedFor = (mode: AccountMode, week: WeekContext) =>
     // Server-derived, and the server it came from belongs to the account being
     // left behind. Cleared here for the reason the outbox is.
     circle: null,
+    // And with it, the fact that anybody had answered — this is a new world,
+    // and nothing has been asked about it yet.
+    worldSeen: false,
     notifications: seedNotifications(mode),
     globalPosts: seedGlobalPosts(mode),
     people: seedPeople(mode),
@@ -1749,6 +1767,10 @@ export function reducer(state: State, action: Action): State {
         acted,
         personNotes,
         circle,
+        // The server has now answered about this world, whatever it said. Read
+        // by the screens that must not mistake "we have not asked" for "you
+        // have none".
+        worldSeen: true,
         moments,
         globalPosts,
         profile: restored,
