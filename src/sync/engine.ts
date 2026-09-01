@@ -26,6 +26,7 @@ import {
   mondayOf,
   rowToHistoryWeek,
   rowToNotification,
+  shareRowToMoment,
   taskRowToMoment,
 } from './mappers';
 import { noteKey, syncableNote, type NoteSite, type SyncableNote } from './notes';
@@ -163,6 +164,16 @@ function wireEntry(op: OutboxOp, payload: Record<string, unknown>, entry: QueueE
         total: Number(payload.total),
         perfect: !!payload.perfect,
         streakHeld: !!payload.streakHeld,
+      };
+    case 'week.share':
+      return {
+        ...head,
+        op,
+        weekStart: String(payload.weekStart),
+        points: Number(payload.points),
+        done: Number(payload.done),
+        total: Number(payload.total),
+        streak: Number(payload.streak),
       };
     case 'report.file':
       return {
@@ -569,6 +580,28 @@ export function queueRollup(rollup: {
 }
 
 /**
+ * Post a finished week to everyone you share a circle with.
+ *
+ * Keyed on the week, so a double tap is one row — the same reason `queueRollup`
+ * keys on it. Refused for a week that is not actually finished, because the
+ * table's own check constraint refuses it too and a 23514 is a permanent
+ * failure that would sit in dead letters saying nothing useful. The button
+ * cannot produce that state, so this is a guard against a caller rather than a
+ * user.
+ */
+export function queueWeekShare(share: {
+  weekStart: string;
+  points: number;
+  done: number;
+  total: number;
+  streak: number;
+}): void {
+  if (!share.weekStart) return;
+  if (share.total <= 0 || share.done !== share.total) return;
+  enqueue('week.share', `share:${share.weekStart}`, { ...share });
+}
+
+/**
  * True while the queue still owes the server your name.
  *
  * The `people` half of `dirtyTaskIds`, and it exists for the same reason: your
@@ -883,6 +916,7 @@ export function createEngine(
   let lastGlobal: Moment[] = [];
   /** The cheer count the last pull answered with, so an unchanged one is silent. */
   let lastReceived = 0;
+  let lastSharedWeek: string | null = null;
   /** The feed's ids, joined. See the comparison in `pull` for why not the rows. */
   let lastNotificationIds = '';
   let pullTimer: ReturnType<typeof setInterval> | null = null;
@@ -935,6 +969,11 @@ export function createEngine(
     if (state.globalPosts.length === 0) lastGlobal = [];
     if (state.notifications.length === 0) lastNotificationIds = '';
     if (state.profile.cheersReceived === 0) lastReceived = 0;
+    // Same argument as the four above. Without it, a reseed that clears the
+    // store's copy leaves this baseline holding the week — so the next pull
+    // reports "nothing moved" and the button offers to post a week the server
+    // already has, for the life of the process.
+    if (state.sharedWeek === null) lastSharedWeek = null;
   }
 
   function observe(state: State): void {
@@ -1309,7 +1348,29 @@ export function createEngine(
 
       const asMoment = (row: Record<string, unknown>) =>
         taskRowToMoment(row, undefined, cheers[String(row.id)] ?? 0, byTask.get(String(row.id)));
-      const moments = friendRows.map(asMoment);
+      // A posted week joins the same feed as everything else. Appended rather
+      // than woven in: `mergedFeed` sorts, so position here is not the order
+      // anybody sees, and a share carries no `day` worth sorting on anyway.
+      //
+      // `null` means this pull did not ask — no week, or a server without the
+      // key — and is left alone rather than read as "nobody posted", which is
+      // the same distinction `media` draws one block up.
+      // Only when the pull actually asked. `undefined` leaves the reducer's copy
+      // alone; `null` is the answer "you have not posted this week".
+      if (world && world.circleShares !== null) {
+        const shared = world.myShare?.weekStart ?? null;
+        if (shared !== lastSharedWeek) {
+          merge.sharedWeek = shared;
+          lastSharedWeek = shared;
+        }
+      }
+      // `world` is null on the per-table fallback path — a server old enough to
+      // lack `pull_world` has no `week_shares` either, so none is the right
+      // answer rather than a missing one.
+      const shares = world?.circleShares ?? [];
+      const moments = friendRows
+        .map(asMoment)
+        .concat(shares.map((row) => shareRowToMoment(row)));
       // Bots get no photo, and the omission is deliberate. They do not attach
       // one today, and the Global tab is the one feed with no audience behind
       // it — rendering media there would be public image hosting by the back

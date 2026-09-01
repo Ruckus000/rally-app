@@ -249,6 +249,32 @@ const SCHEMA: Record<string, TableSpec> = {
     },
   },
 
+  week_shares: {
+    pk: ['profile_id', 'week_start'],
+    columns: {
+      profile_id: { notNull: true, references: 'profiles' },
+      week_start: { notNull: true },
+      points: { notNull: true, default: () => 0 },
+      done: { notNull: true, default: () => 0 },
+      total: { notNull: true, default: () => 0 },
+      streak: { notNull: true, default: () => 0 },
+      shared_at: { default: () => now() },
+    },
+    checks: [
+      // The constraint that makes the table mean something rather than merely
+      // hold numbers, carried here so a client that could write a half-finished
+      // week fails in the unit suite rather than only against Postgres.
+      {
+        name: 'week_shares_complete',
+        ok: (r) => Number(r.total) > 0 && Number(r.done) === Number(r.total),
+      },
+      {
+        name: 'week_shares_sane',
+        ok: (r) => Number(r.points) >= 0 && Number(r.streak) >= 0,
+      },
+    ],
+  },
+
   notifications: {
     pk: ['id'],
     columns: {
@@ -1248,6 +1274,25 @@ const RPC: Record<string, (args: Row) => unknown> = {
       (n) => n.recipient_id === caller || (n.task_id != null && myTaskIds.has(n.task_id)),
     );
 
+    // Posted weeks. `memberIds` is already deduped, so somebody in two of your
+    // circles is one row here — the fan-out the real function's header is about.
+    const shares = weekStart ? rowsOf('week_shares').filter((sh) => sh.week_start === weekStart) : [];
+    const circleShares = weekStart
+      ? shares
+          .filter((sh) => sh.profile_id !== caller && memberIds.has(sh.profile_id))
+          .map((sh) => ({
+            profile_id: sh.profile_id,
+            week_start: sh.week_start,
+            points: sh.points,
+            done: sh.done,
+            total: sh.total,
+            streak: sh.streak,
+            shared_at: sh.shared_at,
+          }))
+      : null;
+    const mine = shares.find((sh) => sh.profile_id === caller);
+    const myShare = mine ? { week_start: mine.week_start, shared_at: mine.shared_at } : null;
+
     const rollups = rowsOf('week_rollups')
       .filter((w) => w.profile_id === caller)
       .sort((a, b) => String(a.week_start).localeCompare(String(b.week_start)))
@@ -1300,6 +1345,8 @@ const RPC: Record<string, (args: Row) => unknown> = {
       reactions: myReactions,
       notes,
       rollups,
+      circle_shares: circleShares,
+      my_share: myShare,
       cheer_counts: cheerCounts,
     };
   },

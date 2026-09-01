@@ -18,6 +18,8 @@ import {
   weekPoints,
 } from '../state/selectors';
 import type { FeedSource } from '../state/selectors';
+import { queueWeekShare } from '../sync/engine';
+import { mondayOf } from '../sync/mappers';
 import { Avatar } from '../components/Avatar';
 import { Icon } from '../components/Icon';
 import {
@@ -212,6 +214,11 @@ function PersonalFeed() {
   const { state, dispatch } = useStore();
   const { done, open } = React.useMemo(() => personalFeed(state), [state.myTasks]); // eslint-disable-line react-hooks/exhaustive-deps
   const won = allTasksDone(state);
+  // Two sources, deliberately. `acted` is this device's optimistic flip and is
+  // instant; `sharedWeek` comes off the row and is what survives a reinstall.
+  // Either one means posted, and the pull cannot un-post what the tap just did.
+  const weekShared =
+    !!state.acted['mywin:share'] || state.sharedWeek === mondayOf(state.week);
 
   // Stable across renders (dispatch is), so the memoized rows below skip
   // re-rendering when an unrelated slice of state moves.
@@ -232,10 +239,26 @@ function PersonalFeed() {
           points={stakedPoints(state)}
           streak={state.profile.currentStreak + 1}
           weekLabel={state.week.label}
-          shared={!!state.acted['mywin:share']}
-          onShare={() =>
-            dispatch({ type: 'ACT', id: 'mywin', kind: 'share', toast: 'The circle will see this one' })
-          }
+          shared={weekShared}
+          onShare={() => {
+            // Both halves in the same tick, the way `queueUnblock` does it: the
+            // local flag is what you see, and the queue is what makes it true
+            // for everybody else. The local half is `acted` rather than state
+            // the pull owns, so the card flips now rather than in a minute.
+            dispatch({
+              type: 'ACT',
+              id: 'mywin',
+              kind: 'share',
+              toast: 'Your circles will see this one',
+            });
+            queueWeekShare({
+              weekStart: mondayOf(state.week),
+              points: stakedPoints(state),
+              done: state.myTasks.length,
+              total: state.myTasks.length,
+              streak: state.profile.currentStreak + 1,
+            });
+          }}
         />
       ) : null}
 

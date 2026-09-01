@@ -56,6 +56,24 @@ The prototype's overlays appear and vanish in a single frame; the handoff's
 motion table has no entry for them. `<Presence>` fades them, and tab panes
 cross-fade. Reduced motion is respected, as everywhere else.
 
+**A perfect week is posted to every circle, not one** — `src/components/FeedCards.tsx`
+
+The handoff's Week screen ends a closed week with a "Post it to the circle" CTA
+that flips to "Posted to the circle ✓". Both now say "your circles", and the
+rollover toast that leads into them moved with the copy.
+
+Not a picker, which is what plural circles would normally imply. A week's goals
+span every circle the person is in, so there is no coherent sense in which
+somebody had a perfect week in one room and not another — a scope here would not
+narrow the fact, it would duplicate it under a label. It reaches everyone who
+shares any circle with you, which is the reach `week_rollups_select` has always
+had and the reason the migration for goals left per-person records alone: who
+you are and how your week went are not things that belong to a room.
+
+The button also did nothing until this shipped. It dispatched a local boolean
+and a toast, and no row, op or post existed behind it — so the deviation is
+partly that the handoff's copy is now true for the first time.
+
 **SEEN BY's first slot names a circle** — `src/overlays/PlanOverlay.tsx`
 
 The handoff's audience control is three chips: Friends, Everyone, Private. The

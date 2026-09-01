@@ -269,6 +269,17 @@ export type Moment = {
    */
   circleId?: string;
   /**
+   * The finished week behind a `big` card, when it is a real one somebody
+   * posted rather than the fixture.
+   *
+   * Present is what tells the two apart, and the card branches on it: with no
+   * `week` it draws `BIG_CARD_STATS`, which is a constant and is why
+   * `taskRowToMoment` has always refused to emit `kind: 'big'` — it would have
+   * printed invented numbers over a real person's week. A share carries its
+   * own, so it does not.
+   */
+  week?: { done: number; total: number; points: number; streak: number };
+  /**
    * What the row behind this is about. Carried for the same reason `done` is —
    * not for the card, which never shows it, but so Plan can offer a friend's
    * stake back to you at the price its own category sets.

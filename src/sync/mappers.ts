@@ -46,6 +46,19 @@ const AUDIENCES: readonly Audience[] = ['friends', 'everyone', 'private'];
 
 const str = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : fallback);
 
+/** A count off a row. Non-finite is 0, because a stat is never "unknown" on a card. */
+const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+/**
+ * Monday-first weekday of an ISO timestamp, for a `Moment` that has to name a
+ * day it does not draw. `getDay()` is Sunday-first, which is not this app's week.
+ */
+const dayOfIso = (iso: unknown): DayIndex => {
+  const d = asDate(iso);
+  if (!d) return 0;
+  return (((d.getDay() + 6) % 7) as DayIndex);
+};
+
 const pad = (n: number): string => String(n).padStart(2, '0');
 
 /** Local calendar date, not UTC: `toISOString()` on a local midnight is the day before in Europe. */
@@ -316,11 +329,46 @@ export function relativeTime(iso: unknown, now: number = Date.now()): string {
 /**
  * Someone else's task, as the feed renders it.
  *
- * Always `kind: 'normal'`. Not `'big'` — that card's entire stat row is the
- * constant `BIG_CARD_STATS`, so emitting one would print invented numbers over
- * a real person's week. Not `'ask'` either: nothing on a task row says a person
- * is asking for company, and guessing would put words in their mouth.
+ * Always `kind: 'normal'`. Not `'big'` — that card's stat row is the constant
+ * `BIG_CARD_STATS`, so emitting one from a task would print invented numbers
+ * over a real person's week. `shareRowToMoment` below is the one that may,
+ * because a share carries its own. Not `'ask'` either: nothing on a task row
+ * says a person is asking for company, and guessing would put words in their
+ * mouth.
  */
+/**
+ * A finished week somebody posted, as the feed draws it.
+ *
+ * The one place `kind: 'big'` comes from a server row. The objection that kept
+ * it fixture-only was arithmetic rather than principle — `BIG_CARD_STATS` is a
+ * constant, so a big card built from a task would state a week nobody had — and
+ * a `week_shares` row answers exactly the three numbers the card shows. So it
+ * carries `week`, and `BigCard` prefers it over the constant.
+ *
+ * The id is not a uuid, deliberately. Reactions are keyed to `tasks` by foreign
+ * key and a posted week is not a task, so a cheer on this card must never reach
+ * the queue — `parseActedKey` drops any `acted` key whose target is not a uuid,
+ * which is the same guard that keeps a screen full of fixtures from producing a
+ * queue of doomed inserts. The card draws no engagement row either, so the
+ * question does not arise; this is the belt under that brace.
+ */
+export function shareRowToMoment(row: Record<string, unknown>, now?: number): Moment {
+  const done = num(row.done);
+  const total = num(row.total);
+  return {
+    id: `share:${str(row.profile_id)}:${str(row.week_start)}`,
+    who: str(row.profile_id),
+    kind: 'big',
+    time: relativeTime(row.shared_at, now),
+    // Unused by `BigCard`, which draws no day, but `Moment` requires one and an
+    // invented weekday is worse than the day it was actually posted on.
+    day: dayOfIso(row.shared_at),
+    title: `${done} of ${total} — the entire week`,
+    pts: num(row.points),
+    week: { done, total, points: num(row.points), streak: num(row.streak) },
+  };
+}
+
 export function taskRowToMoment(
   row: Record<string, unknown>,
   now?: number,

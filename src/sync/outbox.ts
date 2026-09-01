@@ -32,6 +32,12 @@ export type OutboxOp =
   // is: `week_rollups` grants insert and nothing else, and a replay is absorbed
   // by on-conflict-do-nothing rather than by writing the row a second time.
   | 'rollup.add'
+  // A week somebody chose to show the people they share a circle with. A
+  // separate op from `rollup.add`, because it is a separate fact: that one is
+  // what the week came to and is written at rollover, and this is a thing that
+  // was said mid-week. `week_shares` is insert-only for the same reason, so a
+  // replay is absorbed rather than rewriting the post.
+  | 'week.share'
   // The row that points at a photo already sitting in the bucket. The file
   // itself never travels this queue — see `media.ts` for why it has its own —
   // and this is only ever enqueued once the upload has been acknowledged, so
@@ -136,6 +142,7 @@ const OPS_BY_NAME: Record<OutboxOp, true> = {
   'profile.update': true,
   'device.register': true,
   'rollup.add': true,
+  'week.share': true,
   'media.attach': true,
   'media.detach': true,
   'report.file': true,

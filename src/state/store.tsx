@@ -263,6 +263,16 @@ export type State = {
    */
   worldSeen: boolean;
   /**
+   * The week you have already posted, as `week_start`, or null.
+   *
+   * Server-derived and not persisted, for the reason `circles` is not: it is
+   * refetched every launch, and a stale copy would tell somebody they had
+   * already posted a week they had not. Off the row rather than out of `acted`
+   * so that it survives a reinstall — which is the difference between a button
+   * that remembers and one that only remembers on this phone.
+   */
+  sharedWeek: string | null;
+  /**
    * Your notification feed on a live account. Persisted, unlike `circle` — the
    * argument that covers the circle sheet does not survive contact with the
    * bell. An empty circle sheet for one pull is a screen you opened knowing it
@@ -423,6 +433,7 @@ const initialState: State = {
   activeCircleId: null,
   worldEpoch: 0,
   worldSeen: false,
+  sharedWeek: null,
   notifications: seedNotifications(null),
   globalPosts: seedGlobalPosts(null),
   session: { status: 'off' },
@@ -589,6 +600,12 @@ export type ServerMerge = {
   /** Your own id, once the session and your profile row have both resolved. */
   selfId?: PersonId;
   /**
+   * The week you have already posted. Only ever set when the pull actually
+   * asked — `null` from a pull with no week to ask about would read as "not
+   * posted" and offer the button again to somebody who had.
+   */
+  sharedWeek?: string | null;
+  /**
    * One week of your own rows, as the server has them. Folded by
    * `reconcileTasks`, never assigned: the engine only sends these when the week
    * they answer for is still the week on screen.
@@ -719,6 +736,7 @@ const seedFor = (mode: AccountMode, week: WeekContext) =>
     // And with it, the fact that anybody had answered — this is a new world,
     // and nothing has been asked about it yet.
     worldSeen: false,
+    sharedWeek: null,
     notifications: seedNotifications(mode),
     globalPosts: seedGlobalPosts(mode),
     people: seedPeople(mode),
@@ -850,7 +868,9 @@ export function reducer(state: State, action: Action): State {
       const next = { ...state, myTasks };
       const allDone = myTasks.length > 0 && myTasks.every((t) => t.done);
       const wasAllDone = state.myTasks.length > 0 && state.myTasks.every((t) => t.done);
-      return allDone && !wasAllDone ? withToast(next, 'That’s the whole week. Tell the circle.') : next;
+      return allDone && !wasAllDone
+        ? withToast(next, 'That’s the whole week. Tell your circles.')
+        : next;
     }
 
     case 'ACT': {
@@ -1993,6 +2013,10 @@ export function reducer(state: State, action: Action): State {
         // by the screens that must not mistake "we have not asked" for "you
         // have none".
         worldSeen: true,
+        // `undefined` means the pull did not ask; `null` means it asked and you
+        // have not posted. Only the second is an answer.
+        sharedWeek:
+          action.merge.sharedWeek === undefined ? state.sharedWeek : action.merge.sharedWeek,
         moments,
         globalPosts,
         profile: restored,

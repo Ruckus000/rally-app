@@ -30,6 +30,7 @@ const DOMAIN_TABLES = [
   'public.reactions',
   'public.notes',
   'public.week_rollups',
+  'public.week_shares',
   'public.notifications',
   'public.invites',
   'public.bot_goal_candidates',

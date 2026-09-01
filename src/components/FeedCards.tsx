@@ -244,18 +244,44 @@ export const BigCard = React.memo(function BigCard({
           {moment.title}
         </Bri>
 
+        {/* Real numbers when the card came off a posted week, and the fixture's
+            constants when it did not. This is the whole reason
+            `taskRowToMoment` refused to emit `kind: 'big'`: a card built from a
+            task would have stated a week nobody had. A share carries its own. */}
         <View style={[row, { gap: 18, marginTop: 12 }]}>
-          <Stat value={BIG_CARD_STATS.tasks} label="tasks" accent />
-          <Stat value={BIG_CARD_STATS.pts} label="pts" />
-          <Stat value={BIG_CARD_STATS.streak} label="streak" />
+          <Stat
+            value={moment.week ? `${moment.week.done}/${moment.week.total}` : BIG_CARD_STATS.tasks}
+            label="tasks"
+            accent
+          />
+          <Stat
+            value={moment.week ? String(moment.week.points) : BIG_CARD_STATS.pts}
+            label="pts"
+          />
+          <Stat
+            value={moment.week ? `${moment.week.streak}w` : BIG_CARD_STATS.streak}
+            label="streak"
+          />
         </View>
 
-        <View style={{ marginTop: 11, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: color.lime }}>
-          <Sans size={13} lineHeight={18} color={onDark.bodySecondary}>
-            {moment.quote}
-          </Sans>
-        </View>
+        {/* A posted week has no quote — nobody was asked for one. The bordered
+            block is skipped rather than drawn empty. */}
+        {moment.quote ? (
+          <View style={{ marginTop: 11, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: color.lime }}>
+            <Sans size={13} lineHeight={18} color={onDark.bodySecondary}>
+              {moment.quote}
+            </Sans>
+          </View>
+        ) : null}
 
+        {/* No engagement row on a posted week, and it is a correctness
+            decision rather than a layout one. Reactions are keyed to `tasks` by
+            foreign key, and a week is not a task — so a cheer here could never
+            reach the server. `parseActedKey` would drop it silently (its target
+            is not a uuid), which is the right failure but still leaves a button
+            that does nothing. Better not to offer one. Comments are the same
+            row and the same problem. */}
+        {moment.week ? null : (
         <EngagementRow
           dark
           marginTop={14}
@@ -271,6 +297,7 @@ export const BigCard = React.memo(function BigCard({
             style: cosigned ? 'ghostLime' : 'lime',
           }}
         />
+        )}
       </View>
     </GradientHairline>
   );
@@ -578,7 +605,11 @@ export const MineWinCard = React.memo(function MineWinCard({
           }}
         >
           <Bri size={13} weight={800} color={shared ? color.lime : onLight}>
-            {shared ? 'Posted to the circle ✓' : 'Post it to the circle'}
+            {/* "the circle" named one room, and there can be several. A
+                finished week is not scoped to any of them — its goals span
+                every circle you are in — so this reaches all of them, and says
+                so. Ratified deviation; see design-reference/DEVIATIONS.md. */}
+            {shared ? 'Posted to your circles ✓' : 'Post it to your circles'}
           </Bri>
         </Tap>
       </View>
