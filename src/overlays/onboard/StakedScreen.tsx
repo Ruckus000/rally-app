@@ -33,8 +33,9 @@ export function StakedScreen({
   pickCount: number;
   /**
    * Its *name*, when we know it. Joining by code does not tell us one —
-   * `join_circle_by_code` answers with a uuid — so this stays null until the
-   * pull that follows fills `state.circle` in.
+   * `join_circle_by_code` answers with a uuid, which the flow now keeps for the
+   * stakes but cannot render — so this stays null until the pull that follows
+   * fills `state.circles` in.
    */
   circle: string | null;
   /**

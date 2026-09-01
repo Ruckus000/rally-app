@@ -16,6 +16,8 @@ import { CircleScreen } from '../CircleScreen';
 const ME = '11111111-1111-4111-8111-111111111111';
 const uuid = (n: number) => `${n}${n}${n}${n}${n}${n}${n}${n}-${n}${n}${n}${n}-4${n}${n}${n}-8${n}${n}${n}-${n.toString().repeat(12)}`;
 
+const CIRCLE = { id: uuid(9), name: 'The Basement', inviteCode: 'basement-aaaa' };
+
 /** Four, because three or fewer is all podium and never renders a list row. */
 const live = () =>
   render(
@@ -25,6 +27,12 @@ const live = () =>
       restored={{
         account: 'live',
         selfId: ME,
+        // Both are needed now that the screen distinguishes "nobody has answered
+        // yet" from "you are in none": without them these render the first-pull
+        // state and never reach a podium at all.
+        circles: [CIRCLE],
+        activeCircleId: CIRCLE.id,
+        worldSeen: true,
         people: indexPeople([
           personOf(ME, 'Alex Rivera'),
           personOf(uuid(2), 'Maya Chen'),
