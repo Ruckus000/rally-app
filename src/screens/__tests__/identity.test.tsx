@@ -248,7 +248,7 @@ describe('the invite code', () => {
 
     expect(screen.queryByLabelText('Circle name')).toBeNull();
     expect(screen.queryByLabelText('Create circle')).toBeNull();
-    expect(screen.getByText(/Checking whether you’re already in a circle/)).toBeTruthy();
+    expect(screen.getByText(/Checking which circles you’re in/)).toBeTruthy();
   });
 
   it('leaves the demo alone — the control', () => {

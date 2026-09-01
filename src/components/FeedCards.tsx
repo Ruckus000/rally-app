@@ -197,8 +197,8 @@ export const BigCard = React.memo(function BigCard({
   onCosign,
 }: {
   moment: Moment;
-  /** FRIENDS or FOLLOW, as on `SocialCard`. */
-  badge?: string;
+  /** The circle's name or FOLLOW, as on `SocialCard`. */
+  badge?: string | null;
   cheered: boolean;
   cosigned: boolean;
   onCheer: () => void;
@@ -293,12 +293,18 @@ function Stat({ value, label, accent }: { value: string; label: string; accent?:
 /* ── source badge ───────────────────────────────────────────────────────── */
 
 /**
- * FRIENDS or FOLLOW, beside the name.
+ * The room a card came out of, beside the name. Or FOLLOW, on the public half.
  *
- * The circle's moments and the public feed are one list now, so this is the
- * only thing that says which half a card came from — it used to be answered by
- * which tab you were standing on. Same chip `MineRow` draws for audience, so
- * there is one pill in this app rather than two that nearly match.
+ * The circle's moments and the public feed are one list, so this is the only
+ * thing that says which half a card came from — it used to be answered by which
+ * tab you were standing on. Same chip `MineRow` draws for audience, so there is
+ * one pill in this app rather than two that nearly match, and that argument now
+ * carries more weight rather than less: both of them name a circle.
+ *
+ * It used to read FRIENDS here. That word stopped naming anything once somebody
+ * could be in two rooms — it meant "a person you share a circle with" on a card
+ * belonging to one specific room out of several. `feedBadge` decides what it
+ * says, including when it says nothing; the rules are worth reading there.
  */
 function SourceBadge({ label, dark }: { label: string; dark?: boolean }) {
   const color = useColors();
@@ -307,14 +313,28 @@ function SourceBadge({ label, dark }: { label: string; dark?: boolean }) {
       style={{
         backgroundColor: dark ? onDark.fillStrong : color.chip,
         borderRadius: 999,
+        // A circle name is as long as somebody wanted it, where FRIENDS and
+        // FOLLOW were fixed. Without a shrink this takes its intrinsic width
+        // and squeezes the person's name to nothing — which is the bug `shrink`
+        // above was introduced to fix, arriving from the other side.
+        flexShrink: 1,
+        maxWidth: 112,
         paddingHorizontal: 8,
         paddingVertical: 2,
       }}
     >
       {/* 10px at the spec's floor: "Minimum readable size is 10px and only
           for uppercase tracked labels at ≥.45 alpha. Do not shrink further."
-          This badge was authored at 9.5 and appears on nearly every card. */}
-      <Caps size={10} tracking={1} color={dark ? onDark.secondary : color.muted}>
+          This badge was authored at 9.5 and appears on nearly every card.
+          Shrinking being forbidden is exactly why the name ellipsises instead:
+          it is the only lever left once the type size is fixed. */}
+      <Caps
+        size={10}
+        tracking={1}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+        color={dark ? onDark.secondary : color.muted}
+      >
         {label}
       </Caps>
     </View>
@@ -347,8 +367,13 @@ export const SocialCard = React.memo(function SocialCard({
   initials?: string;
   tint?: string;
   name: string;
-  /** FRIENDS or FOLLOW. Optional so the demo's own cards can go unlabelled. */
-  badge?: string;
+  /**
+   * The circle's name, or FOLLOW on the public half. Nullable as well as
+   * optional: the demo's own cards go unlabelled, and so does a card whose room
+   * this device cannot name — see `feedBadge` for why that is silence rather
+   * than a generic word.
+   */
+  badge?: string | null;
   time: string;
   title: string;
   quote?: string;

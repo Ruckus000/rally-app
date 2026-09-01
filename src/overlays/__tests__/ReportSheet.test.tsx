@@ -193,7 +193,11 @@ describe('blocking, which is its own decision', () => {
     fireEvent.press(screen.getByLabelText('Block Maya Chen'));
     expect(screen.getByText(/circle/i)).toBeTruthy();
     expect(screen.getByText(/ranked list/i)).toBeTruthy();
-    expect(screen.getByText(/leaving the circle/i)).toBeTruthy();
+    // It used to end "Rally has no way to do that yet", which stopped being
+    // true the moment Settings grew a leave row.
+    expect(screen.getByText(/leaving a circle/i)).toBeTruthy();
+    expect(screen.getByText(/Settings is where you do it/i)).toBeTruthy();
+    expect(screen.queryByText(/no way to do that yet/i)).toBeNull();
   });
 
   it('is not offered on a bot, which the database refuses anyway', async () => {

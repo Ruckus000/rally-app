@@ -560,6 +560,7 @@ export type Action =
    * for why the reducer never corrects this on its own either.
    */
   | { type: 'SET_ACTIVE_CIRCLE'; id: string | null }
+  | { type: 'LEFT_CIRCLE'; id: string }
   | { type: 'OPEN_REPORT'; target: ReportTarget }
   | { type: 'CLOSE_REPORT' }
   | { type: 'REPORT_FILED'; id: string };
@@ -1647,6 +1648,33 @@ export function reducer(state: State, action: Action): State {
 
     case 'SET_ACTIVE_CIRCLE':
       return action.id === state.activeCircleId ? state : { ...state, activeCircleId: action.id };
+
+    /**
+     * You left a circle, and the server has already agreed.
+     *
+     * It touches `circles` and nothing else, which is three decisions rather
+     * than one.
+     *
+     * Not `activeCircleId`. `SET_ACTIVE_CIRCLE` stays its only writer, and the
+     * field's own comment forbids the reducer normalising it — `activeCircle`
+     * falls back to `circles[0]` at read time, so leaving the room you were
+     * standing in moves the tab to your oldest remaining one on its own, and
+     * leaving your last resolves to null. A second gate here could disagree
+     * with the resolver, and would have to be right on the cold-start window
+     * the resolver exists to survive.
+     *
+     * Not `moments`. Filtering them on `circleId` would also drop `everyone`
+     * goals staked in that room, which you can still legitimately see. Blocking
+     * filters locally because a block has to be instant for safety; leaving is
+     * not that, and the feed is server-owned and one pull away.
+     *
+     * Not `people[].circleIds`. The pull is authoritative for the directory,
+     * and `circleMembers` is only ever asked about an id from `circles`.
+     */
+    case 'LEFT_CIRCLE': {
+      const circles = state.circles.filter((c) => c.id !== action.id);
+      return circles.length === state.circles.length ? state : { ...state, circles };
+    }
 
     case 'SET_AVATAR': {
       const current = state.people[state.selfId];

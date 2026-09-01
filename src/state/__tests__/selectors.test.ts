@@ -9,6 +9,7 @@ import {
   allTasksDone,
   circleLabel,
   circleWord,
+  feedBadge,
   stakeCircleId,
   cheersGiven,
   circleCheersGiven,
@@ -519,6 +520,35 @@ describe('which circle the app is about', () => {
       // design, so `state.moments` legitimately holds rows naming a room this
       // device is not in. Naming it would be a disclosure rather than a label.
       expect(circleLabel(staked({ circleId: 'c-somewhere-else' }), [A, B])).toBe('Friends');
+    });
+  });
+
+  describe('the badge on a feed card', () => {
+    const withCircles2 = (circles: (typeof A)[]) => ({ ...base, circles });
+
+    it('says Follow on the public half, whatever the goal names', () => {
+      expect(feedBadge(withCircles2([A]), { circleId: A.id }, 'follow')).toBe('Follow');
+      expect(feedBadge(withCircles2([A]), {}, 'follow')).toBe('Follow');
+    });
+
+    it('names the room a circle card came out of', () => {
+      expect(feedBadge(withCircles2([A, B]), { circleId: B.id }, 'circle')).toBe('Gym');
+    });
+
+    it('never names a room you are not in', () => {
+      // Reachable and load-bearing: an `aud='everyone'` goal crosses circle
+      // lines by design, and `pullTasksByOwners` fetches by circle-mate id — so
+      // `state.moments` legitimately holds rows naming rooms this device cannot
+      // see. Naming one would be a disclosure rather than a label.
+      expect(feedBadge(withCircles2([A]), { circleId: 'c-elsewhere' }, 'circle')).toBeNull();
+    });
+
+    it('says nothing rather than something generic', () => {
+      // A goal with no circle, and the cold-start window where `circles` has
+      // not arrived. A fallback word would be true of these and false of a
+      // private goal you were paired into from a room you have never been in.
+      expect(feedBadge(withCircles2([A]), {}, 'circle')).toBeNull();
+      expect(feedBadge(withCircles2([]), { circleId: A.id }, 'circle')).toBeNull();
     });
   });
 

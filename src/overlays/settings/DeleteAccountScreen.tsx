@@ -44,7 +44,7 @@ const GOES = [
   'Every goal you have staked, and every photo on one',
   'Every note you have written, and every note written to you',
   'Your cheers, your pairings and your weekly totals',
-  'Your place in your circle, and your notifications',
+  'Your place in every circle you are in, and your notifications',
 ];
 
 /**
@@ -58,7 +58,7 @@ const GOES = [
  */
 const STAYS = [
   'Reports other people have filed about you. Deleting an account cannot erase a safety record.',
-  'A circle you created, so the people still in it are not thrown out of it. Your name and your place in it go.',
+  'Any circle you created, so the people still in it are not thrown out of it. Your name and your place in it go.',
   'The anonymous cache used to price goals. It holds goal text with no link to any account, so there is no way to find yours in it.',
 ];
 
@@ -110,7 +110,7 @@ export function DeleteAccountScreen({
       >
         <Sans size={14} lineHeight={21} color={color.textPrimary}>
           Your account is deleted {GRACE_DAYS} days from now. Until then nobody else can see you —
-          you are gone from your circle, and everything you have written stops being readable. You
+          you are gone from your circles, and everything you have written stops being readable. You
           can still change your mind, from the first screen of the app.
         </Sans>
 

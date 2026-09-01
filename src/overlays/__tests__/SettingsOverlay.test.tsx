@@ -28,6 +28,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { StoreProvider, useStore } from '../../state/store';
 import { accountHeading, accountLine, SettingsOverlay } from '../SettingsOverlay';
 import * as signOutModule from '../settings/signOut';
+import * as leaveModule from '../settings/leaveCircle';
 import { fakeNotifications, __resetForTests } from '../../__mocks__/expo-notifications';
 import * as sessionModule from '../../sync/session';
 import { pending, __resetOutboxForTests } from '../../sync/outbox';
@@ -588,5 +589,83 @@ describe('signing out only when it is safe', () => {
     const second = alert.mock.calls[1];
     expect(second).toBeTruthy();
     expect(String(second[1])).toContain(signOutModule.unsentLine(2));
+  });
+});
+
+/**
+ * The circles you are in, and the way out of each.
+ *
+ * `ReportSheet` used to end "leaving the circle is what changes that, and Rally
+ * has no way to do that yet". This is the row that made that sentence false.
+ */
+describe('your circles', () => {
+  const A = { id: 'c-a', name: 'The Basement', inviteCode: 'basement-aaaa' };
+  const B = { id: 'c-b', name: 'Gym', inviteCode: 'gym-bbbb' };
+  const READY: SessionState = { status: 'ready', userId: ME, anonymous: false };
+
+  const withCircles = (circles: (typeof A)[], session: SessionState = READY) =>
+    mount({ account: 'live', selfId: ME, circles }, session);
+
+  it('lists one row per circle, above Blocked', async () => {
+    await withCircles([A, B]);
+    expect(screen.getByText('Your circles')).toBeTruthy();
+    expect(screen.getByLabelText('Leave The Basement')).toBeTruthy();
+    expect(screen.getByLabelText('Leave Gym')).toBeTruthy();
+  });
+
+  it('is absent entirely when there are none', async () => {
+    // Not an empty state: `circles` is unpersisted, so every cold start would
+    // otherwise tell somebody in three circles that they are in none.
+    await withCircles([]);
+    expect(screen.queryByText('Your circles')).toBeNull();
+  });
+
+  it('is not on the demo worlds', async () => {
+    await mount({ account: 'seeded' });
+    expect(screen.queryByText('Your circles')).toBeNull();
+  });
+
+  it('carries the reason in the label when the session has not resolved', async () => {
+    await withCircles([A], { status: 'offline' });
+    expect(screen.getByLabelText('Leave The Basement. Leaving needs a connection')).toBeTruthy();
+  });
+
+  it('says plainly what happens to the goals staked there', async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await withCircles([A, B]);
+
+    fireEvent.press(screen.getByLabelText('Leave Gym'));
+
+    expect(alert).toHaveBeenCalledWith(
+      'Leave Gym?',
+      // The half most confirms leave out — that it is reversible — and the
+      // half `shares_circle_on` makes true, since it checks the owner too.
+      expect.stringMatching(/only person who can see them[\s\S]*Joining again with the code/),
+      expect.any(Array),
+    );
+    alert.mockRestore();
+  });
+
+  it('only drops the circle when the server agreed', async () => {
+    // The `signOutRow` contract, in the other module: dispatch on `{ ok: true }`
+    // and nothing else, or a refused leave takes the circle off the screen
+    // while the membership row is still there.
+    const attempt = jest
+      .spyOn(leaveModule, 'attemptLeaveCircle')
+      .mockResolvedValue({ ok: false, reason: 'unsent', unsent: 2 });
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+
+    await withCircles([A, B]);
+    fireEvent.press(screen.getByLabelText('Leave Gym'));
+    // Confirm, by invoking the destructive button the alert was given.
+    const actions = alert.mock.calls[0][2] as { text: string; onPress?: () => void }[];
+    await act(async () => {
+      actions.find((a) => a.text === 'Leave')?.onPress?.();
+    });
+
+    expect(attempt).toHaveBeenCalledWith(B.id, ME);
+    expect(seenState.circles.map((c) => c.id)).toEqual([A.id, B.id]);
+    attempt.mockRestore();
+    alert.mockRestore();
   });
 });

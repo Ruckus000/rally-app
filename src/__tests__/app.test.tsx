@@ -371,11 +371,17 @@ describe('the feed', () => {
    * thing that says which is which. Both directions are asserted, so swapping
    * them fails rather than half-passing.
    */
-  it('labels your circle Friends and the bots Follow', () => {
+  it('labels the bots Follow, and leaves the demo\'s own cards unlabelled', () => {
+    // The badge names the circle a goal was staked in, read off the goal's own
+    // `circle_id`. The demo's moments are fixtures with no circle on them and
+    // the demo has no `state.circles` for one to resolve against, so its half
+    // goes bare rather than wearing a word that stopped meaning anything —
+    // see `feedBadge`, and the DEVIATIONS entry that records the cost.
     open();
     goToFeed();
     expect(screen.getByLabelText(`Dorothy Gale, Follow: ${OZ_POST}`)).toBeTruthy();
-    expect(screen.getByLabelText(/^Sofia Park, Friends: /)).toBeTruthy();
+    expect(screen.getByLabelText(/^Sofia Park: /)).toBeTruthy();
+    expect(screen.queryByLabelText(/, Friends: /)).toBeNull();
   });
 
   it('interleaves the two halves rather than stacking them', () => {
@@ -383,8 +389,10 @@ describe('the feed', () => {
     // merging them was meant to stop.
     open();
     goToFeed();
+    // A card from the public half carries ", Follow: "; one from the circle
+    // half carries only ": ", now that the demo's own cards go unbadged.
     const labels = screen
-      .getAllByLabelText(/, (Friends|Follow): /)
+      .getAllByLabelText(/: /)
       .map((c) => (c.props.accessibilityLabel.includes(', Follow: ') ? 'follow' : 'circle'));
     expect(new Set(labels).size).toBe(2);
     // At least one changeover in each direction — a stacked feed has one.
