@@ -78,6 +78,20 @@ export type WireOp =
       perfect: boolean;
       streakHeld: boolean;
     }
+  // Insert-only and written once, like `rollup.add` above — but a separate op
+  // because it is a separate fact. That one is what the week came to and is
+  // written at rollover; this one is a thing somebody chose to say, mid-week,
+  // and the two are allowed to disagree.
+  | {
+      id: string;
+      at: number;
+      op: 'week.share';
+      weekStart: string;
+      points: number;
+      done: number;
+      total: number;
+      streak: number;
+    }
   // No reporter or blocker id, for the same reason `device.register` carries no
   // `profile_id`: the RPC reads `auth.uid()` itself, so there is no owner for a
   // payload to name and therefore none to forge.
@@ -133,6 +147,17 @@ export type World = {
   reactions: ReactionRef[];
   notes: PulledNote[];
   rollups: PulledRollup[];
+  /**
+   * Finished weeks people you share a circle with chose to post.
+   *
+   * Null with the same meaning `media` has: this pull did not ask, either
+   * because there was no week to ask about or because the server predates the
+   * key. Empty means asked and answered, which the client treats as
+   * authoritative and draws nothing for.
+   */
+  circleShares: Record<string, unknown>[] | null;
+  /** Your own, for the week asked about — the button's memory, off the row. */
+  myShare: { weekStart: string } | null;
   cheerCounts: Record<string, number>;
 };
 
@@ -833,6 +858,26 @@ export function supabaseTransport(): Transport {
       return;
     }
 
+    if (entry.op === 'week.share') {
+      // `ignoreDuplicates` for the reason `rollup.add` gives: the table grants
+      // insert and nothing else, so an upsert that fell back to updating would
+      // be a permanent 42501 at the head of a strictly ordered queue. A week is
+      // posted once, and a replay has already achieved its intent.
+      const { error } = await supabase.from('week_shares').upsert(
+        {
+          profile_id: userId,
+          week_start: entry.weekStart,
+          points: entry.points,
+          done: entry.done,
+          total: entry.total,
+          streak: entry.streak,
+        },
+        { onConflict: 'profile_id,week_start', ignoreDuplicates: true },
+      );
+      if (error) throw error;
+      return;
+    }
+
     if (entry.op === 'media.attach') {
       // `ignoreDuplicates` for the reason `reaction.add` uses it: a replay has
       // already achieved its intent. The pk is client-minted, so a second
@@ -1344,6 +1389,11 @@ export function supabaseTransport(): Transport {
       reactions: rows(w.reactions).flatMap(rowToReactionRef),
       notes: rows(w.notes).flatMap(rowToPulledNote),
       rollups: rows(w.rollups).map(rowToPulledRollup),
+      circleShares: w.circle_shares == null ? null : rows(w.circle_shares),
+      myShare:
+        w.my_share && typeof (w.my_share as { week_start?: unknown }).week_start === 'string'
+          ? { weekStart: String((w.my_share as { week_start: unknown }).week_start) }
+          : null,
       cheerCounts,
     };
   };

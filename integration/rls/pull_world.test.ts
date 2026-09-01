@@ -14,7 +14,7 @@
 import { randomUUID } from 'node:crypto';
 import { asAnon, asService, asUser, idOf } from '../support/clients';
 import { sql } from '../support/reset';
-import { CIRCLE_IDS, SEED_BOTS } from '../fixtures/world';
+import { CIRCLE_IDS, SEED_BOTS, type SeedHandle } from '../fixtures/world';
 
 /** 2026-08-10 is a Monday, which is what `week_start` means. */
 const WEEK = '2026-08-10';
@@ -39,6 +39,10 @@ type World = {
   reactions: { target_id: string; kind: string }[];
   notes: { id: string; body: string }[];
   rollups: { week_start: string; points: number }[];
+  circle_shares:
+    | { profile_id: string; week_start: string; points: number; done: number; total: number; streak: number }[]
+    | null;
+  my_share: { week_start: string; shared_at: string } | null;
   media:
     | { id: string; task_id: string; owner_id: string; path: string; state: string }[]
     | null;
@@ -471,5 +475,88 @@ describe('the photos on those goals', () => {
 
   it('answers empty when the week genuinely has none', async () => {
     expect(await worldOf('maya').then((w) => w.media)).toEqual([]);
+  });
+});
+
+/**
+ * The finished weeks other people chose to post.
+ *
+ * `week_shares` is insert-only and written by the button, so the opt-in is the
+ * whole mechanism: nothing here appears because a week happened to go well.
+ */
+describe('the perfect weeks other people posted', () => {
+  const share = (handle: SeedHandle, over: Record<string, unknown> = {}) => ({
+    profile_id: idOf(handle),
+    week_start: WEEK,
+    points: 150,
+    done: 6,
+    total: 6,
+    streak: 5,
+    ...over,
+  });
+
+  it('is empty until somebody posts one', async () => {
+    expect((await worldOf('maya')).circle_shares).toEqual([]);
+  });
+
+  it('carries a circle-mate’s once they do', async () => {
+    await asUser('dre').from('week_shares').insert(share('dre'));
+
+    const world = await worldOf('maya');
+    expect(world.circle_shares).toHaveLength(1);
+    expect(world.circle_shares![0]).toMatchObject({
+      profile_id: idOf('dre'),
+      week_start: WEEK,
+      points: 150,
+      done: 6,
+      total: 6,
+      streak: 5,
+    });
+  });
+
+  it('does not carry a stranger’s', async () => {
+    await asUser('jordan').from('week_shares').insert(share('jordan'));
+    expect((await worldOf('maya')).circle_shares).toEqual([]);
+  });
+
+  it('does not carry last week’s', async () => {
+    await asUser('dre').from('week_shares').insert(share('dre', { week_start: '2026-08-03' }));
+    expect((await worldOf('maya')).circle_shares).toEqual([]);
+  });
+
+  it('names somebody in two of your circles exactly once', async () => {
+    // The fan-out this function's header is mostly about. maya is in basement
+    // and gym; dre shares basement with her and sofia shares gym, so each of
+    // them sees her once and neither sees her twice.
+    await asUser('maya').from('week_shares').insert(share('maya'));
+
+    for (const viewer of ['dre', 'sofia'] as const) {
+      const world = await worldOf(viewer);
+      expect(world.circle_shares).toHaveLength(1);
+      expect(world.circle_shares![0].profile_id).toBe(idOf('maya'));
+    }
+  });
+
+  it('keeps your own out of the list, and answers for it separately', async () => {
+    // Two keys because the client asks two questions: what to draw in the feed,
+    // and whether the button has already been pressed. The second has to
+    // survive a reinstall, which is why it is not `acted`.
+    await asUser('maya').from('week_shares').insert(share('maya'));
+
+    const world = await worldOf('maya');
+    expect(world.circle_shares).toEqual([]);
+    expect(world.my_share).toMatchObject({ week_start: WEEK });
+  });
+
+  it('answers null for your own when you have not posted', async () => {
+    expect((await worldOf('maya')).my_share).toBeNull();
+  });
+
+  it('is null rather than empty when there is no week to ask about', async () => {
+    // Same contract `my_tasks` and `media` keep: the client treats an empty
+    // array as authoritative, so "not asked" has to be distinguishable.
+    const world = await worldOf('maya', null);
+    expect(world.circle_shares).toBeNull();
+    expect(world.my_share).toBeNull();
   });
 });

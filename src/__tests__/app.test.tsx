@@ -88,7 +88,7 @@ describe('week feed', () => {
   it('shows the perfect-week card only once everything is closed', () => {
     open();
     goToPersonal();
-    expect(screen.queryByText('Post it to the circle')).toBeNull();
+    expect(screen.queryByText('Post it to your circles')).toBeNull();
     [
       'Ship the portfolio site',
       'Therapy homework',
@@ -96,7 +96,7 @@ describe('week feed', () => {
       'Inbox zero by Friday',
       'Meal prep for the week',
     ].forEach((title) => fireEvent.press(screen.getByLabelText(title)));
-    expect(screen.getByText('Post it to the circle')).toBeTruthy();
+    expect(screen.getByText('Post it to your circles')).toBeTruthy();
     expect(screen.getByText('All 6 of it.')).toBeTruthy();
   });
 

@@ -16,6 +16,7 @@ import {
   mondayOf,
   rowToPerson,
   rowToTask,
+  shareRowToMoment,
   taskRowToMoment,
   taskToRow,
 } from '../mappers';
@@ -464,5 +465,60 @@ describe('several cheers on one task, as one row', () => {
     // Read state is keyed on the id, so a group keyed only by task would stay
     // read forever once opened, and a fourth cheer would arrive silently.
     expect(after[0].id).not.toBe(before[0].id);
+  });
+});
+
+/**
+ * A finished week somebody posted, as the feed draws it.
+ *
+ * The one place `kind: 'big'` comes from a server row. `taskRowToMoment`
+ * refuses to emit one because `BIG_CARD_STATS` is a constant and a card built
+ * from a task would state a week nobody had — a share carries its own numbers,
+ * which is exactly what lifts that objection.
+ */
+describe('a week somebody posted', () => {
+  const OWNER = '22222222-2222-4222-8222-222222222222';
+  const row = (over: Record<string, unknown> = {}) => ({
+    profile_id: OWNER,
+    week_start: '2026-08-10',
+    points: 150,
+    done: 6,
+    total: 6,
+    streak: 5,
+    shared_at: '2026-08-14T09:00:00.000Z',
+    ...over,
+  });
+
+  it('carries the real numbers rather than the fixture\'s', () => {
+    const m = shareRowToMoment(row());
+    expect(m.kind).toBe('big');
+    expect(m.who).toBe(OWNER);
+    expect(m.week).toEqual({ done: 6, total: 6, points: 150, streak: 5 });
+    expect(m.pts).toBe(150);
+  });
+
+  it('has an id no reaction can ever be keyed to', () => {
+    // Load-bearing. Reactions point at `tasks` by foreign key, and a posted
+    // week is not a task — so a cheer on this card must never reach the queue.
+    // `parseActedKey` drops any acted key whose target is not a uuid, which is
+    // the same guard that keeps a screen of fixtures from queuing doomed
+    // inserts. If this id ever became a bare uuid, that guard would stop
+    // applying and every cheer would dead-letter on a foreign key violation.
+    const m = shareRowToMoment(row());
+    expect(m.id).toBe(`share:${OWNER}:2026-08-10`);
+    expect(m.id).not.toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/i);
+  });
+
+  it('says what the week came to, in the title', () => {
+    expect(shareRowToMoment(row({ done: 4, total: 4 })).title).toBe('4 of 4 — the entire week');
+  });
+
+  it('carries no quote, because nobody was asked for one', () => {
+    expect(shareRowToMoment(row()).quote).toBeUndefined();
+  });
+
+  it('survives a row with missing numbers rather than rendering NaN', () => {
+    const m = shareRowToMoment({ profile_id: OWNER, week_start: '2026-08-10' });
+    expect(m.week).toEqual({ done: 0, total: 0, points: 0, streak: 0 });
   });
 });

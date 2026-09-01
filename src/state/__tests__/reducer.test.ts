@@ -56,18 +56,18 @@ describe('closing tasks', () => {
       base,
       ...open.slice(0, -1).map((t) => ({ type: 'TOGGLE_TASK', id: t.id }) as Action),
     );
-    expect(almost.toast).not.toBe('That’s the whole week. Tell the circle.');
+    expect(almost.toast).not.toBe('That’s the whole week. Tell your circles.');
 
     const done = reducer(almost, { type: 'TOGGLE_TASK', id: open[open.length - 1].id });
     expect(done.myTasks.every((t) => t.done)).toBe(true);
-    expect(done.toast).toBe('That’s the whole week. Tell the circle.');
+    expect(done.toast).toBe('That’s the whole week. Tell your circles.');
   });
 
   it('does not re-fire when a task is reopened and closed again', () => {
     const all = run(base, ...base.myTasks.filter((t) => !t.done).map((t) => ({ type: 'TOGGLE_TASK', id: t.id }) as Action));
     const reopened = reducer(all, { type: 'TOGGLE_TASK', id: 'm1' });
     const reclosed = reducer({ ...reopened, toast: null }, { type: 'TOGGLE_TASK', id: 'm1' });
-    expect(reclosed.toast).toBe('That’s the whole week. Tell the circle.');
+    expect(reclosed.toast).toBe('That’s the whole week. Tell your circles.');
   });
 });
 
