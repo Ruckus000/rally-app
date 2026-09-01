@@ -71,7 +71,15 @@ export function TaskPhoto({
 
   return (
     <Image
-      source={{ uri: source }}
+      // `cacheKey`, not the uri. The header's rule is the media id, and the uri
+      // is a signed url that `lib/mediaUrl.ts` re-mints every fifty-five
+      // minutes into a Map that dies with the process — while `scrubMoments`
+      // strips it on the way to disk. Keyed on the url the disk cache could
+      // never hit once, and banked a second copy per re-signing.
+      //
+      // `recyclingKey` stays, and is not this: it resets a recycled view's
+      // state, which is a list-virtualization concern this app does not have.
+      source={{ uri: source, cacheKey: media.id }}
       cachePolicy="disk"
       recyclingKey={media.id}
       contentFit="cover"

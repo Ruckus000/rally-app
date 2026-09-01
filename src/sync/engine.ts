@@ -275,6 +275,13 @@ const sameMoments = (a: Moment[], b: Moment[]): boolean =>
       m.title === other.title &&
       m.pts === other.pts &&
       m.day === other.day &&
+      // `carryThreads` compares this too, and says why — but it runs on a merge
+      // this gate has already decided not to make. A friend ticking a goal
+      // moves nothing else on their card, so without this the pull returns
+      // "no news", `merge.moments` is never set, and `PersonSheet` keeps
+      // drawing their whole week open while the Circle header (which reads
+      // `stats`, not moments) already says 2 of 4.
+      m.done === other.done &&
       m.cheers === other.cheers &&
       m.media?.id === other.media?.id &&
       m.media?.url === other.media?.url
