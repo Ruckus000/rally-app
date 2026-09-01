@@ -571,8 +571,6 @@ export const darkYearLevelColor: YearLevelColor = {
 export const font = {
   /** Display only: numbers, headings, names in stat positions, badge labels. */
   bri: {
-    500: 'BricolageGrotesque_500Medium',
-    600: 'BricolageGrotesque_600SemiBold',
     700: 'BricolageGrotesque_700Bold',
     800: 'BricolageGrotesque_800ExtraBold',
   },

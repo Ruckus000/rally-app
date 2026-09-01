@@ -17,8 +17,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
 import {
-  BricolageGrotesque_500Medium,
-  BricolageGrotesque_600SemiBold,
   BricolageGrotesque_700Bold,
   BricolageGrotesque_800ExtraBold,
 } from '@expo-google-fonts/bricolage-grotesque';
@@ -62,9 +60,10 @@ export default function Entry() {
       .catch(() => setPreference('system'));
   }, []);
 
+  // Six faces, not eight. Bricolage is the display family and the app sets it
+  // at two weights; Medium and SemiBold had no call site and were two of the
+  // eight registrations this gate waits on, and ~182KB in every download.
   const [loaded, error] = useFonts({
-    BricolageGrotesque_500Medium,
-    BricolageGrotesque_600SemiBold,
     BricolageGrotesque_700Bold,
     BricolageGrotesque_800ExtraBold,
     InstrumentSans_400Regular,
