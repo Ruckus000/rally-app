@@ -56,6 +56,28 @@ The prototype's overlays appear and vanish in a single frame; the handoff's
 motion table has no entry for them. `<Presence>` fades them, and tab panes
 cross-fade. Reduced motion is respected, as everywhere else.
 
+**SEEN BY's first slot names a circle** — `src/overlays/PlanOverlay.tsx`
+
+The handoff's audience control is three chips: Friends, Everyone, Private. The
+ladder is unchanged and still reads narrow to wide; only its narrow end
+acquired a proper noun. "Friends" stopped naming anything once somebody could
+be in two rooms — it meant "people you share a circle with" on a goal that
+belongs to one specific room out of several — so the chip reads the circle's
+name, and tapping it when it is already selected opens a picker. When it is not
+selected the tap selects it, like the other two, which is what keeps a
+one-circle account from ever opening anything: at one circle there is nothing
+to disambiguate and the control behaves exactly as drawn.
+
+A separate "stake in" control was the alternative and was rejected: two
+controls can express "staked in Gym, seen by Private", which is a sentence with
+a dead clause, since a private goal is gated on pairing and reaches no room at
+all.
+
+The pills also moved off the section rule onto their own line beneath it —
+`SectionRule` lays label, hairline and children out in one row, and a circle
+called "Wednesday Morning Riders" wants more width than that line has to give.
+It is the same arrangement "In it with me" already uses two sections down.
+
 **Friends and Global are one feed** — `src/screens/WeekScreen.tsx`
 
 The handoff's Week screen has three scopes: Personal, Friends, Global. The

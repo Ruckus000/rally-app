@@ -26,11 +26,12 @@ import { useStore } from '../state/store';
 import { useGoalRating } from '../hooks/useGoalRating';
 import { hasSupabaseConfig } from '../lib/supabase';
 import {
-  activeCircle,
   circleLabel,
   circleMembers,
+  circleNameOf,
   circleSuggestions,
   circleWord,
+  stakeCircleId,
   stakedPoints,
 } from '../state/selectors';
 import { Avatar, FaceStack } from '../components/Avatar';
@@ -54,14 +55,44 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
   const hasBest = best > 0;
   const over = hasBest && staked >= best;
   const barPct = hasBest ? Math.min(100, (staked / best) * 100) : staked > 0 ? 100 : 0;
-  // Scoped to the circle this goal is going into — the active one until the
-  // composer can choose (a later slice). A pair reaching across circles is not
-  // untidy but broken: everyone else in the goal's circle sees a face belonging
-  // to somebody they share no circle with, and `profiles_select` is
-  // membership-scoped, so it renders as "Someone".
-  const pairable = circleMembers(state, activeCircle(state)?.id ?? null).filter(
-    (k) => !people.isSelf(k),
-  );
+  /**
+   * Which circle this goal is going into, and what the composer says about it.
+   *
+   * `stakeCircleId` is the same answer the reducer stamps on the task, read
+   * from the same function — so the pill cannot name one room while the stake
+   * lands in another.
+   */
+  const stakeId = stakeCircleId(state);
+  const stakeName = circleNameOf(stakeId, state.circles);
+  const manyCircles = state.circles.length > 1;
+  // No reset on close is needed: `Presence` unmounts this subtree once the
+  // fade finishes, so the composer is rebuilt from scratch every time it opens.
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+
+  /**
+   * One line, and only where it is load-bearing.
+   *
+   * `private` says "Only you." and must never gain a "counts for" clause: a
+   * private goal is gated on `is_paired_on`, not on the circle, so claiming it
+   * counts for a room would be a promise the server does not keep.
+   */
+  const seenByHint =
+    state.circles.length === 0 && state.account === 'live'
+      ? 'You’re not in a circle yet, so this one stays with you.'
+      : !manyCircles
+        ? null
+        : effectiveAudience === 'everyone'
+          ? `Everyone can see it. It still counts for ${stakeName ?? 'your circle'}.`
+          : effectiveAudience === 'private'
+            ? 'Only you.'
+            : null;
+
+  // Scoped to the circle this goal is going into — which the composer can now
+  // choose, so this follows the picker rather than the active circle. A pair
+  // reaching across circles is not untidy but broken: everyone else in the
+  // goal's circle sees a face belonging to somebody they share no circle with,
+  // and `profiles_select` is membership-scoped, so it renders as "Someone".
+  const pairable = circleMembers(state, stakeId).filter((k) => !people.isSelf(k));
   const draftDay = (state.draftDay ?? state.day) as DayIndex;
   const hasDraft = !!state.draft.trim();
   const editing = !!state.editingId;
@@ -353,38 +384,128 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
               })}
             </View>
 
-            {/* SEEN BY — a segmented control. It's a privacy setting, so every
-                option stays visible rather than cycling through one chip. */}
-            <SectionRule label="Seen by">
-              <View style={{ flexDirection: 'row', gap: 6 }}>
-                {AUDIENCES.map((a) => {
-                  const on = effectiveAudience === a;
+            {/* SEEN BY — still a segmented control, and still a privacy setting,
+                so every option stays visible rather than cycling through one
+                chip. It sits *below* the rule rather than on it, which the
+                narrow end of the ladder forced. Ratified deviation — see
+                design-reference/DEVIATIONS.md. `SectionRule` lays its label,
+                its hairline and its children out on one line, Yoga defaults to
+                `flexShrink: 0`, and slot 1 now carries a name somebody chose. A
+                circle called "Wednesday Morning Riders" wants about 178pt and
+                that line has roughly 100 to give — so it would not truncate, it
+                would overflow. Same grammar `In it with me` uses below. */}
+            <SectionRule label="Seen by" />
+            <View style={{ flexDirection: 'row', gap: 6, marginTop: 9 }}>
+              {AUDIENCES.map((a) => {
+                const on = effectiveAudience === a;
+                const isCircle = a === 'friends';
+                // Only slot 1 gives ground. The other two are one word each and
+                // an ellipsis in place of "Private" would be worse than useless.
+                const label = isCircle ? (stakeName ?? AUDIENCE_WORD.friends) : AUDIENCE_WORD[a];
+                // A slot that is already the answer can afford to ask a second
+                // question; one that is not has to answer the first. Which is
+                // what keeps a one-circle user's tap from ever opening anything.
+                const asksAgain = isCircle && on && manyCircles;
+                return (
+                  <Tap
+                    key={a}
+                    onPress={() => {
+                      if (!on) {
+                        dispatch({ type: 'SET_DRAFT_AUD', aud: a });
+                        setPickerOpen(false);
+                        return;
+                      }
+                      if (asksAgain) setPickerOpen((v) => !v);
+                    }}
+                    accessibilityRole={asksAgain ? 'button' : 'radio'}
+                    accessibilityState={asksAgain ? { expanded: pickerOpen } : { selected: on }}
+                    accessibilityLabel={
+                      asksAgain ? `Seen by ${label}. Change circle.` : `Seen by ${label}`
+                    }
+                    style={{
+                      ...row,
+                      gap: 5,
+                      borderRadius: 999,
+                      paddingHorizontal: 11,
+                      paddingVertical: 8,
+                      minHeight: 36,
+                      justifyContent: 'center',
+                      borderWidth: 1,
+                      borderColor: on ? 'transparent' : onDark.hairline,
+                      backgroundColor: on ? color.lime : onDark.fill,
+                      // Yoga would otherwise let this overflow the row rather
+                      // than ellipsise. The floor is because a pill reading
+                      // "W…" is worse than one that stopped shrinking.
+                      ...(isCircle ? { flexShrink: 1, minWidth: 74 } : { flexShrink: 0 }),
+                    }}
+                  >
+                    <Sans
+                      size={11.5}
+                      weight={700}
+                      numberOfLines={1}
+                      color={on ? onLight : onDark.bodySecondary}
+                      style={isCircle ? { flexShrink: 1 } : undefined}
+                    >
+                      {label}
+                    </Sans>
+                    {asksAgain ? <Icon name="chevronDown" size={11} color={onLight} /> : null}
+                  </Tap>
+                );
+              })}
+            </View>
+
+            {/* Full width, because this is where names are read whole — the
+                pill is only the reminder. 44pt rows, the handoff's floor. */}
+            {pickerOpen && manyCircles ? (
+              <View
+                style={{
+                  marginTop: 8,
+                  borderRadius: 14,
+                  overflow: 'hidden',
+                  borderWidth: 1,
+                  borderColor: onDark.hairline,
+                }}
+              >
+                {state.circles.map((c) => {
+                  const chosen = c.id === stakeId;
                   return (
                     <Tap
-                      key={a}
-                      onPress={() => dispatch({ type: 'SET_DRAFT_AUD', aud: a })}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: on }}
-                      accessibilityLabel={`Seen by ${AUDIENCE_WORD[a]}`}
-                      style={{
-                        borderRadius: 999,
-                        paddingHorizontal: 11,
-                        paddingVertical: 8,
-                        minHeight: 36,
-                        justifyContent: 'center',
-                        borderWidth: 1,
-                        borderColor: on ? 'transparent' : onDark.hairline,
-                        backgroundColor: on ? color.lime : onDark.fill,
+                      key={c.id}
+                      onPress={() => {
+                        dispatch({ type: 'SET_DRAFT_CIRCLE', id: c.id });
+                        setPickerOpen(false);
                       }}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: chosen }}
+                      accessibilityLabel={`Stake it in ${c.name}`}
+                      style={{ ...row, gap: 8, minHeight: 44, paddingHorizontal: 12 }}
                     >
-                      <Sans size={11.5} weight={700} color={on ? onLight : onDark.bodySecondary}>
-                        {AUDIENCE_WORD[a]}
+                      <Sans
+                        size={13}
+                        weight={chosen ? 700 : 500}
+                        numberOfLines={1}
+                        color={chosen ? color.lime : onDark.bodySecondary}
+                        style={fill}
+                      >
+                        {c.name}
                       </Sans>
+                      {chosen ? <Icon name="check" size={13} color={color.lime} /> : null}
                     </Tap>
                   );
                 })}
               </View>
-            </SectionRule>
+            ) : null}
+
+            {seenByHint ? (
+              <Sans
+                size={11.5}
+                lineHeight={16}
+                color={onDark.secondary}
+                style={{ marginTop: 9 }}
+              >
+                {seenByHint}
+              </Sans>
+            ) : null}
 
             {pairable.length ? (
               <>
