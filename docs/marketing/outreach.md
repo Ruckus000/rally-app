@@ -1,19 +1,16 @@
-# Outreach templates
+# Outreach: every message in the plan
 
-Every message the plan needs, in the order the plan uses them. Personalise the
-bracketed parts and nothing else; the voice is deliberate. Where a channel has
-rules, the rule is stated above the template and the template obeys it.
-
-Replace `{{TESTFLIGHT_URL}}` with the public link from App Store Connect,
-`{{STORE_URL}}` with the App Store link once it exists, and `{{CODE}}` with
-the circle's real invite code from the Circle tab.
+In the order `PLAN.md` uses them. Personalise the bracketed parts and nothing
+else. Where a channel has rules, the rule is stated above the template and
+the template obeys it. Replace `{{TESTFLIGHT_URL}}`, `{{STORE_URL}}`,
+`{{CODE}}` and `{{PRESS_KIT}}` (the landing page until a press page exists).
 
 ---
 
 ## 1. The captain ask (week 0)
 
-Send to five people you already talk to about goals. A captain brings three
-to five others. Text message, not email.
+Five people you already talk to about goals. A captain brings three to five
+others. Text message, not email.
 
 > Hey — I built a thing and I need you specifically.
 >
@@ -33,10 +30,9 @@ to five others. Text message, not email.
 
 ## 2. The tester call (week 0)
 
-**`r/TestFlight`** exists for public links and expects this post. Title as
-they prefer: app name, what it is, the link.
+**r/TestFlight** exists for public links and expects this post.
 
-**Title:** `Rally — weekly goals with a circle of friends. Looking for a few real circles for the beta.`
+**Title:** `Rally: Goals with Friends — weekly goals with a circle. Looking for a few real circles for the beta.`
 
 > Rally is a small social goal app: you stake a few goals on the week, your
 > circle sees them and cheers, Sunday closes the week. Built by one person,
@@ -51,19 +47,20 @@ they prefer: app name, what it is, the link.
 > TestFlight: {{TESTFLIGHT_URL}}
 > Then open the Circle tab and enter the code {{CODE}}.
 >
-> Feedback goes straight to me here or through TestFlight. I reply within a
-> day. Happy to test yours back.
+> Feedback here or through TestFlight. I reply within a day. Happy to test
+> yours back.
 
-Reply to every comment within a day. Ignored testers drift, and a circle of
-one is the failure mode the whole plan exists to avoid.
+Also post, shorter, on iosdev.space and in a Bluesky iOS-dev starter pack.
+Reply to every comment within a day.
 
 ---
 
-## 3. Discord moderator message (week 5)
+## 3. Discord moderator message (week 6)
 
-Send to a moderator of the server before posting anything. Servers tagged
-*accountability* on Disboard, and named ones like Focus Lab and Studio, run
-weekly check-in threads already.
+Servers tagged *accountability* on Disboard (Study Together, Studio,
+Accountability Buddies, Happy Routine) run weekly check-in threads already.
+In-server promotion is banned by default; this asks for permission to
+contribute, not to advertise.
 
 > Hi — I'm a member here, not a company. I built a free app called Rally that
 > does what your weekly check-in thread does: stake goals Monday, cheer each
@@ -75,7 +72,7 @@ weekly check-in threads already.
 > members I'll say so and drop it. If you'd rather I didn't, no problem, and
 > thanks for reading.
 
-Only after a yes, in the channel they name:
+After a yes, in the channel they name:
 
 > Rally week, for anyone who wants it (iPhone). Install, open Circle, enter
 > `{{CODE}}`. Stake by Monday night. I'll cheer every single one. Ledger back
@@ -83,30 +80,28 @@ Only after a yes, in the channel they name:
 
 ---
 
-## 4. The in-person circle (week 5)
+## 4. The in-person circle (week 5 and 11)
 
-For a gym, run club, coworking space, or study group. Say it out loud; do not
-hand out a flyer.
+Gym, run club, coworking space, study group. Say it out loud.
 
 > I'm going to try something for the next four weeks: a circle where we each
 > put three things on the line for the week and see if the others closed
 > theirs. It's an app I built, it's free, takes a minute. Who's in? I'll set
 > it up right now if you give me your phone.
 
-Set it up on their phone while they stand there. The person who installs it
-later never does.
+Set it up on their phone while they stand there.
 
 ---
 
 ## 5. Launch post (week 5)
 
-**`r/SideProject`** allows maker posts and expects the story, not the pitch.
-**`r/iosapps`** allows developer posts flaired as such. Same body, different
-title.
+**r/SideProject** allows maker posts and expects the story. **r/iosapps**
+allows developer posts flaired as such. r/getdisciplined, r/productivity,
+r/selfimprovement, r/ADHD ban promotion; do not post there.
 
-**Title (`r/SideProject`):** `I spent the summer building a goals app for groups of friends. Here's what 3 circles did with it in 4 weeks.`
+**Title (r/SideProject):** `I spent the summer building a goals app for groups of friends. Here's what 3 circles did with it in 4 weeks.`
 
-**Title (`r/iosapps`):** `[DEV] Rally — stake weekly goals with a circle of friends. Free, no ads, no account needed.`
+**Title (r/iosapps):** `[DEV] Rally: Goals with Friends — stake weekly goals with a circle. Free, no ads, no account needed.`
 
 > Every accountability app I tried was either strangers or money. I wanted the
 > other thing: four people I know, a week at a time, and a cheer that actually
@@ -116,36 +111,28 @@ title.
 > When you close one they cheer. Sunday it closes the week and asks what
 > carries. A missed day costs you the day, not a streak.
 >
-> Three circles have used it for four weeks now. [Real numbers from
-> metrics.sql: N people, N stakes, N cheers, N perfect weeks.] The thing I
-> didn't expect: [one true observation from the ledgers].
+> Three circles have used it for four weeks. [Numbers from metrics.sql: N
+> people, N stakes, N cheers, N perfect weeks.] The thing I didn't expect:
+> [one true observation from the ledgers].
 >
-> It's free, no ads, no analytics, no email. Anonymous sign-in, delete your
-> account from inside the app. iPhone only right now.
+> Free, no ads, no analytics, no email. Anonymous sign-in, delete your account
+> from inside the app. iPhone only right now.
 >
 > {{STORE_URL}}
 >
 > If you try it with people you know, I want to hear what the week looked like.
 
-Rules that matter: **`r/getdisciplined`** and **`r/GetMotivatedBuddies`** ban
-promotion. Do not post this there. Be in the buddy-match threads as yourself
-if you want a buddy; mention Rally only if asked what you use.
-
 ---
 
-## 6. Build in public (weekly, Mondays, from week 3)
+## 6. Build in public (weekly, Mondays)
 
-One post a week, on whichever network you already use, with the real ledger.
-The format is the app's own week.
-
-> Week 3 of Rally in the wild.
-> Circles: 3. People: 14. Stakes: 41. Closed: 29. Cheers: 88. Perfect weeks: 4.
+> Week [n] of Rally in the wild.
+> Circles: [c]. People: [p]. Stakes: [s]. Closed: [d]. Cheers: [ch]. Perfect weeks: [pw].
 > Learned: [one sentence].
 > Next: [one sentence].
 > {{STORE_URL}}
 
-Never round up. A reader who catches one inflated number stops believing all
-of them.
+Never round up.
 
 ---
 
@@ -165,9 +152,6 @@ To every tester, individually.
 
 ## 8. Writers, for November (from mid-October)
 
-To writing groups, Discord Novembers, and anyone running an informal
-50,000-word month now that NaNoWriMo is gone.
-
 > If your group is doing a November this year, Rally might be the check-in
 > you're missing. Each of you stakes a word count on the week, the others see
 > it and cheer, and Sunday the ledger shows who hit it. It's built for exactly
@@ -177,9 +161,154 @@ To writing groups, Discord Novembers, and anyone running an informal
 
 ---
 
-## 9. When someone asks "why not just a group chat?"
+## 9. Press pitch (week 6 onward)
 
-You will be asked this in every channel. The answer, short:
+Send to 9to5Mac Indie App Spotlight first (michaelb@9to5mac.com, the weekly
+Saturday column that solicits unknown solo developers). Then Cult of Mac
+(tips@cultofmac.com), Indie Dev Monday (form), MacStories (address on their
+about page; follow up once a week later; name the app in every line). TechCrunch
+(Sarah Perez) only when there is a number worth a story. Subject line names
+the app and says what it does; three to five sentences; one screenshot
+attached and two linked; the launch date; a human sign-off.
+
+**Subject:** `Rally: Goals with Friends — weekly goals you stake with a circle, no streaks, no money, no ads`
+
+> Hi Michael,
+>
+> Rally is a free iPhone app for small circles of friends. Every Monday you
+> stake a few goals on the week; your circle sees them and cheers when you
+> close one, and the cheer lands on your phone with their name on it. Sunday
+> the week closes with a ledger of what you did, who helped you, and who you
+> helped. There are no streaks to lose and no money on the line, which is the
+> whole point: every accountability app I tried was either strangers or
+> fines.
+>
+> It launched on 5 October. [Number] circles have used it for [n] weeks; the
+> thing I didn't expect was [one sentence]. It has no ads, no analytics and
+> asks for no email, and you can delete your account from inside the app.
+>
+> App Store: {{STORE_URL}}
+> Screenshots and the mark: {{PRESS_KIT}}
+> TestFlight, if you'd like a build ahead of an update: {{TESTFLIGHT_URL}}
+>
+> I'm a solo developer in Florida and happy to answer anything.
+>
+> [Name]
+
+---
+
+## 10. App Store featuring nomination (by 10 September)
+
+App Store Connect → Featuring Nominations. Type: App Launch. Publish date:
+5 October 2026. Attach the TestFlight link and the landing page as
+supplemental URLs. Submit again in December as App Enhancements for the
+January In-App Event.
+
+**Description (purpose, priority, objectives):**
+
+> Rally: Goals with Friends is a new iPhone app for small circles of friends
+> who stake a few goals on the week and cheer each other through it. It is
+> built against the two failure modes people describe in this category: the
+> streak that collapses on one missed day, and the group chat that goes quiet
+> in week two. A week closes on Sunday with a ledger of what you did, who
+> helped you, and who you helped, and nothing ever resets.
+>
+> Objective for launch week: reach small existing groups (run clubs, writing
+> groups, study groups) rather than individuals, since the app's unit is a
+> circle.
+
+**Helpful details (what's unique, accessibility, inclusivity):**
+
+> No subscription, no ads, no analytics, no email or phone number collected;
+> the privacy policy names exactly two external hosts. Anonymous sign-in with
+> optional Sign in with Apple. In-app account deletion.
+>
+> Accessibility: 44pt minimum hit targets throughout, Reduce Motion honoured
+> across every animation, every icon-only control labelled, avatars named by
+> the person's full name, colour never the only signal (done carries a check,
+> rank a number, audience a word), Dynamic Type-safe type ramp with a 10pt
+> floor only for tracked uppercase labels.
+>
+> Design: a single accent on paper and ink; Bricolage Grotesque and
+> Instrument Sans; the "Gather" mark, five wedges closing on one core, is
+> generated from geometry rather than exported, so the launch screen and icon
+> never drift.
+
+---
+
+## 11. Show HN (Tuesday of week 6)
+
+Rules: tryable now (an App Store link qualifies); title "Show HN: Name –
+plain description"; a personal backstory comment posted immediately; no
+marketing language; no booster comments from friends. Lead with the
+engineering.
+
+**Title:** `Show HN: Rally – weekly goals staked with a circle of friends (iOS, no streaks, no analytics)`
+
+**First comment:**
+
+> Author here. Rally is a small social goal app: Monday you stake a few
+> goals, your circle sees them, cheers land on your phone, Sunday the week
+> closes with a ledger. No streaks, no money stakes, no ads, no analytics.
+>
+> A few things about how it's built that HN might find more interesting than
+> the pitch:
+>
+> - No navigation library. Routing is reducer state (`tab`, `planOpen`,
+>   `sheet`) rendered conditionally; every transition is an action. Back
+>   always works, and the whole app is driven through the store in 682 unit
+>   tests that run in seconds without a simulator.
+> - Offline-first sync through an outbox. One transport module talks to
+>   Postgres via a `WireOp` union and returns retryable-vs-permanent instead
+>   of throwing. Realtime for cheers, reconciliation on foreground.
+> - Row-level security is the authorization model, and every policy is
+>   tested against a real local Postgres in a separate integration suite,
+>   because the unit-test mock has no RLS and "X cannot see Y" would pass for
+>   the wrong reason.
+> - The app icon is generated from geometry (`npm run icons`), with a
+>   connected-component check and a rotational-symmetry check on every
+>   rasterised asset, so nobody can ship a mark where the wedges don't touch.
+> - No analytics by policy, which means the only funnel I have is nine SQL
+>   queries. It is humbling.
+>
+> The thing I got wrong first: the invite was a code with nowhere to tap.
+> Happy to answer anything.
+
+---
+
+## 12. Creator pitch (week 8)
+
+Ten hand-picked creators at 5k–100k followers in StudyTok, WriterTok or
+couch-to-5k, vetted for real comments. Gifting works for most creators who
+like the product, but a free app is a weak gift; the offer is ownership.
+Personalised DMs get 25–40% replies; templates get 5–10%, so the first line
+must be about their content.
+
+> Hi [name] — your [specific video, by name] is the reason I'm writing.
+>
+> I built Rally, a free iPhone app where a small circle stakes a few goals on
+> the week and cheers each other through it. No streaks, no money, no ads.
+>
+> I'm not asking for a post. I'd like to make you a circle: your name on it,
+> a code you can give your people, and me on the other end fixing whatever
+> they hit. If it turns into a "Monday stake / Sunday ledger" video that's
+> yours to make or not. If you'd want a feature for it, tell me and I'll
+> build it.
+>
+> {{STORE_URL}}
+
+---
+
+## 13. Indie directories (launch day)
+
+- Indie App Catalog: https://indiecatalog.app/submit-app (US store required)
+- Indie Dev Monday: https://indiedevmonday.com/look-at-me
+
+Both take the store description's first paragraph and the App Store link.
+
+---
+
+## 14. When someone asks "why not just a group chat?"
 
 > A group chat forgets. Rally remembers what you said on Monday, shows it to
 > the same people on Sunday, and keeps a ledger of who showed up for whom.
