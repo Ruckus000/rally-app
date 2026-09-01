@@ -341,7 +341,7 @@ describe('the onboarding flow', () => {
 
       // Joining answers with a uuid, so the name can only come from the pull
       // `kickSync` started — which is the whole reason this screen prefers
-      // `state.circle` over anything onboarding could invent for it.
+      // `state.circles` over anything onboarding could invent for it.
       expect(screen.getByLabelText(/Your circle, The Basement\./)).toBeTruthy();
       expect(screen.queryByLabelText(/[Yy]our circle, your circle/)).toBeNull();
     });

@@ -569,6 +569,21 @@ export const activeCircle = (state: State): CircleRef | null =>
   state.circles.find((c) => c.id === state.activeCircleId) ?? state.circles[0] ?? null;
 
 /**
+ * What names your circles under your own name: nothing, the one you are in, or
+ * how many rooms there are.
+ *
+ * No handle on the 2+ rung, which is where the obvious spelling
+ * ("@handle · 3 circles") would put one. A live handle is `anon_6e8dd5641ace` —
+ * see `MeScreen`, which decided this once already — so that rung would lead with
+ * machine noise and bury the only real word in the line.
+ *
+ * The empty rung answers `''` rather than a sentence, because the two callers
+ * want different sentences there and neither of them wants this one's.
+ */
+export const circleSubtitle = (circles: CircleRef[]): string =>
+  circles.length === 0 ? '' : circles.length === 1 ? circles[0].name : `${circles.length} circles`;
+
+/**
  * Which circle a new stake belongs to.
  *
  * Resolved here and read by the reducer, which is the opposite of how `aud`

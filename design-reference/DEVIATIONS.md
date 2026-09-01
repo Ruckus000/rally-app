@@ -69,6 +69,31 @@ tab used to say.
 
 ## Density and chrome
 
+**A circle switcher appears from the second circle** — `src/components/CircleSwitcher.tsx`
+
+HANDOFF §2 draws the Circle screen as podium, caps label, ranked list, total,
+invite. There is no slot above the podium, because the prototype has one circle
+and never had to say which. The build has a horizontally scrolling row of chips
+there — but only from the second circle: at one, the component returns nothing
+and the screen is §2 exactly as drawn. What the row buys is the thing being
+alone in a room used to cost. The "A circle of one" state was an early return,
+so somebody in three circles standing in an empty one saw it with no way out;
+it is a body branch under the switcher now, and the other rooms stay reachable.
+
+Not the Header's scope segment, which was the obvious existing home. That
+control gives each tab `flex: 1`, and five circles is five 78px columns holding
+names people chose for themselves.
+
+**The invite sheet names the circle** — `src/overlays/DetailSheet.tsx`
+
+The handoff reads "Grow the circle", and the share message "Join my circle on
+Rally". Both now name it — "Grow The Basement", "Join The Basement on Rally
+with the code …". This removes a choice rather than adding one: with several
+rooms, a sheet that says "the circle" asks the reader to work out which one
+they are about to hand a code to, and the person receiving it cannot work it
+out at all. The demo modes keep the generic wording, because `fresh` has no
+circle to name and would otherwise borrow the seeded world's.
+
 **Cards are one step larger than the reference** — `src/components/FeedCards.tsx`
 
 Every padding, radius and size matched the 402×874 reference exactly. The

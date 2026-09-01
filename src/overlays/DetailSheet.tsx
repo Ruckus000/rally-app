@@ -28,7 +28,7 @@ import {
   Task,
 } from '../data/fixtures';
 import { DAY_NAMES } from '../data/week';
-import { CIRCLE_NAME_MAX, useStore } from '../state/store';
+import { useStore } from '../state/store';
 import { activeCircle, circleLabel, myStats, visibleNotes } from '../state/selectors';
 import { SHEET_DURATION, sheetEasing, useReducedMotion } from '../theme/motion';
 import { Avatar } from '../components/Avatar';
@@ -37,7 +37,8 @@ import { TaskPhoto } from '../components/TaskPhoto';
 import { Bri, Caps, Sans, Tap, fill, row } from '../components/primitives';
 import { Trouble } from '../components/Trouble';
 import { Overlay } from './Overlay';
-import { createCircle } from '../sync/transport';
+import { UnknownInviteCode, createCircle, joinCircleByCode } from '../sync/transport';
+import { CircleFork } from './onboard/CircleFork';
 import { detachMedia, dropMediaFor, enqueueMedia } from '../sync/media';
 import { forgetLocalPhoto, pickTaskPhoto } from '../lib/photos';
 import { kickSync } from '../sync/useSyncEngine';
@@ -131,7 +132,8 @@ export function DetailSheet({ bottomInset }: { bottomInset: number }) {
 
         {sheet.type === 'task' ? <TaskSheet id={sheet.id!} /> : null}
         {sheet.type === 'person' ? <PersonSheet who={sheet.id!} /> : null}
-        {sheet.type === 'invite' ? <InviteSheet /> : null}
+        {sheet.type === 'invite' ? <InviteSheet circleId={sheet.id} /> : null}
+        {sheet.type === 'joinCircle' ? <JoinOrStartSheet /> : null}
 
         {hasComposer ? <NoteComposer bottomInset={bottomInset} /> : null}
       </Animated.View>
@@ -663,27 +665,46 @@ function LookingForYourCircle() {
   );
 }
 
-function StartCircle() {
+/**
+ * Another circle — joined with a code, or started.
+ *
+ * Replaces a create-only form that lived here and could not join, which was the
+ * asymmetry worth fixing: after onboarding there was no way into a circle
+ * somebody else had made, and being invited is the ordinary way people arrive.
+ * `CircleFork` is the same pair of cards onboarding draws, so there is one of
+ * them in the app rather than two that nearly agree.
+ *
+ * Deliberately not `runCircleCall` from `OnboardOverlay`, which patches that
+ * flow's own state. Only the error mapping is shared, by hand.
+ */
+function JoinOrStartSheet() {
   const color = useColors();
-  const keyboard = useKeyboardAppearance();
-  const { dispatch } = useStore();
-  const [name, setName] = React.useState('');
+  const { state, dispatch } = useStore();
   const [busy, setBusy] = React.useState(false);
   const [trouble, setTrouble] = React.useState<string | null>(null);
+  const first = state.circles.length === 0;
 
-  const create = async () => {
-    const trimmed = name.trim();
-    if (!trimmed || busy) return;
+  const run = async (call: () => Promise<string>, toast: (id: string) => string) => {
+    if (busy) return;
     setBusy(true);
     setTrouble(null);
     try {
-      await createCircle(trimmed);
-      // The sheet reads `state.circle`, which only a pull can fill — so this is
-      // what turns this screen into the invite code rather than leaving it here.
+      const id = await call();
+      // Before the pull, on purpose. `SET_ACTIVE_CIRCLE` does not validate
+      // against `state.circles` — which is exactly what makes it safe to call
+      // for a circle that exists on the server and not yet on this device — so
+      // the new room is the one the app is about the moment it exists, rather
+      // than a minute later when the list catches up and picks the oldest.
+      dispatch({ type: 'SET_ACTIVE_CIRCLE', id });
+      dispatch({ type: 'TOAST', message: toast(id) });
       kickSync();
-      dispatch({ type: 'TOAST', message: `${trimmed} is live` });
-    } catch {
-      setTrouble('Couldn’t reach Rally just now. Try again in a moment.');
+      dispatch({ type: 'CLOSE_SHEET' });
+    } catch (err) {
+      setTrouble(
+        err instanceof UnknownInviteCode
+          ? err.message
+          : 'Couldn’t reach Rally just now. Try again in a moment.',
+      );
     } finally {
       setBusy(false);
     }
@@ -693,60 +714,34 @@ function StartCircle() {
     <ScrollView
       style={{ flexShrink: 1 }}
       contentContainerStyle={{ paddingTop: 6, paddingHorizontal: 18, paddingBottom: 20 }}
+      keyboardShouldPersistTaps="handled"
     >
       <Bri size={20} weight={800} tracking={-0.4}>
-        Start a circle
+        {/* Not "Start a circle": the card below is called that, and a heading
+            that repeats one of the two options it introduces reads as though
+            the other one were an afterthought. */}
+        {first ? 'Your first circle' : 'Another circle'}
       </Bri>
       <Sans size={13} color={color.muted} style={{ marginTop: 6, lineHeight: 18.5 }}>
-        Name it, and you’ll get a code to send the people who should see your week.
+        {first
+          ? 'Join one with a code, or name your own and get a code to send.'
+          : // The only place separateness is stated outright, and it should
+            // exist exactly once: every other surface shows it rather than
+            // explaining it.
+            'Different people, different week. They only see what you stake in theirs.'}
       </Sans>
 
-      <View style={[row, { gap: 8, marginTop: 14 }]}>
-        <TextInput
-          value={name}
-          onChangeText={setName}
-          onSubmitEditing={() => void create()}
-          maxLength={CIRCLE_NAME_MAX}
-          keyboardAppearance={keyboard}
-          editable={!busy}
-          placeholder="e.g. The Basement"
-          placeholderTextColor={color.faintInk}
-          selectionColor={color.moss}
-          accessibilityLabel="Circle name"
-          style={{
-            ...fill,
-            height: 46,
-            borderRadius: radius.chip,
-            backgroundColor: color.card,
-            paddingHorizontal: 14,
-            fontFamily: 'InstrumentSans_600SemiBold',
-            fontSize: 14,
-            color: color.textPrimary,
-          }}
-        />
-        <Tap
-          onPress={() => void create()}
-          accessibilityLabel="Create circle"
-          style={{
-            borderRadius: 999,
-            paddingHorizontal: 18,
-            minHeight: 46,
-            justifyContent: 'center',
-            backgroundColor: name.trim() && !busy ? color.ink : color.chip,
-          }}
-        >
-          <Sans size={12.5} weight={700} color={name.trim() && !busy ? color.lime : color.muted}>
-            {busy ? 'Creating…' : 'Create'}
-          </Sans>
-        </Tap>
-      </View>
-
-      <Trouble message={trouble} />
+      <CircleFork
+        busy={busy}
+        error={trouble}
+        onJoin={(code) => void run(() => joinCircleByCode(code), () => 'You’re in')}
+        onCreate={(name) => void run(async () => (await createCircle(name)).id, () => `${name} is live`)}
+      />
     </ScrollView>
   );
 }
 
-function InviteSheet() {
+function InviteSheet({ circleId }: { circleId: string | null }) {
   const color = useColors();
   const { state, dispatch, demo, people } = useStore();
   const pending: PersonId[] = Object.keys(state.pending);
@@ -759,7 +754,19 @@ function InviteSheet() {
    * gets the real thing: the code `create_circle` minted, which is the only
    * string that will actually let anyone in.
    */
-  const code = live ? (activeCircle(state)?.inviteCode ?? '') : ME.inviteLink;
+  /**
+   * The circle this sheet grows. Falls back rather than failing: a sheet held
+   * open across a pull can name a circle the list no longer holds, and an
+   * invite code for nothing is worse than the active circle's.
+   */
+  const circle = (circleId ? state.circles.find((c) => c.id === circleId) : null) ?? activeCircle(state);
+  // Live only. The demo modes keep the generic title they already had: `fresh`
+  // has no circle at all, so naming one would borrow the *seeded* world's, and
+  // `seeded`'s sheet is a fiction end to end anyway.
+  const name = live ? (circle?.name ?? null) : null;
+  // Naming it in the title and the share message is a ratified deviation — see
+  // design-reference/DEVIATIONS.md. It removes a choice rather than adding one.
+  const code = live ? (circle?.inviteCode ?? '') : ME.inviteLink;
 
   /**
    * The OS share sheet, not a clipboard. `Share` is core React Native, so this
@@ -772,13 +779,17 @@ function InviteSheet() {
    */
   const share = () => {
     void Share.share({
-      message: live ? `Join my circle on Rally with the code ${code}` : code,
+      // Named, because with several circles "my circle" leaves the recipient
+      // unable to tell which room the code opens — and they are the one person
+      // who cannot look it up.
+      message: live ? `Join ${name ?? 'my circle'} on Rally with the code ${code}` : code,
     }).catch(() => dispatch({ type: 'TOAST', message: 'Couldn’t open the share sheet' }));
   };
 
   // A live account with no circle has, until now, had no way to make one after
-  // onboarding — this sheet was the end of the road. It reuses the same
-  // `createCircle` the onboarding step calls; there is no second creation path.
+  // onboarding — this sheet was the end of the road, and it could only create.
+  // It now draws the same `CircleFork` onboarding does, so joining by code is
+  // reachable after step 4 rather than only during it.
   //
   // `worldSeen` is the half that stops this being a trap. `circle` is not
   // persisted, so on every cold start it is `null` until the first pull lands —
@@ -787,7 +798,7 @@ function InviteSheet() {
   // this branch could only answer "you have no circle" about somebody who
   // does. One tap and a name later they have a second one.
   if (live && state.worldSeen && state.circles.length === 0) {
-    return <StartCircle />;
+    return <JoinOrStartSheet />;
   }
   if (live && !state.worldSeen && state.circles.length === 0) {
     return <LookingForYourCircle />;
@@ -799,7 +810,7 @@ function InviteSheet() {
       contentContainerStyle={{ paddingTop: 6, paddingHorizontal: 18, paddingBottom: 20 }}
     >
       <Bri size={20} weight={800} tracking={-0.4}>
-        Grow the circle
+        {name ? `Grow ${name}` : 'Grow the circle'}
       </Bri>
 
       <View

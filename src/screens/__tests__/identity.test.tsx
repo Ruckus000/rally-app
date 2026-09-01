@@ -56,6 +56,9 @@ const inviteSheet = (
   // Whether a pull has answered yet. `true` for most of these because they are
   // about what the sheet draws once it knows, not about the window before.
   worldSeen = true,
+  // Which circle the sheet was opened for. `null` means "whichever is active",
+  // which is what every caller outside the Circle tab passes.
+  opened: { circles?: CircleRef[]; id?: string | null } = {},
 ) =>
   render(
     <StoreProvider
@@ -64,9 +67,9 @@ const inviteSheet = (
       restored={{
         account,
         selfId: account === 'live' ? ME_ID : undefined,
-        circles: account === 'live' && circle ? [circle] : [],
+        circles: opened.circles ?? (account === 'live' && circle ? [circle] : []),
         worldSeen,
-        sheet: { type: 'invite', id: null },
+        sheet: { type: 'invite', id: opened.id ?? null },
       }}
     >
       <DetailSheet bottomInset={0} />
@@ -185,13 +188,54 @@ describe('the invite code', () => {
     share.mockRestore();
   });
 
-  it('offers to start a circle when you have none, instead of a dead end', () => {
+  it('names the circle it is growing, in the title and in what gets sent', async () => {
+    // With three rooms, "my circle" leaves the recipient unable to tell which
+    // one the code opens — and they are the one person who cannot look it up.
+    const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' } as never);
+    inviteSheet('live');
+
+    expect(screen.getByText(`Grow ${CIRCLE.name}`)).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Share invite code'));
+    expect(share).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining(`Join ${CIRCLE.name} on Rally`) }),
+    );
+    share.mockRestore();
+  });
+
+  it('grows the circle it was opened for, not whichever one is active', () => {
+    // The Circle tab has already decided which room it is drawing, so it names
+    // one. Resolving a second time in here could answer differently.
+    const OTHER: CircleRef = { id: 'c-other', name: 'Gym', inviteCode: 'gym-bbbb' };
+    inviteSheet('live', CIRCLE, true, { circles: [CIRCLE, OTHER], id: OTHER.id });
+
+    expect(screen.getByText('Grow Gym')).toBeTruthy();
+    expect(screen.getByLabelText(`Invite code ${OTHER.inviteCode}`)).toBeTruthy();
+  });
+
+  it('falls back rather than showing a code for nothing', () => {
+    // A sheet held open across a pull can name a circle the list no longer
+    // holds. An empty code field is worse than the active circle's.
+    inviteSheet('live', CIRCLE, true, { circles: [CIRCLE], id: 'c-gone' });
+
+    expect(screen.getByLabelText(`Invite code ${CIRCLE.inviteCode}`)).toBeTruthy();
+  });
+
+  it('offers to join or start a circle when you have none, instead of a dead end', () => {
     // Riding solo through onboarding used to be permanent: this sheet was the
     // only invite surface and onboarding the only place a circle could be made.
+    // It could also only *create* — so a circle somebody else had made was
+    // unreachable, which is the ordinary way people arrive at one.
     inviteSheet('live', null);
 
+    expect(screen.getByText('I have an invite')).toBeTruthy();
+    expect(screen.getByText('Start a circle')).toBeTruthy();
+
+    // Both cards start shut, as they do in onboarding. Neither route is the
+    // presumed one: somebody with no circle is as likely to have been sent a
+    // code as to be founding a room.
+    expect(screen.queryByLabelText('Circle name')).toBeNull();
+    fireEvent.press(screen.getByText('Start a circle'));
     expect(screen.getByLabelText('Circle name')).toBeTruthy();
-    expect(screen.getByLabelText('Create circle')).toBeTruthy();
   });
 
   it('does not offer to start one before the first pull has answered', () => {

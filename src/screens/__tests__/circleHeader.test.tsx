@@ -97,3 +97,49 @@ describe('the notification bell', () => {
     expect(screen.getByLabelText(/Notifications, \d+ needing you/)).toBeTruthy();
   });
 });
+
+/**
+ * What names your circles under your own name, on the Me tab.
+ *
+ * Deliberately no handle on the 2+ rung. A live handle is `anon_6e8dd5641ace`,
+ * which `MeScreen` decided once already was machine noise rather than an
+ * identity — and that is as true beside a count as beside a name.
+ */
+describe('the Me subtitle ladder', () => {
+  const A = { id: 'c-a', name: 'The Basement', inviteCode: 'basement-aaaa' };
+  const B = { id: 'c-b', name: 'Gym', inviteCode: 'gym-bbbb' };
+
+  const meTab = (circles: (typeof A)[]) =>
+    render(
+      <StoreProvider
+        persist={false}
+        sync={false}
+        restored={{
+          account: 'live',
+          selfId: ME,
+          tab: 'me',
+          circles,
+          people: indexPeople([personOf(ME, 'Maya Chen')]),
+        }}
+      >
+        <Header topInset={0} />
+      </StoreProvider>,
+    );
+
+  it('names the circle when there is one', () => {
+    meTab([A]);
+    expect(screen.getByText('The Basement')).toBeTruthy();
+  });
+
+  it('counts them when there is more than one, without naming any', () => {
+    meTab([A, B]);
+    expect(screen.getByText('2 circles')).toBeTruthy();
+    // Naming one of several would imply the others are somewhere else.
+    expect(screen.queryByText('The Basement')).toBeNull();
+  });
+
+  it('falls back to the header\'s own line when there are none', () => {
+    meTab([]);
+    expect(screen.getByText('Your week, on the record')).toBeTruthy();
+  });
+});

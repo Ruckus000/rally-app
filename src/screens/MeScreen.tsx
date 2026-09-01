@@ -17,6 +17,7 @@ import { nextWeekAfter, useStore } from '../state/store';
 import { canSecure } from '../overlays/settings/guards';
 import {
   activeCircle,
+  circleSubtitle,
   allTasksDone,
   cheersGiven,
   circleMembers,
@@ -62,12 +63,14 @@ export function MeScreen() {
    */
   const nameMissing = live && !storedName;
   /**
-   * Demo: the fixture handle, and its circle once there is one. Live: the
-   * circle's real name, or nothing. No handle — a live one is `anon_6e8dd5641ace`,
-   * which is machine noise rather than an identity worth showing.
+   * Demo: the fixture handle, and its circle once there is one. Live: the one
+   * circle's name, or how many there are once there is more than one. Still no
+   * handle — a live one is `anon_6e8dd5641ace`, which is machine noise rather
+   * than an identity worth showing, and that is as true beside a count as it
+   * was beside a name.
    */
   const subtitle = live
-    ? (activeCircle(state)?.name ?? '')
+    ? circleSubtitle(state.circles)
     : circleMembers(state, null).length > 1
       ? `${ME.handle} · ${CIRCLE_NAME}`
       : ME.handle;
@@ -277,7 +280,11 @@ export function MeScreen() {
           <Tap
             onPress={() => dispatch({ type: 'SET_TAB', tab: 'circle' })}
             accessibilityLabel={
-              rank ? `Ranked ${rank} in your circle. Open it.` : `${profile.weeksIn} weeks in. Open your circle.`
+              // Named rather than "your circle": the rank is for one room, and
+              // with three of them the possessive says nothing about which.
+              rank
+                ? `Ranked ${rank} in ${activeCircle(state)?.name ?? 'your circle'}. Open it.`
+                : `${profile.weeksIn} weeks in. Open your circle.`
             }
             style={{ alignItems: 'flex-end', padding: 2, minHeight: 44, justifyContent: 'center' }}
           >

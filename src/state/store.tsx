@@ -101,7 +101,19 @@ export type Tab = 'week' | 'circle' | 'me';
  * and a card says which half it came from.
  */
 export type Scope = 'personal' | 'feed';
-export type SheetRef = { type: 'task' | 'person' | 'invite'; id: string | null } | null;
+/**
+ * Which sheet is open, and what about.
+ *
+ * `id` is the task for `'task'` and the person for `'person'`. For `'invite'`
+ * it is *the circle to grow*, and `null` there means "whichever one is active
+ * when the sheet renders" — resolution deferred on purpose, the same doctrine
+ * as `activeCircle`. The Circle tab names one, because it has already decided
+ * which room it is drawing; the Week tab passes null, because it has not.
+ * `'joinCircle'` takes no id: it is a door rather than a room.
+ */
+export type SheetRef =
+  | { type: 'task' | 'person' | 'invite' | 'joinCircle'; id: string | null }
+  | null;
 /**
  * What the report sheet is open against.
  *
