@@ -312,6 +312,95 @@ describe('cheer counts', () => {
 });
 
 /**
+ * The notes a pull carries, and the one collection deliberately left unbounded.
+ *
+ * Four collections here are scoped to the week asked about and `notifs` is
+ * capped. The task arm of `my_notes` was neither: it returned every note ever
+ * written on any goal the caller had ever owned, on the 60s tick and on every
+ * realtime kick. None of them could be used — `mergeNotes` can only place a
+ * task note onto a row this device holds, and `myTasks` is this week — so the
+ * client filled `seenNotes` from the notes it managed to place, never marked
+ * the rest seen, and `freshNotes` was never empty, which defeated the engine's
+ * own "nothing changed" early return on every pull.
+ *
+ * `my_reactions` is the exception and stays unbounded. The first draft of this
+ * scoped it too; `engine.test.tsx` caught that YOU GAVE is counted straight off
+ * `acted`, with `baseCheersGiven` at 0 for a live account and nothing banking
+ * into it at rollover — so a week-scoped answer resets a lifetime count on the
+ * next pull. The migration header carries the argument; this file carries the
+ * test that would fail if anyone scoped it anyway.
+ */
+describe('the notes a pull carries', () => {
+  /** The Monday before `WEEK`. Old enough that no current pull asks about it. */
+  const LAST_WEEK = '2026-08-03';
+  let lastWeekTask: string;
+
+  beforeEach(async () => {
+    const { data, error } = await asUser('maya')
+      .from('tasks')
+      .insert({
+        owner_id: idOf('maya'),
+        week_start: LAST_WEEK,
+        category: 'move',
+        points: 3,
+        day: 0,
+        title: 'W_last_week',
+        aud: 'friends',
+        circle_id: CIRCLE_IDS.basement,
+      })
+      .select('id')
+      .single();
+    expect(error).toBeNull();
+    lastWeekTask = (data as { id: string }).id;
+
+    // A note on a goal whose week has turned over: a row the client has
+    // nowhere to put, because `mergeNotes` places onto this week's tasks.
+    const note = await asUser('maya').from('notes').insert({
+      author_id: idOf('maya'),
+      task_id: lastWeekTask,
+      body: 'last week’s note',
+    });
+    expect(note.error).toBeNull();
+  });
+
+
+
+
+
+  it('leaves out a note on a goal from a week nobody asked about', async () => {
+    const world = await worldOf('maya');
+    expect(world.notes.map((n) => n.body)).not.toContain('last week’s note');
+  });
+
+  it('still carries a note on a goal in the week asked about', async () => {
+    const { error } = await asUser('dre').from('notes').insert({
+      author_id: idOf('dre'),
+      task_id: taskIds.friends,
+      body: 'this week’s note',
+    });
+    expect(error).toBeNull();
+
+    const world = await worldOf('maya');
+    expect(world.notes.map((n) => n.body)).toContain('this week’s note');
+  });
+
+  it('carries a note addressed to you whatever week it belongs to', async () => {
+    // The other arm of the union, deliberately untouched: a note aimed at a
+    // person rather than a goal has no week to be scoped by, and `mergeNotes`
+    // has somewhere to put it.
+    const { error } = await asUser('dre').from('notes').insert({
+      author_id: idOf('dre'),
+      recipient_id: idOf('maya'),
+      body: 'a word for you',
+    });
+    expect(error).toBeNull();
+
+    const world = await worldOf('maya');
+    expect(world.notes.map((n) => n.body)).toContain('a word for you');
+  });
+});
+
+/**
  * The case the whole avatar column exists for, and the one no unit test can
  * reach: `avatar_state` moves to `ready` only inside `mark_avatar_screened`,
  * which is revoked from every role a client can hold. So the *only* way an

@@ -1264,12 +1264,18 @@ const RPC: Record<string, (args: Row) => unknown> = {
         )
       : [];
 
+    // Every one, all weeks — matching the function, which says at length why
+    // this is the one collection with no bound: YOU GAVE is counted off `acted`
+    // and nothing banks it at rollover.
     const reactions = rowsOf('reactions');
     const myReactions = reactions
       .filter((r) => r.actor_id === caller && r.target_type === 'task')
       .map((r) => ({ target_id: r.target_id, kind: r.kind }));
 
-    const myTaskIds = new Set(tasks.filter((t) => t.owner_id === caller).map((t) => t.id));
+    // The task arm is this week's goals, not every goal ever owned. The
+    // recipient arm is deliberately unscoped — a note aimed at a person has no
+    // week to be scoped by.
+    const myTaskIds = new Set((myTasks ?? []).map((t) => t.id));
     const notes = rowsOf('notes').filter(
       (n) => n.recipient_id === caller || (n.task_id != null && myTaskIds.has(n.task_id)),
     );
