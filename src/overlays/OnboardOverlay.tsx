@@ -82,11 +82,14 @@ type Flow = {
   picks: string[];
   custom: Suggestion[];
   /**
-   * The circle you leave onboarding in, for screen 6's closing line: its name
-   * when we have one, and whether you are in one at all. Two fields because
-   * joining by code gives you the second without the first.
+   * The circle you leave onboarding in. Three fields, because the two RPCs
+   * answer differently and the flow needs all three answers: the id, which is
+   * the only one the server cares about and which both RPCs return and both
+   * call sites used to throw away; the name, for screen 6's closing line, which
+   * joining by code does not get; and whether you are in one at all.
    */
   circle: string | null;
+  circleId: string | null;
   joined: boolean;
 };
 
@@ -97,6 +100,7 @@ const INITIAL_FLOW: Flow = {
   picks: [],
   custom: [],
   circle: null,
+  circleId: null,
   joined: false,
 };
 
@@ -155,7 +159,19 @@ export function OnboardOverlay({
       cat: SUGGESTION_CATEGORY[r.id] ?? CUSTOM_CATEGORY,
       pts: r.pts,
     }));
-    dispatch({ type: 'FINISH_ONBOARD', stakes, aud: effectiveAudience, name: flow.name });
+    dispatch({
+      type: 'FINISH_ONBOARD',
+      stakes,
+      aud: effectiveAudience,
+      name: flow.name,
+      // `flow.circleId` is what happened in *this* conversation, and the tail is
+      // for a conversation that was interrupted — the same half `joined` needed
+      // at the bottom of this file. Somebody who joined before a force-quit has
+      // a circle the server never stopped believing in and a flow that has
+      // forgotten it; without the fallback their entire first week is staked
+      // into no room and reaches nobody.
+      circleId: flow.circleId ?? activeCircle(state)?.id ?? null,
+    });
     // Queued in the same tick as the dispatch, not on the next observation: a
     // pull is very likely in flight right now — creating a circle two screens
     // ago kicked one — and a merge that lands before the queue hears about the
@@ -209,11 +225,19 @@ export function OnboardOverlay({
    * queued join would mean saying "you're in" and finding out later that you
    * never were. So the card holds, and a refusal lands on the screen that asked.
    */
-  const runCircleCall = async (call: () => Promise<string | null>) => {
+  const runCircleCall = async (call: () => Promise<{ id: string | null; name: string | null }>) => {
     setBusy(true);
     setTrouble(null);
     try {
-      patch({ circle: await call(), joined: true });
+      const circle = await call();
+      patch({ circle: circle.name, circleId: circle.id, joined: true });
+      // `activeCircle` falls back to `circles[0]`, so this changes nothing for
+      // somebody who ends up with one circle. It is about the second: join here,
+      // start another next month, and the app should still be about the one you
+      // joined — and this is the only moment the device knows which that was.
+      // Safe before the pull because `SET_ACTIVE_CIRCLE` deliberately does not
+      // validate against `state.circles`, which is empty until then.
+      if (circle.id) dispatch({ type: 'SET_ACTIVE_CIRCLE', id: circle.id });
       // The member list is a pull away, and the next scheduled one is a minute
       // out — long enough to reach the Circle tab and find it empty.
       kickSync();
@@ -327,19 +351,19 @@ export function OnboardOverlay({
 
   const joinLiveCircle = (code: string) =>
     void runCircleCall(async () => {
-      await joinCircleByCode(code.trim());
-      // No name: the RPC answers with a uuid. `kickSync` above means the pull
-      // that fills `state.circle` is already on its way, and screen 6 prefers
-      // it — so the name appears without a round trip of its own, and the copy
-      // reads correctly in the moment before it lands.
-      return null;
+      // No name: the RPC answers with a uuid, which is the half that matters —
+      // it is what the first week gets staked into. `kickSync` above means the
+      // pull that fills `state.circles` is already on its way, and screen 6
+      // prefers it, so the name appears without a round trip of its own and the
+      // copy reads correctly in the moment before it lands.
+      return { id: await joinCircleByCode(code.trim()), name: null };
     });
 
   const createLiveCircle = (name: string) =>
-    void runCircleCall(async () => {
-      await createCircle(name.trim());
-      return name.trim();
-    });
+    void runCircleCall(async () => ({
+      id: (await createCircle(name.trim())).id,
+      name: name.trim(),
+    }));
 
   return (
     <Overlay

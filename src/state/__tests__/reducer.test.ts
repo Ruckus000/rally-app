@@ -17,7 +17,7 @@ import {
   seedNotifications,
   seedProfile,
 } from '../../data/seed';
-import { personOf, SELF_DEMO_ID } from '../../data/people';
+import { personOf, SELF_DEMO_ID, type PersonId } from '../../data/people';
 import { baseState as base, freshState } from '../../test/baseState';
 import { weekAfter } from '../../data/week';
 
@@ -538,6 +538,7 @@ describe('accounts', () => {
     const chosen = reducer(undecided, { type: 'SET_ACCOUNT', mode: 'fresh' });
     const s = reducer(chosen, {
       type: 'FINISH_ONBOARD',
+      circleId: null,
       name: 'Jonathan Philistin',
       stakes: [],
       aud: 'friends',
@@ -553,6 +554,7 @@ describe('accounts', () => {
     const chosen = reducer(undecided, { type: 'SET_ACCOUNT', mode: 'fresh' });
     const s = reducer(chosen, {
       type: 'FINISH_ONBOARD',
+      circleId: null,
       name: 'Jonathan Philistin',
       stakes: [
         { title: 'Run 5k', cat: 'Fitness', pts: 40 },
@@ -577,6 +579,7 @@ describe('accounts', () => {
     const demo = reducer(undecided, { type: 'SET_ACCOUNT', mode: 'seeded' });
     const s = reducer(demo, {
       type: 'FINISH_ONBOARD',
+      circleId: null,
       name: 'Jonathan Philistin',
       stakes: [{ title: 'Write 500 words', cat: 'Work', pts: 50 }],
       aud: 'friends',
@@ -1429,5 +1432,199 @@ describe('a photo on a goal', () => {
     // Identity, not equality: a no-op that mints a new state re-renders every
     // screen and writes to disk for nothing.
     expect(reducer(base, { type: 'REMOVE_MEDIA', id: base.myTasks[0]!.id })).toBe(base);
+  });
+});
+
+/**
+ * Which room a stake lands in.
+ *
+ * Under `tasks_select`, a `friends` goal carrying no circle reaches its owner
+ * and nobody else — the server closed NULL deliberately, because NULL is what a
+ * client that forgets the column writes. So every path that mints a task has to
+ * stamp one, and "every path" is the part worth testing: the composer is the
+ * obvious one, but the quick log, the suggestion rail and onboarding all mint
+ * tasks too, and each of them was silently filing goals nobody could read.
+ */
+describe('the circle a stake goes into', () => {
+  const A = { id: 'c-a', name: 'The Basement', inviteCode: 'basement-aaaa' };
+  const B = { id: 'c-b', name: 'Gym', inviteCode: 'gym-bbbb' };
+  const ME = 'u-me' as PersonId;
+
+  /** Live, in two circles, standing in the first. */
+  const inBoth: State = {
+    ...base,
+    account: 'live',
+    selfId: ME,
+    circles: [A, B],
+    activeCircleId: A.id,
+    worldSeen: true,
+    people: {
+      [ME]: { ...personOf(ME, 'Me'), circleIds: [A.id, B.id] },
+      'u-1': { ...personOf('u-1' as PersonId, 'Rae Silva'), circleIds: [A.id] },
+      'u-2': { ...personOf('u-2' as PersonId, 'Sam Cole'), circleIds: [B.id] },
+    },
+  };
+
+  const last = (s: State): Task => s.myTasks[s.myTasks.length - 1];
+  const stake = (s: State, ...extra: Action[]) =>
+    run(s, { type: 'SET_DRAFT', value: 'Ride to the bridge' }, ...extra, {
+      type: 'ADD_TASK',
+      aud: 'friends',
+    });
+
+  it('stamps the circle the app is currently about', () => {
+    expect(last(stake(inBoth)).circleId).toBe(A.id);
+  });
+
+  it('prefers the one the composer was pointed at', () => {
+    expect(last(stake(inBoth, { type: 'SET_DRAFT_CIRCLE', id: B.id })).circleId).toBe(B.id);
+  });
+
+  it('leaves the key off entirely for somebody in no circle', () => {
+    // Absent rather than undefined, and asserted with `in` for the reason the
+    // mappers give: `tasksAreSound` is all-or-nothing, so a key it cannot read
+    // costs the whole persisted week rather than the one field.
+    const alone = { ...inBoth, circles: [], activeCircleId: null };
+    expect('circleId' in last(stake(alone))).toBe(false);
+  });
+
+  it('resets the override after a stake, but keeps the day and the category', () => {
+    // The circle is the room, not the shape of the next goal. Day and category
+    // stick because they describe what you are about to stake again; a sticky
+    // room would silently outlive the one goal it was chosen for, and the pill
+    // would still be showing the resolved name either way.
+    const s = stake(inBoth, { type: 'SET_DRAFT_CIRCLE', id: B.id }, { type: 'SET_DRAFT_DAY', day: 4 });
+    expect(s.draftCircleId).toBeNull();
+    expect(s.draftDay).toBe(4);
+    expect(s.draftCat).toBe(inBoth.draftCat);
+  });
+
+  it('refuses a circle the pull has never mentioned', () => {
+    // By identity, so a bad id is not merely ignored but visibly a no-op. The
+    // picker can only offer what `circles` holds, so an id outside it is a bug
+    // — and `tasks_insert` answers a room you are not in with a 42501 that
+    // costs the user the stake rather than the setting.
+    const s = reducer(inBoth, { type: 'SET_DRAFT_CIRCLE', id: 'c-nowhere' });
+    expect(s).toBe(inBoth);
+  });
+
+  it('drops a pair the new room cannot see', () => {
+    // A pair reaching across circles is broken rather than untidy:
+    // `profiles_select` is membership-scoped, so everybody else in the goal's
+    // room renders that face as "Someone".
+    const paired = run(
+      inBoth,
+      { type: 'TOGGLE_PAIR', key: 'u-1' as PersonId },
+      { type: 'TOGGLE_PAIR', key: 'u-2' as PersonId },
+    );
+    expect(paired.draftPair.sort()).toEqual(['u-1', 'u-2']);
+    const moved = reducer(paired, { type: 'SET_DRAFT_CIRCLE', id: B.id });
+    expect(moved.draftPair).toEqual(['u-2']);
+  });
+
+  it('edits a goal in the room it is already in, not the room you are standing in', () => {
+    // Without this, opening a goal staked in Gym while the app is about The
+    // Basement would show The Basement and save it there — a re-publication
+    // nobody asked for, from a screen that only offered to change the title.
+    const staked = last(stake(inBoth, { type: 'SET_DRAFT_CIRCLE', id: B.id }));
+    const withGoal = { ...inBoth, myTasks: [...inBoth.myTasks, staked] };
+    const opened = reducer(withGoal, { type: 'START_EDIT', id: staked.id });
+    expect(opened.draftCircleId).toBe(B.id);
+
+    const saved = reducer(opened, { type: 'SAVE_EDIT', aud: 'friends' });
+    expect(saved.myTasks.find((t) => t.id === staked.id)?.circleId).toBe(B.id);
+  });
+
+  it('does not clear a circle the server assigned when it can resolve none', () => {
+    // Somebody in no circle editing a goal the backfill tagged. Resolving to
+    // null must contribute nothing and let the spread keep what the row has.
+    const assigned: Task = { ...base.myTasks[0], id: 't-assigned', circleId: A.id };
+    const alone: State = {
+      ...inBoth,
+      circles: [],
+      activeCircleId: null,
+      myTasks: [assigned],
+    };
+    const saved = run(
+      alone,
+      { type: 'START_EDIT', id: 't-assigned' },
+      { type: 'SAVE_EDIT', aud: 'friends' },
+    );
+    expect(saved.myTasks[0].circleId).toBe(A.id);
+  });
+
+  it('clears the override when the edit is abandoned', () => {
+    const s = run(
+      inBoth,
+      { type: 'SET_DRAFT_CIRCLE', id: B.id },
+      { type: 'CANCEL_EDIT' },
+    );
+    expect(s.draftCircleId).toBeNull();
+  });
+
+  it('stamps the quick log, which had been filing goals nobody could read', () => {
+    const s = run(
+      inBoth,
+      { type: 'SET_COMPOSER_VAL', value: 'Walked the long way' },
+      { type: 'SUBMIT_COMPOSER' },
+    );
+    expect(last(s).circleId).toBe(A.id);
+  });
+
+  it('stamps a suggestion, and leaves its pair behind if they are in another room', () => {
+    const s = reducer(inBoth, {
+      type: 'ADD_SUGGESTION',
+      suggestion: {
+        id: 's-1',
+        tag: 'FROM RAE',
+        title: 'Swim 2k',
+        sub: 'Rae staked this one.',
+        cat: 'Fitness',
+        pts: 40,
+        pair: ['u-1' as PersonId, 'u-2' as PersonId],
+      },
+    });
+    expect(last(s).circleId).toBe(A.id);
+    // `u-2` is in Gym, and this landed in The Basement.
+    expect(last(s).pair).toEqual(['u-1']);
+  });
+
+  it('gives onboarding stakes the circle the flow just joined', () => {
+    // Carried on the action rather than resolved, because the pull that fills
+    // `circles` has not landed yet — the RPC answered seconds ago and the
+    // caller holds the only copy of the id.
+    const fresh = { ...inBoth, circles: [], activeCircleId: null, myTasks: [] };
+    const s = reducer(fresh, {
+      type: 'FINISH_ONBOARD',
+      stakes: [{ title: 'Ride Tuesday', cat: 'Fitness', pts: 40 }],
+      aud: 'friends',
+      name: 'Me',
+      circleId: A.id,
+    });
+    expect(s.myTasks.every((t) => t.circleId === A.id)).toBe(true);
+
+    const solo = reducer(fresh, {
+      type: 'FINISH_ONBOARD',
+      stakes: [{ title: 'Ride Tuesday', cat: 'Fitness', pts: 40 }],
+      aud: 'friends',
+      name: 'Me',
+      circleId: null,
+    });
+    expect('circleId' in solo.myTasks[0]).toBe(false);
+  });
+
+  it('gives a goal a room when cycling it onto Friends, and never moves one that has one', () => {
+    // The silent trap this closes: the user asks for Friends, the server files
+    // it owner-only because there is no circle on it, and the chip says
+    // "Friends" as though it had worked.
+    const roomless: Task = { ...base.myTasks[0], id: 't-1', aud: 'private' };
+    const s = reducer({ ...inBoth, myTasks: [roomless] }, { type: 'CYCLE_TASK_AUD', id: 't-1' });
+    expect(s.myTasks[0]).toMatchObject({ aud: 'friends', circleId: A.id });
+
+    // Already in a room: the control is about audience, and this is only the
+    // floor under it.
+    const elsewhere: Task = { ...base.myTasks[0], id: 't-2', aud: 'private', circleId: B.id };
+    const kept = reducer({ ...inBoth, myTasks: [elsewhere] }, { type: 'CYCLE_TASK_AUD', id: 't-2' });
+    expect(kept.myTasks[0]).toMatchObject({ aud: 'friends', circleId: B.id });
   });
 });

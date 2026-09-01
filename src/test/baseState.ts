@@ -68,6 +68,7 @@ export const baseState: State = {
   draftReason: '',
   draftPair: [],
   draftAud: null,
+  draftCircleId: null,
   editingId: null,
   planOpen: false,
   settingsOpen: false,

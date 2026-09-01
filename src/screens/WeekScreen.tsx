@@ -243,12 +243,12 @@ function PersonalFeed() {
       ) : null}
 
       {done.map((t) => (
-        <MineRow key={t.id} task={t} onToggle={onToggle} onOpen={onOpen} />
+        <MineRow key={t.id} task={t} circles={state.circles} onToggle={onToggle} onOpen={onOpen} />
       ))}
 
       {open.length ? <FeedLabel>Still open</FeedLabel> : null}
       {open.map((t) => (
-        <MineRow key={t.id} task={t} onToggle={onToggle} onOpen={onOpen} />
+        <MineRow key={t.id} task={t} circles={state.circles} onToggle={onToggle} onOpen={onOpen} />
       ))}
     </>
   );

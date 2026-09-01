@@ -29,7 +29,7 @@ import {
 } from '../data/fixtures';
 import { DAY_NAMES } from '../data/week';
 import { CIRCLE_NAME_MAX, useStore } from '../state/store';
-import { activeCircle, myStats, visibleNotes } from '../state/selectors';
+import { activeCircle, circleLabel, myStats, visibleNotes } from '../state/selectors';
 import { SHEET_DURATION, sheetEasing, useReducedMotion } from '../theme/motion';
 import { Avatar } from '../components/Avatar';
 import { Icon } from '../components/Icon';
@@ -171,8 +171,12 @@ function TaskSheet({ id }: { id: string }) {
   const pts = mine?.pts ?? moment?.pts;
   const title = 'title' in raw ? (raw.title ?? '') : '';
 
+  // Compared against the generic word rather than against `aud`, for the reason
+  // `MineRow` gives: the rule was "hide the line that says nothing", and a goal
+  // that names its circle is no longer that line.
+  const audLabel = mine ? circleLabel(mine, state.circles) : null;
   const meta = mine
-    ? `${mine.cat}${mine.aud !== 'friends' ? ` · ${AUDIENCE_LABEL[mine.aud]}` : ''}`
+    ? `${mine.cat}${audLabel && audLabel !== AUDIENCE_LABEL.friends ? ` · ${audLabel}` : ''}`
     : `${moment?.time} ago`;
 
   const isAsk = moment?.kind === 'ask';
