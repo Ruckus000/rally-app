@@ -9,6 +9,7 @@ export type IconName =
   | 'bell'
   | 'check'
   | 'chevronLeft'
+  | 'chevronDown'
   | 'close'
   | 'plus'
   | 'comment'
@@ -43,6 +44,7 @@ export function Icon({ name, size = 20, color = 'currentColor', strokeWidth }: P
       {name === 'bell' && <Path d="M6 17h12M7 17V10a5 5 0 0 1 10 0v7M10 20h4" {...common} />}
       {name === 'check' && <Path d="M5 13l4 4L19 7" {...common} />}
       {name === 'chevronLeft' && <Path d="M14.5 5 8 12l6.5 7" {...common} />}
+      {name === 'chevronDown' && <Path d="M5 9.5 12 16l7-6.5" {...common} />}
       {name === 'close' && <Path d="M6 6l12 12M18 6 6 18" {...common} />}
       {name === 'plus' && <Path d="M12 5v14M5 12h14" {...common} />}
       {name === 'comment' && (
@@ -88,6 +90,7 @@ const DEFAULT_STROKE: Partial<Record<IconName, number>> = {
   plus: 2.6,
   close: 2.2,
   chevronLeft: 2.4,
+  chevronDown: 2.4,
   send: 2.4,
   comment: 1.8,
 };
