@@ -907,6 +907,25 @@ function InviteSheet({ circleId }: { circleId: string | null }) {
           </View>
         ))}
       </View>
+
+      {/* The door to a second circle, and the only one at exactly one circle.
+          The switcher carries `+ Join or start`, but it is absent below two —
+          so without this the app has a dead end shaped like a chicken and egg:
+          you need a second circle to reach the control that makes one. Here
+          because this sheet is already the place circles are grown, and it is
+          reachable from both of the Circle tab's branches and from the Week
+          feed, so it works at every count rather than at one of them. */}
+      {live ? (
+        <Tap
+          onPress={() => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'joinCircle', id: null } })}
+          accessibilityLabel="Join or start another circle"
+          style={{ marginTop: 18, minHeight: 44, justifyContent: 'center' }}
+        >
+          <Sans size={13} weight={700} color={color.moss}>
+            Join or start another circle →
+          </Sans>
+        </Tap>
+      ) : null}
     </ScrollView>
   );
 }
