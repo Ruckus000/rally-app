@@ -1,0 +1,4 @@
+{
+  "cleanUrls": true,
+  "rewrites": [{ "source": "/join", "destination": "/index.html" }]
+}

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rally — Stake your week</title>
+<meta name="description" content="Stake a few goals on the week. Your friends see them, cheer, and keep you honest.">
+<meta property="og:title" content="Rally — Stake your week">
+<meta property="og:description" content="Stake a few goals on the week. Your friends see them, cheer, and keep you honest.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /*
+   * The landing page and the invite-code resolver, in one file with no build
+   * step, in the shape docs/legal already deploys. Every colour and face is a
+   * token from src/theme/tokens.ts; nothing here invents a design value.
+   *
+   * /join?code=XXXX shows the code large, because the share message in the app
+   * hands a friend a code and, until now, nowhere to tap.
+   */
+  :root {
+    --ink: #191E16; --lime: #C3F53C; --paper: #F1F2EC; --muted: #6E7663;
+    --moss: #4B6A0B; --card: #FFFFFF; --faint: #A6AC9C; --divider: rgba(25,30,22,.12);
+    --bg: var(--paper); --fg: var(--ink); --fg2: var(--muted); --surface: var(--card);
+    --link: var(--moss);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #070A06; --fg: var(--paper); --fg2: rgba(241,242,236,.62);
+      --surface: #12170F; --divider: rgba(241,242,236,.12); --link: var(--lime);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: 'Instrument Sans', system-ui, -apple-system, sans-serif; font-size: 16px; line-height: 1.5; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 48px 22px 64px; }
+  .mark { display: flex; align-items: center; gap: 12px; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; letter-spacing: -.3px; font-size: 20px; }
+  .mark svg { width: 34px; height: 34px; }
+  h1 { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: clamp(38px, 8vw, 56px); line-height: .95; letter-spacing: -1.8px; margin: 40px 0 16px; text-wrap: balance; }
+  h1 em { font-style: normal; color: var(--lime); -webkit-text-stroke: .5px var(--ink); }
+  [data-theme="dark"] h1 em, .lede { }
+  .lede { font-size: 19px; color: var(--fg2); max-width: 30em; margin: 0 0 28px; text-wrap: pretty; }
+  h2 { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: 26px; letter-spacing: -.6px; margin: 44px 0 12px; }
+  .caps { font-size: 11px; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; color: var(--fg2); }
+  .btn { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 10px 20px; border-radius: 999px; background: var(--ink); color: var(--paper); font-weight: 600; text-decoration: none; border: 0; font: inherit; font-weight: 600; cursor: pointer; }
+  .btn.lime { background: var(--lime); color: var(--ink); }
+  .btn:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .note { font-size: 13.5px; color: var(--fg2); margin-top: 10px; }
+  /* The join card is the one dark surface on the page, like the app's perfect-week card. */
+  .join { background: var(--ink); color: var(--paper); border-radius: 24px; padding: 22px 22px 24px; margin: 8px 0 8px; position: relative; overflow: hidden; }
+  .join::after { content: ""; position: absolute; width: 320px; height: 320px; right: -120px; top: -160px; border-radius: 50%; background: radial-gradient(circle, rgba(195,245,60,.22), transparent 68%); pointer-events: none; }
+  .join .caps { color: var(--lime); }
+  .code { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: clamp(40px, 11vw, 64px); letter-spacing: -1px; line-height: 1; margin: 10px 0 14px; word-break: break-all; user-select: all; }
+  .join p { color: rgba(241,242,236,.62); margin: 0 0 14px; }
+  ol.how { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; counter-reset: step; }
+  ol.how li { counter-increment: step; display: grid; grid-template-columns: 44px 1fr; gap: 12px; align-items: start; background: var(--surface); border: 1px solid var(--divider); border-radius: 18px; padding: 14px 16px; }
+  ol.how li::before { content: counter(step); font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: 22px; color: var(--moss); line-height: 1.2; }
+  ol.how b { display: block; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 17px; letter-spacing: -.2px; }
+  ol.how span { color: var(--fg2); font-size: 14.5px; }
+  .isnt { display: grid; gap: 6px; padding: 0; margin: 0; list-style: none; }
+  .isnt li { padding-left: 18px; position: relative; color: var(--fg2); }
+  .isnt li::before { content: "·"; position: absolute; left: 4px; color: var(--moss); font-weight: 800; }
+  footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--divider); font-size: 13px; color: var(--fg2); display: flex; flex-wrap: wrap; gap: 6px 18px; }
+  a { color: var(--link); }
+  @media (prefers-reduced-motion: no-preference) {
+    .join { animation: rise .45s cubic-bezier(.2,.9,.2,1) both; }
+    @keyframes rise { from { transform: translateY(12px); opacity: .001; } to { transform: none; opacity: 1; } }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="mark" aria-label="Rally">
+    <!-- The Gather mark, one-colour cut: geometry from src/theme/mark.ts (MARK_WEDGE, MARK_CORE_R_SOLID). -->
+    <svg viewBox="0 0 100 100" aria-hidden="true">
+      <g fill="#C3F53C" transform="translate(0 0.675)">
+        <circle cx="50" cy="50" r="15"/>
+        <path d="M38 6 L62 6 L57 44 Z"/>
+        <path d="M38 6 L62 6 L57 44 Z" transform="rotate(72 50 50)"/>
+        <path d="M38 6 L62 6 L57 44 Z" transform="rotate(144 50 50)"/>
+        <path d="M38 6 L62 6 L57 44 Z" transform="rotate(216 50 50)"/>
+        <path d="M38 6 L62 6 L57 44 Z" transform="rotate(288 50 50)"/>
+      </g>
+    </svg>
+    Rally
+  </div>
+
+  <section id="join" class="join" hidden>
+    <div class="caps">You've been invited</div>
+    <div class="code" id="code"></div>
+    <p>Install Rally, open the <strong>Circle</strong> tab, and enter this code. Then stake something before Monday's over.</p>
+    <div class="row">
+      <a class="btn lime" id="store" href="#get">Get Rally</a>
+      <button class="btn" id="copy" type="button">Copy code</button>
+    </div>
+  </section>
+
+  <h1>Stake your week.<br><em>Your friends</em> keep you honest.</h1>
+  <p class="lede">Every Monday, put a few goals on the line. Your circle sees them, cheers when you close one, and Sunday the week closes and asks what carries. No streaks. Nothing resets.</p>
+
+  <div class="row" id="get">
+    <a class="btn lime" id="play" href="https://play.google.com/store/apps/details?id=app.rally.weekspine">Get it on Google Play</a>
+  </div>
+  <p class="note">Android today. iPhone when the developer program is paid for, which is soon. If your circle is on iPhone, <a href="mailto:lordruckus.nb@gmail.com?subject=Rally%20on%20iPhone">say so</a> and you'll be first to know.</p>
+
+  <h2>How a week goes</h2>
+  <ol class="how">
+    <li><div><b>Monday: stake.</b><span>Three or four things. Run twice. Ship the thing. In bed by eleven. Each is worth points by how hard it is.</span></div></li>
+    <li><div><b>All week: cheer.</b><span>Close one and your circle sees it. A cheer lands on your phone with their name on it.</span></div></li>
+    <li><div><b>Sunday: the ledger.</b><span>What you did, who helped you, who you helped. Then it asks what carries into next week.</span></div></li>
+  </ol>
+
+  <h2>What it isn't</h2>
+  <ul class="isnt">
+    <li>Not a streak counter. A missed day costs you the day, not your history.</li>
+    <li>Not a public feed. Your circle is people you invited, by code.</li>
+    <li>Not a money app. The stake is your word, and the people who heard it.</li>
+    <li>Not watching you. No ads, no analytics, no email, no phone number. Delete your account from inside the app.</li>
+  </ul>
+
+  <footer>
+    <span>Made by one person in Florida.</span>
+    <a href="https://rally-app-legal.vercel.app/support">Support</a>
+    <a href="https://rally-app-legal.vercel.app/privacy">Privacy</a>
+  </footer>
+</div>
+<script>
+  // /join?code=ABCD → show the code. Codes are shown, never validated here:
+  // the app is the only thing that can tell a real code from a typo.
+  (function () {
+    var code = new URLSearchParams(location.search).get('code');
+    if (!code) return;
+    code = code.replace(/[^A-Za-z0-9-]/g, '').slice(0, 24);
+    if (!code) return;
+    var el = document.getElementById('code');
+    el.textContent = code;
+    document.getElementById('join').hidden = false;
+    document.title = 'Join on Rally · ' + code;
+    var btn = document.getElementById('copy');
+    btn.addEventListener('click', function () {
+      var done = function () { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = 'Copy code'; }, 1600); };
+      if (navigator.clipboard) navigator.clipboard.writeText(code).then(done, done); else done();
+    });
+  })();
+</script>
+</body>
+</html>
