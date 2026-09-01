@@ -929,6 +929,23 @@ export function createEngine(
   let pullTimer: ReturnType<typeof setInterval> | null = null;
   let mediaTimer: ReturnType<typeof setInterval> | null = null;
   let pulling = false;
+  /**
+   * One remembered follow-up, for a pull that arrived while a pull was open.
+   *
+   * `pulling` used to make that caller return, which is a drop rather than a
+   * wait — and `realtime.ts`'s `fire()` clears its own `dirty` flag *before*
+   * calling back, so the event was gone from both sides and the news waited out
+   * the 60s tick. That is the socket's entire purpose thrown away for the
+   * length of a round trip, and it lands hardest on the case `realtime.ts`
+   * names in its own header: somebody closing their week writes a task, a
+   * rollup and several cheers over a few seconds, so the burst that starts the
+   * pull is the burst most likely to be swallowed by it.
+   *
+   * A flag and not a queue. Every pull asks for the whole world, so two waiting
+   * answers are the same answer — what matters is that one more happens, not
+   * how many were asked for.
+   */
+  let pullAgain = false;
   let unsubscribeSession: (() => void) | null = null;
   /**
    * Whether the server has `pull_world`. Assumed until it answers that it
@@ -1202,7 +1219,11 @@ export function createEngine(
   async function pull(): Promise<void> {
     attach();
     const userId = currentUserId();
-    if (!userId || pulling) return;
+    if (!userId) return;
+    if (pulling) {
+      pullAgain = true;
+      return;
+    }
     pulling = true;
     try {
       // The week is whatever the last observation saw. Without one there is no
@@ -1561,6 +1582,13 @@ export function createEngine(
       if (isAuthExpired(err)) reportAuthFailure();
     } finally {
       pulling = false;
+      // Whatever arrived mid-flight, asked once. Not a loop: this re-entry
+      // clears the flag before it can be set again, so a steady stream of
+      // events costs one follow-up per pull rather than a chain.
+      if (pullAgain) {
+        pullAgain = false;
+        void pull();
+      }
     }
   }
 

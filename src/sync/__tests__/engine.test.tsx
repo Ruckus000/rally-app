@@ -826,6 +826,36 @@ describe('other people’s weeks', () => {
     expect(screen.getByTestId('feedDone')).toHaveTextContent('Swim 2k:done');
   });
 
+  it('remembers a pull that arrived while one was already open', async () => {
+    // `pulling` used to make the second caller return, which is a drop and not
+    // a wait — and `realtime.ts` clears its own debounce flag before calling
+    // back, so the event was gone from both sides and its news waited out the
+    // 60s tick. That is the socket's whole purpose spent for the length of one
+    // round trip, and it lands hardest on the case realtime exists for: a
+    // friend closing their week writes a task, a rollup and several cheers over
+    // a few seconds, so the burst that starts the pull is the one it swallows.
+    mount();
+    await settle();
+    inACircleWith(currentUserId() as string);
+    await settle(60_000);
+    fakeSupabase.calls.length = 0;
+
+    // Two foregrounds in one commit: the first starts a pull and suspends on
+    // the round trip, the second arrives while it is open.
+    await act(async () => {
+      appState('active');
+      appState('active');
+    });
+    await settle(1_000);
+
+    const worlds = fakeSupabase.calls.filter(
+      (c) => c.method === 'rpc' && c.table === 'pull_world',
+    );
+    // Two, not one — and not three. A flag, so several events waiting on one
+    // pull cost a single follow-up rather than a chain of them.
+    expect(worlds).toHaveLength(2);
+  });
+
   it('counts the cheers that landed on your own week', async () => {
     // The gap the two-device run ended on: B cheered A's task, the row was in
     // the database, and A's screen said 0. `pullCheerCounts` answered for the
