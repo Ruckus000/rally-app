@@ -220,6 +220,20 @@ describe('the invite code', () => {
     expect(screen.getByLabelText(`Invite code ${CIRCLE.inviteCode}`)).toBeTruthy();
   });
 
+  it('offers a second circle from the sheet, which is the only door at exactly one', () => {
+    // The chicken-and-egg this closes. `CircleSwitcher` carries the
+    // `+ Join or start` chip and is absent below two circles, and the Circle
+    // tab's fork CTA only renders at zero — so at exactly one, which is every
+    // account straight out of onboarding, nothing reached the fork at all.
+    inviteSheet('live');
+    expect(screen.getByLabelText('Join or start another circle')).toBeTruthy();
+  });
+
+  it('does not offer it on a demo account, which has no server to ask', () => {
+    inviteSheet('seeded');
+    expect(screen.queryByLabelText('Join or start another circle')).toBeNull();
+  });
+
   it('offers to join or start a circle when you have none, instead of a dead end', () => {
     // Riding solo through onboarding used to be permanent: this sheet was the
     // only invite surface and onboarding the only place a circle could be made.
