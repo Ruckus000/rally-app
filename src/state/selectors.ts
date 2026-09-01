@@ -658,6 +658,39 @@ export const circleWord = (
     ? (circleNameOf(circleId, circles) ?? AUDIENCE_WORD.friends)
     : AUDIENCE_WORD[aud];
 
+/**
+ * What the badge beside a name in the feed says.
+ *
+ * `'Follow'` for the public half, the circle's name for a card that came out of
+ * one, and **nothing at all** when the room cannot be named.
+ *
+ * Resolved by id against your own memberships, never derived from the fact that
+ * you share a circle with whoever wrote it. That is load-bearing rather than
+ * fussy: `tasks_select` lets an `aud='everyone'` row through regardless of room
+ * and `pullTasksByOwners` fetches by circle-mate id, so `state.moments`
+ * legitimately holds rows whose `circle_id` names a room you are not in. Naming
+ * one of those would be a disclosure rather than a label.
+ *
+ * Silence rather than falling back to a generic word, which is the tempting
+ * alternative and is wrong in a way that only shows up rarely. `aud='private'
+ * and is_paired_on(id)` also reaches you, so a pill reading FRIENDS can land
+ * over a private goal somebody staked in a room you have never been in. Any
+ * generic word has that problem; an absent badge does not. It also keeps the
+ * retired meaning of "friends" — anyone you share any circle with — off the one
+ * surface that still rendered it.
+ *
+ * Two costs, both accepted. Fixture moments carry no `circleId`, so the seeded
+ * demo badges only its public half. And `circles` is deliberately not persisted
+ * while `moments` is, so a cold start draws unbadged for one pull — the same
+ * window `Header` already lives with.
+ */
+export const feedBadge = (
+  state: State,
+  moment: Pick<Moment, 'circleId'>,
+  from: 'circle' | 'follow',
+): string | null =>
+  from === 'follow' ? 'Follow' : circleNameOf(moment.circleId, state.circles);
+
 /** "Maya", "Maya and Dre", "Maya, Dre and 2 others" — the card has one line. */
 const joinFirstNames = (names: string[]): string => {
   if (names.length <= 1) return names[0] ?? 'Someone';

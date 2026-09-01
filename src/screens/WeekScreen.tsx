@@ -11,6 +11,7 @@ import { useStore } from '../state/store';
 import {
   allTasksDone,
   circleMembers,
+  feedBadge,
   mergedFeed,
   personalFeed,
   stakedPoints,
@@ -300,8 +301,8 @@ function Feed() {
       {alone ? (
         <View style={{ alignItems: 'center', paddingTop: 22, paddingBottom: 6, paddingHorizontal: 20 }}>
           <Sans size={13} lineHeight={18} color={color.muted} style={{ textAlign: 'center' }}>
-            The ones marked Follow are not real, and they’re doing fine without you. Your circle is
-            the part that counts.
+            The ones marked Follow are not real, and they’re doing fine without you. A circle of
+            your own is the part that counts.
           </Sans>
           <Tap
             onPress={() => dispatch({ type: 'OPEN_SHEET', sheet: { type: 'invite', id: null } })}
@@ -325,12 +326,15 @@ function Feed() {
   );
 }
 
-/** FRIENDS on your circle's cards, FOLLOW on the public feed's. */
-const BADGE: Record<FeedSource, string> = { circle: 'Friends', follow: 'Follow' };
-
 function MomentItem({ moment: m, from }: { moment: Moment; from: FeedSource }) {
   const { state, dispatch, people } = useStore();
   const first = people.first(m.who);
+  // The room this came out of, or FOLLOW, or nothing. Replaces a constant that
+  // said FRIENDS for everything on the circle half — a word that stopped naming
+  // anything once a person could be in two rooms. `feedBadge` is where the
+  // reasoning lives, including why an unnameable room gets no badge rather than
+  // a generic one.
+  const badge = feedBadge(state, m, from);
   const cheered = !!state.acted[`${m.id}:cheer`];
 
   // Stable identities so the memoized cards below skip re-rendering when an
@@ -372,7 +376,7 @@ function MomentItem({ moment: m, from }: { moment: Moment; from: FeedSource }) {
     return (
       <BigCard
         moment={m}
-        badge={BADGE[from]}
+        badge={badge}
         cheered={cheered}
         cosigned={!!state.acted[`${m.id}:cosign`]}
         onCheer={cheer}
@@ -392,7 +396,7 @@ function MomentItem({ moment: m, from }: { moment: Moment; from: FeedSource }) {
     <SocialCard
       who={m.who}
       name={people.name(m.who)}
-      badge={BADGE[from]}
+      badge={badge}
       time={m.time}
       title={m.title ?? ''}
       quote={m.quote}

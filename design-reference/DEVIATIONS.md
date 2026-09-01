@@ -78,14 +78,37 @@ The pills also moved off the section rule onto their own line beneath it —
 called "Wednesday Morning Riders" wants more width than that line has to give.
 It is the same arrangement "In it with me" already uses two sections down.
 
-**Friends and Global are one feed** — `src/screens/WeekScreen.tsx`
+**Friends and Global are one feed** — `src/screens/WeekScreen.tsx`,
+`src/components/FeedCards.tsx`
 
 The handoff's Week screen has three scopes: Personal, Friends, Global. The
 build has two: Personal and Feed. Everything but the slice was already shared —
 same shape, same card, same sort — so the split bought navigation and cost a
 new account a wall of strangers with its own people behind a tab it had to
-think to cross. The cards carry a FRIENDS/FOLLOW badge, which is the thing the
-tab used to say.
+think to cross. The cards carry a badge, which is the thing the tab used to
+say.
+
+That badge read FRIENDS or FOLLOW. It now reads the name of the circle a goal
+was staked in, and FOLLOW on the public feed's. Once somebody can be in more
+than one, "Friends" stopped naming anything: it meant "a person you share a room
+with" on a card that belongs to one specific room out of three. The name is read
+off the goal's own circle id and resolved only against the circles you are in —
+never from the fact that you share one with whoever wrote it, because an
+`everyone` goal reaches you out of rooms you are not in, and naming one of those
+would be a disclosure rather than a label.
+
+Where the room cannot be named the card carries no badge at all, which is the
+other half of the same decision. A generic fallback would be true of the cases
+it covers and false of at least one it does not — a private goal you were paired
+into, staked somewhere you have never been. It costs something visible: the demo
+account's own moments are fixtures with no circle on them, and the demo has no
+`state.circles` for one to resolve against, so in the seeded world only the
+public half is labelled. That is the honest reading of a demo with no circle the
+app can name, and it is why the badge was not given something to fall back on.
+
+The feed itself is still not filtered by circle. Showing one room at a time is
+the tab this entry removed, rebuilt with a picker on top; the badge says which
+room a card came from, and the list stays whole.
 
 ---
 

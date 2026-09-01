@@ -48,6 +48,9 @@ export function CircleScreen() {
   // landed between them, and the invite sheet would then be handed a different
   // room from the one the podium was drawn for.
   const activeId = activeCircle(state)?.id ?? null;
+  // The screen has never named the room it draws. With a switcher above it,
+  // "the circle" is the one line left that does not say which.
+  const activeName = state.account === 'live' ? (activeCircle(state)?.name ?? null) : null;
   // The ranking sorts the whole circle and walks every cheer against every
   // moment — too much to redo on renders where none of its inputs moved.
   // Keyed on the slices `ranking` actually reads (via `myStats`).
@@ -223,7 +226,7 @@ export function CircleScreen() {
                     re-runs the entire ranking to compute exactly this reduce. */}
                 {ranked.reduce((a, r) => a + (r.given ?? 0), 0)}
               </Bri>
-              {' cheers exchanged in the circle this week'}
+              {activeName ? ` cheers exchanged in ${activeName} this week` : ' cheers exchanged in the circle this week'}
             </Sans>
           </View>
 
@@ -239,7 +242,7 @@ export function CircleScreen() {
             }}
           >
             <Bri size={15} weight={800} color={color.textPrimary}>
-              + Invite someone to the circle
+              {activeName ? `+ Invite someone to ${activeName}` : '+ Invite someone to the circle'}
             </Bri>
           </Tap>
       </>

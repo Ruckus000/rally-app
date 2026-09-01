@@ -330,6 +330,47 @@ describe('when the owner leaves the circle', () => {
     // And it has not merely become invisible to everyone: she still has it.
     expect(await canSee('maya', 'T_friends')).toBe(true);
   });
+
+  it('and basement stops reaching her', async () => {
+    // The viewer-side half. The test above proves an owner who leaves stops
+    // publishing into the room; this proves she stops reading it, which is the
+    // half a leave confirm is really promising. Both fall out of the same
+    // `exists` pair, but only because it is asked in both directions.
+    const dresGoal = await asUser('dre')
+      .from('tasks')
+      .insert({
+        owner_id: idOf('dre'),
+        week_start: WEEK,
+        category: 'move',
+        points: 3,
+        day: 5,
+        title: 'T_dre_basement',
+        aud: 'friends',
+        circle_id: CIRCLE_IDS.basement,
+      })
+      .select('id')
+      .single();
+    expect(dresGoal.error).toBeNull();
+    const id = (dresGoal.data as { id: string }).id;
+
+    const mayaSees = async () =>
+      ((await asUser('maya').from('tasks').select('id').eq('id', id)).data ?? []).length === 1;
+
+    expect(await mayaSees()).toBe(true);
+
+    const held = await sql<{ joined_at: string }>(
+      'select joined_at from public.circle_members where circle_id = $1 and profile_id = $2',
+      [CIRCLE_IDS.basement, idOf('maya')],
+    );
+    seededJoinedAt = held[0].joined_at;
+
+    await sql('delete from public.circle_members where circle_id = $1 and profile_id = $2', [
+      CIRCLE_IDS.basement,
+      idOf('maya'),
+    ]);
+
+    expect(await mayaSees()).toBe(false);
+  });
 });
 
 describe('the visible set as a whole', () => {

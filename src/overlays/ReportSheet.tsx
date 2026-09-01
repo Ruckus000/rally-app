@@ -398,11 +398,11 @@ function BlockStep({
       {/* The sentence this sheet exists to say. See the file header: without it
           a working block looks broken within about ten seconds. */}
       <Sans size={13} color={color.muted} lineHeight={18.5} style={{ marginTop: 10 }}>
-        Your circle is a separate thing. {first} stays in it — still on the
-        ranked list, still counted in the circle’s totals, because those
-        are the circle’s numbers and not your view of it. Blocking cannot
-        change that; leaving the circle is what changes that, and Rally has no
-        way to do that yet.
+        Your circles are a separate thing. {first} stays in the ones you share
+        — still on the ranked list, still counted in the circle’s totals,
+        because those are the circle’s numbers and not your view of it. Blocking
+        cannot change that; leaving a circle is what changes that, and Settings
+        is where you do it.
       </Sans>
 
       <View style={{ gap: 8, marginTop: 16 }}>

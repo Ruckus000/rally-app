@@ -8,8 +8,10 @@
  */
 import {
   canSecure,
+  circlesVisible,
   deleteEnabled,
   deleteVisible,
+  leaveCircleEnabled,
   secureUnavailable,
   signOutEnabled,
   signOutVisible,
@@ -166,5 +168,45 @@ describe('secureUnavailable', () => {
     for (const s of sessions) {
       expect(canSecure('live', s, 'ios') && secureUnavailable('live', s, 'ios')).toBe(false);
     }
+  });
+});
+
+/**
+ * The circles section, and the cold-start window that decides its shape.
+ */
+describe('circlesVisible', () => {
+  it('is for live accounts with a circle to leave', () => {
+    expect(circlesVisible('live', 1)).toBe(true);
+    expect(circlesVisible('live', 3)).toBe(true);
+  });
+
+  it('hides rather than empty-states when there are none', () => {
+    // `state.circles` is server-derived and deliberately not persisted, so on
+    // every cold start it is empty for everybody until the first pull. An
+    // empty-state line here would tell somebody in three circles that they are
+    // in none, once per launch. `Blocked` has no such window, which is why it
+    // renders its own empty line and this does not.
+    expect(circlesVisible('live', 0)).toBe(false);
+  });
+
+  it('is not for the demo worlds', () => {
+    expect(circlesVisible('seeded', 2)).toBe(false);
+    expect(circlesVisible('fresh', 2)).toBe(false);
+    expect(circlesVisible(null, 2)).toBe(false);
+  });
+});
+
+describe('leaveCircleEnabled', () => {
+  it('needs a resolved session, because the delete is immediate', () => {
+    expect(leaveCircleEnabled({ status: 'ready', userId: 'u', anonymous: false })).toBe(true);
+    expect(leaveCircleEnabled({ status: 'off' })).toBe(false);
+    expect(leaveCircleEnabled({ status: 'offline' })).toBe(false);
+  });
+
+  it('lets an anonymous account leave', () => {
+    // Unlike signing out, which is withheld from an account nobody can sign
+    // back into. Walking out of a room loses nothing that cannot be rejoined
+    // with the code.
+    expect(leaveCircleEnabled({ status: 'ready', userId: 'u', anonymous: true })).toBe(true);
   });
 });

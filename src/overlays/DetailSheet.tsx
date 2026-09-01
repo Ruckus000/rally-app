@@ -658,8 +658,7 @@ function LookingForYourCircle() {
         One moment
       </Bri>
       <Sans size={13} color={color.muted} style={{ marginTop: 6, lineHeight: 18.5 }}>
-        Checking whether you’re already in a circle. If you are, its code will be here in a
-        second.
+        Checking which circles you’re in. If there are any, a code will be here in a second.
       </Sans>
     </ScrollView>
   );
@@ -994,7 +993,7 @@ function SafetyFooter({ target }: { target: ReportTarget }) {
   const block = () =>
     Alert.alert(
       `Block ${name}?`,
-      `You stop seeing ${first} — their week, their notes, their cheers. They stop seeing yours. Neither of you is told.\n\n${first} stays in your circle: still on the ranked list, still counted in its totals, because those are the circle’s numbers and not your view of it.`,
+      `You stop seeing ${first} — their week, their notes, their cheers. They stop seeing yours. Neither of you is told.\n\n${first} stays in the circles you share: still on the ranked lists, still counted in their totals, because those are the circles’ numbers and not your view of them.`,
       [
         { text: 'Not now', style: 'cancel' },
         {

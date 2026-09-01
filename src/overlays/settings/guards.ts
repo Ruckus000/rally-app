@@ -45,6 +45,33 @@ export function signOutEnabled(session: SessionState): boolean {
 }
 
 /**
+ * Whether the circles section appears at all.
+ *
+ * Hidden rather than empty-stated when there are none, which is the one place
+ * this departs from `BlockedList` — that one always renders and says so when
+ * it is empty. The difference is persistence: `state.circles` is deliberately
+ * server-derived and not saved to disk, so on every cold start it is `[]` for
+ * everybody until the first pull lands. An empty-state line here would tell
+ * somebody in three circles that they are in none, once per launch. `blocked`
+ * persists and has no such window.
+ */
+export function circlesVisible(account: AccountMode | null, count: number): boolean {
+  return account === 'live' && count > 0;
+}
+
+/**
+ * Whether a leave row does anything when tapped.
+ *
+ * Same body as `deleteEnabled` on purpose, and kept separate for the same
+ * reason `signOutEnabled` is: these are rules about different rows that happen
+ * to agree today. An anonymous session leaves too — an account nobody can sign
+ * back into must still be able to walk out of a room.
+ */
+export function leaveCircleEnabled(session: SessionState): boolean {
+  return session.status === 'ready';
+}
+
+/**
  * Whether the delete-account row appears at all.
  *
  * Every live account, and deliberately **not** `signOutVisible`, which is the

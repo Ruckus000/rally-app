@@ -54,6 +54,7 @@ import { Overlay } from './Overlay';
 import { closeButton } from './LedgerOverlay';
 import { Trouble } from '../components/Trouble';
 import { useStore } from '../state/store';
+import type { CircleRef } from '../state/store';
 import { NAME_MAX } from '../data/people';
 import { commitSelfName, queueUnblock } from '../sync/engine';
 import { linkApple } from '../sync/session';
@@ -67,18 +68,22 @@ import { clearAvatar, pickAndUploadAvatar } from '../lib/avatarUpload';
 import { IMAGE_BLOCKED_COPY } from '../../supabase/functions/_shared/imageVerdict.mjs';
 import { reminderPermission } from '../lib/reminders';
 import { enableReminders } from '../lib/enableReminders';
-import { stakedPoints } from '../state/selectors';
+import { circleMembers, stakedPoints } from '../state/selectors';
 import type { AccountMode } from '../data/seed';
 import type { SessionState } from '../sync/session';
 import {
   canSecure,
+  circlesVisible,
   deleteEnabled,
   deleteVisible,
+  leaveCircleEnabled,
   secureUnavailable,
   signOutEnabled,
   signOutVisible,
 } from './settings/guards';
 import { attemptSignOut, unsentLine } from './settings/signOut';
+import { attemptLeaveCircle, leaveUnsentLine } from './settings/leaveCircle';
+import { kickSync } from '../sync/useSyncEngine';
 
 /**
  * What this account is, in one sentence, per platform.
@@ -321,6 +326,30 @@ export function SettingsOverlay({ topInset }: { topInset: number }) {
         {live ? (
           <Section title="Your photo">
             <PhotoRow />
+          </Section>
+        ) : null}
+
+        {/* In the you-cluster, with name and photo, by that cluster's own test:
+            those are identity — about you, on the server, seen by everyone in
+            your circle — and which rooms you are in is exactly that. The delete
+            screen already lists "your place in your circle" among the facts an
+            account is made of.
+
+            Deliberately nowhere near Leaving. The comment below forbids an
+            Unblock directly above Sign out because two leaving controls read as
+            a pair; a third would be worse. And the adjacency it does have is
+            worth something: `ReportSheet` tells you that leaving is the thing
+            blocking cannot do, which only helps if the two are findable
+            together.
+
+            Hidden rather than empty-stated when there are none — see
+            `circlesVisible`, and the cold-start window that makes an empty
+            `circles` mean nothing at all. */}
+        {circlesVisible(account, state.circles.length) ? (
+          <Section title="Your circles">
+            {state.circles.map((c) => (
+              <CircleRow key={c.id} circle={c} />
+            ))}
           </Section>
         ) : null}
 
@@ -800,6 +829,82 @@ function BlockedList() {
 }
 
 /**
+ * The circles you are in, and the way out of each.
+ *
+ * `BlockedRow`'s shape rather than `SignOutRow`'s, and the reason is arity:
+ * there are N of these and each needs its own action, so a whole-card tap would
+ * turn the card carrying the name into the destructive control. The leave sits
+ * in the trailing slot `Unblock` occupies, in the same `color.moss`, because
+ * this app has no red in it anywhere — the weight is carried by the OS alert.
+ */
+function CircleRow({ circle }: { circle: CircleRef }) {
+  const color = useColors();
+  const { state, dispatch } = useStore();
+  const [busy, setBusy] = React.useState(false);
+  const session = state.session;
+  const enabled = leaveCircleEnabled(session) && !busy;
+  const members = circleMembers(state, circle.id).length;
+
+  const leave = async () => {
+    setBusy(true);
+    const userId = session.status === 'ready' ? session.userId : '';
+    const outcome = await attemptLeaveCircle(circle.id, userId);
+    if (outcome.ok) {
+      dispatch({ type: 'LEFT_CIRCLE', id: circle.id });
+      // Safe here, and only here: a pull started *after* the delete can only
+      // see the new truth. Started before it, one could answer afterwards with
+      // a list that still holds this circle.
+      kickSync();
+      return;
+    }
+    setBusy(false);
+    Alert.alert(
+      outcome.reason === 'unsent' ? 'Still sending' : 'That didn’t go through',
+      outcome.reason === 'unsent'
+        ? leaveUnsentLine(outcome.unsent)
+        : 'Nothing changed. Try again in a moment.',
+    );
+  };
+
+  const confirm = () =>
+    Alert.alert(
+      `Leave ${circle.name}?`,
+      `You come off the list, and what they stake stops reaching you.\n\n` +
+        `The goals you staked in ${circle.name} stay in your week and keep their points — but from now on you are the only person who can see them. Joining again with the code puts them back in front of everyone.`,
+      [
+        { text: 'Stay', style: 'cancel' },
+        { text: 'Leave', style: 'destructive', onPress: () => void leave() },
+      ],
+    );
+
+  return (
+    <View style={{ ...row, gap: 12, ...cardBox(color), opacity: enabled ? 1 : 0.5 }}>
+      <View style={fill}>
+        <Bri size={15} weight={800} numberOfLines={1}>
+          {circle.name}
+        </Bri>
+        <Sans size={12.5} lineHeight={17} color={color.muted} style={{ marginTop: 3 }}>
+          {members} {members === 1 ? 'person' : 'people'}
+        </Sans>
+      </View>
+      <Tap
+        onPress={enabled ? confirm : undefined}
+        disabled={!enabled}
+        accessibilityState={{ disabled: !enabled, busy }}
+        accessibilityLabel={
+          enabled ? `Leave ${circle.name}` : `Leave ${circle.name}. Leaving needs a connection`
+        }
+        style={rowAction}
+      >
+        <Sans size={12.5} weight={700} color={color.moss}>
+          {busy ? 'Leaving…' : 'Leave'}
+        </Sans>
+      </Tap>
+    </View>
+  );
+}
+
+/**
  * One blocked person, named honestly or not named at all.
  *
  * `state.people`, not `people.name()`. The lookup is total and answers
@@ -832,7 +937,7 @@ function BlockedRow({ id }: { id: string }) {
         </Bri>
         <Sans size={12.5} lineHeight={17} color={color.muted} style={{ marginTop: 3 }}>
           {name
-            ? 'You don’t see each other. Your circle’s numbers are unchanged.'
+            ? 'You don’t see each other. Your circles’ numbers are unchanged.'
             : 'Blocked before their name reached this phone.'}
         </Sans>
       </View>
@@ -1023,7 +1128,7 @@ function SignOutRow({ enabled }: { enabled: boolean }) {
   const confirm = () =>
     Alert.alert(
       'Sign out of this account?',
-      'This device is cleared — your week, your circle and your history stay on the server. Sign back in with Apple and they come back.',
+      'This device is cleared — your week, your circles and your history stay on the server. Sign back in with Apple and they come back.',
       [
         { text: 'Stay signed in', style: 'cancel' },
         { text: 'Sign out', style: 'destructive', onPress: () => void leave() },

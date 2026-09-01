@@ -494,6 +494,37 @@ export async function joinCircleByCode(code: string): Promise<string> {
 }
 
 /**
+ * Leave a circle. Your membership row, and only ever your own.
+ *
+ * Not a `WireOp`, for the reason `scheduleAccountDeletion` gives directly
+ * below: the outbox stamps identity at *send* time, so a leave still queued
+ * when somebody else signs in on this phone would take **them** out of a circle
+ * they are in. And the answer is the point — the row has to disappear from
+ * Settings and from the switcher now. If a queued delete never landed, the next
+ * pull would put the circle back with no explanation.
+ *
+ * `profile_id` is restated even though `circle_members_delete` already reads
+ * `auth.uid()`, which is the opposite call from `pullBlocks` — and the
+ * difference is that one is a read and this is a delete. If that policy is ever
+ * loosened for an admin path, an unqualified delete empties the room.
+ *
+ * The `select()` is not decoration. A DELETE that RLS refuses is a silent no-op
+ * in PostgREST — `error: null`, no rows — so without a returning clause this
+ * would report success for a leave that never happened. An *empty* result is
+ * still fine: it means the row is already gone, which is the state the caller
+ * wanted.
+ */
+export async function leaveCircle(circleId: string, userId: string): Promise<void> {
+  const { error } = await getSupabase()
+    .from('circle_members')
+    .delete()
+    .eq('circle_id', circleId)
+    .eq('profile_id', userId)
+    .select('circle_id');
+  if (error) fail(error);
+}
+
+/**
  * Ask the server to delete this account, and say when the clock started.
  *
  * Not a `WireOp`, and that is the whole reason it lives here beside the circle

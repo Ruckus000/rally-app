@@ -18,6 +18,7 @@ import {
   seedProfile,
 } from '../../data/seed';
 import { personOf, SELF_DEMO_ID, type PersonId } from '../../data/people';
+import { activeCircle } from '../selectors';
 import { baseState as base, freshState } from '../../test/baseState';
 import { weekAfter } from '../../data/week';
 
@@ -1626,5 +1627,53 @@ describe('the circle a stake goes into', () => {
     const elsewhere: Task = { ...base.myTasks[0], id: 't-2', aud: 'private', circleId: B.id };
     const kept = reducer({ ...inBoth, myTasks: [elsewhere] }, { type: 'CYCLE_TASK_AUD', id: 't-2' });
     expect(kept.myTasks[0]).toMatchObject({ aud: 'friends', circleId: B.id });
+  });
+});
+
+/**
+ * Leaving a circle, once the server has already agreed.
+ *
+ * The interesting assertions are all about what this case does *not* touch. A
+ * reducer that tidied `activeCircleId` here would be a second opinion about a
+ * question the read-time resolver already answers, and would have to be right
+ * on the cold-start window that resolver exists to survive.
+ */
+describe('leaving a circle', () => {
+  const A = { id: 'c-a', name: 'The Basement', inviteCode: 'basement-aaaa' };
+  const B = { id: 'c-b', name: 'Gym', inviteCode: 'gym-bbbb' };
+  const inBoth: State = { ...base, account: 'live', circles: [A, B], activeCircleId: A.id };
+
+  it('takes the circle off the list', () => {
+    const s = reducer(inBoth, { type: 'LEFT_CIRCLE', id: B.id });
+    expect(s.circles.map((c) => c.id)).toEqual([A.id]);
+  });
+
+  it('does nothing at all for a circle it does not hold', () => {
+    expect(reducer(inBoth, { type: 'LEFT_CIRCLE', id: 'c-never' })).toBe(inBoth);
+  });
+
+  it('leaves the preference exactly where it was', () => {
+    // Even when it names the circle just left. `activeCircle` falls back to
+    // `circles[0]` at read time, so the tab moves to the oldest remaining one
+    // on its own — and the id survives, so rejoining puts the user back.
+    const s = reducer(inBoth, { type: 'LEFT_CIRCLE', id: A.id });
+    expect(s.activeCircleId).toBe(A.id);
+    expect(activeCircle(s)?.id).toBe(B.id);
+  });
+
+  it('resolves to nothing after the last one, without inventing a circle', () => {
+    const alone = reducer({ ...inBoth, circles: [A] }, { type: 'LEFT_CIRCLE', id: A.id });
+    expect(alone.circles).toEqual([]);
+    expect(activeCircle(alone)).toBeNull();
+  });
+
+  it('does not filter the feed', () => {
+    // Tempting and wrong: `circleId` on a moment also marks `everyone` goals
+    // staked in that room, which stay legitimately visible. Blocking filters
+    // locally because it has to be instant for safety; this does not, and the
+    // feed is server-owned and one pull away.
+    const withFeed = { ...inBoth, moments: base.moments };
+    const s = reducer(withFeed, { type: 'LEFT_CIRCLE', id: A.id });
+    expect(s.moments).toBe(withFeed.moments);
   });
 });
