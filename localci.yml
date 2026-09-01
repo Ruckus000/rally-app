@@ -14,14 +14,16 @@
 # but macOS has no reserved-ports knob to set. If `supabase start` ever fails
 # with "address already in use" on a port nothing is listening on, that is this.
 
-# Blocks `git push`. 23s. Typecheck first because it is the cheaper of the two
-# and the run stops at the first failure.
+# Blocks `git push`. Seconds, not minutes, and it has to stay that way: a gate
+# people learn to reach past with --no-verify is not a gate. Typecheck first
+# because it is the cheaper of the two and the run stops at the first failure.
 gate:
   - npm run typecheck
   - npm run lint
 
 suite:
-  # 1373 tests across 93 suites, ~7s.
+  # The cheap half, and the only one that needs no Docker. First so that an
+  # ordinary unit failure costs nothing but itself rather than a Postgres boot.
   - npm test -- --ci
   # One step, not five, because of the trap. CI marks `supabase stop` with
   # `if: always()`; localci stops at the first non-zero exit, so a failing
