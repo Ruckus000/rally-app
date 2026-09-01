@@ -7,7 +7,8 @@ Design spec: `design-reference/HANDOFF.md` (authoritative — read before UI wor
 
 ```bash
 npm start                 # Metro
-npm run sim               # iOS sim, standalone Release build, no Metro (scripts/sim.sh)
+npm run sim               # launch the Release build already installed — does NOT rebuild
+npm run sim -- --build    # rebuild Release first. Needed after any source change.
 npm run android           # Android emulator, same deal
 
 npm test                  # unit only (jest --selectProjects unit)
@@ -59,6 +60,21 @@ npm run icons             # regenerates assets AND src/theme/mark.ts
   without touching a source file and the stale verdict is replayed indefinitely: false errors
   for packages that are installed, and, worse, silence for imports that are genuinely missing.
   `.expo/` is gitignored, so CI never sees it and disagrees with you. Costs about 4s.
+- **`localci` gates every push, and `localci/suite` is the check `main` requires.**
+  `.githooks/pre-push` (wired via `core.hooksPath`) runs the `gate` phase — typecheck and
+  lint, ~23s — and a non-zero exit blocks the push. `localci suite` runs unit plus integration
+  detached and reports the result to GitHub. Three things that are not obvious and each cost
+  an hour once: it **serialises across every project on this machine**, so your run can sit
+  behind an unrelated repo's suite with no output at all; it can only report a commit that has
+  **already been pushed**, so run it *after* `git push`, not before; and it tests the **working
+  tree**, not the commit, so do not edit while one is queued. Deleting a remote branch trips
+  the hook too — use `git push --no-verify` for those.
+- **A new table or `WireOp` must be registered where the compiler cannot check.** The op
+  itself is safe: `OPS_BY_NAME` in `src/sync/outbox.ts` is `Record<OutboxOp, true>` and refuses
+  to compile until the new member is listed. The two that fail silently — a new table needs
+  adding to `DOMAIN_TABLES` in `integration/support/reset.ts`, or its rows leak between
+  integration files and break unrelated suites; and to the schema map in
+  `src/__mocks__/@supabase/supabase-js.ts`, or unit tests throw "no such table".
 - **A migration that restates a policy replaces it outright.** Several policies have
   been tightened after `init.sql` — `notes_insert` and `reactions_insert` in
   `20260811142948`, six SELECT policies in `20260819164832`. Writing out the
