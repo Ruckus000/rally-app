@@ -1988,6 +1988,29 @@ export function reducer(state: State, action: Action): State {
       const restored = restoring ? { ...profile, ...aggregatesFrom(history) } : profile;
 
       if (
+        // `worldSeen` first, and it is not a slice — it is the reason this
+        // guard is allowed to exist at all. The flag is this branch's only
+        // writer and it is not persisted, so a bail-out before it has been set
+        // once means it is never set: the merge that would have recorded "the
+        // server has answered about this world" is exactly the merge with
+        // nothing else to say.
+        //
+        // Who that stranded: a live account in no circle. `circles` is not
+        // persisted, so it returns empty and the pull agrees; `people` is, so
+        // the directory and the bots already match. Every slice compares equal
+        // on the first pull of every launch, and `CircleScreen` holds on "One
+        // moment" — the branch with no way out, because "Join or start a
+        // circle" is on the far side of this flag and so is `DetailSheet`'s.
+        //
+        // One-way, so this costs one commit per launch and nothing after it.
+        state.worldSeen &&
+        // And the same omission for `sharedWeek`, for the same reason: the
+        // assignment is below this return, so a merge whose only news is that
+        // you posted your week — which moves no other slice — is dropped. Seen
+        // from the other device: you post on one phone and the other keeps
+        // offering the button until something unrelated moves the feed.
+        (action.merge.sharedWeek === undefined ||
+          action.merge.sharedWeek === state.sharedWeek) &&
         people === state.people &&
         myTasks === state.myTasks &&
         history === state.history &&

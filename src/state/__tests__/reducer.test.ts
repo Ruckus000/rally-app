@@ -17,7 +17,7 @@ import {
   seedNotifications,
   seedProfile,
 } from '../../data/seed';
-import { personOf, SELF_DEMO_ID, type PersonId } from '../../data/people';
+import { personOf, SELF_DEMO_ID, type Person, type PersonId } from '../../data/people';
 import { activeCircle } from '../selectors';
 import { baseState as base, freshState } from '../../test/baseState';
 import { weekAfter } from '../../data/week';
@@ -844,6 +844,56 @@ describe('merging rows from the server', () => {
     expect(reducer(base, { type: 'SERVER_MERGE', merge: { people: [known] } })).toBe(base);
     expect(reducer(base, { type: 'SERVER_MERGE', merge: {} })).toBe(base);
     expect(reducer(base, { type: 'SERVER_MERGE', merge: { selfId: base.selfId } })).toBe(base);
+  });
+
+  it('records that the server answered, even when it answered nothing new', () => {
+    // The bail-out below this in the reducer exists so an unchanged pull costs
+    // no render, and it returned before the line that sets `worldSeen`. That
+    // line is the flag's only writer and the flag is not persisted, so a
+    // relaunch where the pull genuinely has no news never sets it at all.
+    //
+    // Who that strands: a live account with no circle. `circles` is not
+    // persisted either, so it comes back empty and the pull agrees it is empty
+    // — no change. `people` *is* persisted, so a returning account already has
+    // its directory and the bots agree — no change. Nothing else moves. Every
+    // slice compares equal, the reducer returns `state`, and `CircleScreen`
+    // draws "One moment" forever, which is the branch with no way out: the
+    // "Join or start a circle" call to action is on the *other* side of this
+    // flag, and so is `DetailSheet`'s.
+    const waiting: State = { ...base, account: 'live', worldSeen: false, circles: [] };
+    // Everyone already on disk, named again. Anything less prunes the directory,
+    // which is a change, and would not reach the bail-out this is about.
+    const directory = Object.values(waiting.people).filter((p): p is Person => !!p);
+
+    const merged = reducer(waiting, { type: 'SERVER_MERGE', merge: { people: directory } });
+
+    expect(merged.worldSeen).toBe(true);
+  });
+
+  it('takes a week you posted from another device, which moves nothing else', () => {
+    // `week_shares` is a row about you and nothing else, so a pull that learns
+    // about it carries no other news — and the assignment sits below the same
+    // bail-out. Without this the second device keeps offering "post it" for a
+    // week already posted, until some unrelated change moves the feed.
+    const seen: State = { ...base, account: 'live', worldSeen: true, sharedWeek: null };
+    const directory = Object.values(seen.people).filter((p): p is Person => !!p);
+
+    const merged = reducer(seen, {
+      type: 'SERVER_MERGE',
+      merge: { people: directory, sharedWeek: '2026-08-31' },
+    });
+
+    expect(merged.sharedWeek).toBe('2026-08-31');
+  });
+
+  it('still returns the same object once the world has been seen', () => {
+    // The bail-out has to keep working, or the engine's 60s tick re-renders
+    // every screen forever. `worldSeen` is one-way, so this costs one commit
+    // per launch and nothing after it.
+    const seen: State = { ...base, account: 'live', worldSeen: true, circles: [] };
+    const directory = Object.values(seen.people).filter((p): p is Person => !!p);
+
+    expect(reducer(seen, { type: 'SERVER_MERGE', merge: { people: directory } })).toBe(seen);
   });
 
   it('adds someone new without touching who was already there', () => {
