@@ -15,7 +15,6 @@ import {
 } from '../theme/tokens';
 import { useColors, useKeyboardAppearance, useShadows } from '../theme/ThemeProvider';
 import {
-  AUDIENCE_LABEL,
   AUDIENCE_WORD,
   AUDIENCES,
   CATEGORIES,
@@ -28,8 +27,10 @@ import { useGoalRating } from '../hooks/useGoalRating';
 import { hasSupabaseConfig } from '../lib/supabase';
 import {
   activeCircle,
+  circleLabel,
   circleMembers,
   circleSuggestions,
+  circleWord,
   stakedPoints,
 } from '../state/selectors';
 import { Avatar, FaceStack } from '../components/Avatar';
@@ -618,7 +619,7 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                 ) : null}
                 <Tap
                   onPress={() => dispatch({ type: 'CYCLE_TASK_AUD', id: t.id })}
-                  accessibilityLabel={`Seen by ${AUDIENCE_WORD[t.aud]}. Change.`}
+                  accessibilityLabel={`Seen by ${circleWord(t.aud, t.circleId, state.circles)}. Change.`}
                   style={{
                     borderRadius: 999,
                     paddingHorizontal: 10,
@@ -628,8 +629,14 @@ export function PlanOverlay({ topInset, bottomInset }: { topInset: number; botto
                     backgroundColor: onDark.fillStrong,
                   }}
                 >
-                  <Sans size={10.5} weight={700} color={onDark.bodySecondary}>
-                    {AUDIENCE_LABEL[t.aud]}
+                  <Sans
+                    size={10.5}
+                    weight={700}
+                    numberOfLines={1}
+                    color={onDark.bodySecondary}
+                    style={{ maxWidth: 110 }}
+                  >
+                    {circleLabel(t, state.circles)}
                   </Sans>
                 </Tap>
                 <Bri size={13} weight={800} color={color.lime}>

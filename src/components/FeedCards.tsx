@@ -16,6 +16,8 @@ import {
 } from '../data/fixtures';
 import { PersonId } from '../data/people';
 import { usePeople } from '../state/store';
+import type { CircleRef } from '../state/store';
+import { circleLabel } from '../state/selectors';
 import { Avatar, FaceStack } from './Avatar';
 import { Icon } from './Icon';
 import { TaskPhoto } from './TaskPhoto';
@@ -65,16 +67,25 @@ export function FeedLabel({ children }: { children: string }) {
  */
 export const MineRow = React.memo(function MineRow({
   task,
+  circles,
   onToggle,
   onOpen,
 }: {
   task: Task;
+  /** Threaded rather than read from the store, so `React.memo` still holds. */
+  circles: CircleRef[];
   onToggle: (id: string) => void;
   onOpen: (id: string) => void;
 }) {
   const color = useColors();
   const shadows = useShadows();
-  const showAud = task.aud !== 'friends';
+  // The chip used to be hidden for `friends`, and the rule looked like "hide
+  // friends". It was never that — it was "hide the line that says nothing", and
+  // those stopped being the same condition once a goal could name the room it
+  // was staked in. So the test is against the generic word rather than the
+  // audience: a goal in a circle this device can name has something to say.
+  const audLabel = circleLabel(task, circles);
+  const showAud = audLabel !== AUDIENCE_LABEL.friends;
   return (
     <GradientHairline radius={21} style={{ marginBottom: CARD_GAP, ...shadows.card }}>
       <View
@@ -127,8 +138,14 @@ export const MineRow = React.memo(function MineRow({
             </Sans>
             {showAud ? (
               <View style={{ backgroundColor: color.chip, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 }}>
-                <Sans size={10.5} weight={700} color={task.aud === 'everyone' ? color.quoteInk : color.muted}>
-                  {AUDIENCE_LABEL[task.aud]}
+                <Sans
+                  size={10.5}
+                  weight={700}
+                  numberOfLines={1}
+                  color={task.aud === 'everyone' ? color.quoteInk : color.muted}
+                  style={{ maxWidth: 120 }}
+                >
+                  {audLabel}
                 </Sans>
               </View>
             ) : null}

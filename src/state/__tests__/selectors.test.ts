@@ -7,6 +7,9 @@ import { personOf, type PersonId } from '../../data/people';
 import {
   activeCircle,
   allTasksDone,
+  circleLabel,
+  circleWord,
+  stakeCircleId,
   cheersGiven,
   circleCheersGiven,
   circleMembers,
@@ -462,6 +465,61 @@ describe('which circle the app is about', () => {
 
   it('answers null when there are none, without inventing one', () => {
     expect(activeCircle(withCircles([], B.id))).toBeNull();
+  });
+
+  describe('which circle a new stake goes into', () => {
+    it('prefers what the composer was told, over what the app is about', () => {
+      const s = { ...withCircles([A, B], A.id), draftCircleId: B.id };
+      expect(stakeCircleId(s)).toBe(B.id);
+    });
+
+    it('falls back to the active circle when the composer was told nothing', () => {
+      expect(stakeCircleId(withCircles([A, B], B.id))).toBe(B.id);
+      expect(stakeCircleId(withCircles([A, B], null))).toBe(A.id);
+    });
+
+    it('answers null for somebody the pull says is in no circle', () => {
+      // Seen and empty is a fact, not ignorance. The server reads a NULL
+      // `circle_id` as owner-only, which is the right answer for a person with
+      // nobody to show it to.
+      expect(stakeCircleId({ ...withCircles([], A.id), worldSeen: true })).toBeNull();
+    });
+
+    it('trusts the preference on disk in the window before the first pull', () => {
+      // The judgement call in this selector, so it gets the test that states it.
+      // `circles` is deliberately not persisted, so a cold start always has an
+      // empty list — and answering null there would file a `friends` goal where
+      // nobody can read it and say nothing about having done so. A stale id at
+      // worst earns a 42501, which is permanent, which surfaces in a banner.
+      expect(stakeCircleId({ ...withCircles([], A.id), worldSeen: false })).toBe(A.id);
+    });
+  });
+
+  describe('the word a goal wears', () => {
+    const staked = (over: Partial<{ aud: 'friends' | 'everyone' | 'private'; circleId: string }>) =>
+      ({ aud: 'friends' as const, ...over });
+
+    it('names the circle a friends goal was staked in', () => {
+      expect(circleLabel(staked({ circleId: A.id }), [A, B])).toBe('The Basement');
+      expect(circleWord('friends', B.id, [A, B])).toBe('Gym');
+    });
+
+    it('leaves everyone and private alone, glyphs and all', () => {
+      expect(circleLabel(staked({ aud: 'everyone', circleId: A.id }), [A, B])).toBe('🌐 Everyone');
+      expect(circleLabel(staked({ aud: 'private', circleId: A.id }), [A, B])).toBe('🔒 Private');
+    });
+
+    it('never invents a name, in any of the three ways it can fail to find one', () => {
+      // A goal with no circle on it — a fixture, or a row staked before the
+      // column meant anything.
+      expect(circleLabel(staked({}), [A, B])).toBe('Friends');
+      // The cold-start window, where the list has not arrived.
+      expect(circleLabel(staked({ circleId: A.id }), [])).toBe('Friends');
+      // The one that matters: an `everyone` goal crosses circle lines by
+      // design, so `state.moments` legitimately holds rows naming a room this
+      // device is not in. Naming it would be a disclosure rather than a label.
+      expect(circleLabel(staked({ circleId: 'c-somewhere-else' }), [A, B])).toBe('Friends');
+    });
   });
 
   it('keeps the preference even while it resolves to something else', () => {

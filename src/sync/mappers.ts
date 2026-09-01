@@ -103,9 +103,44 @@ export function mondayOf(week: WeekContext): string {
  * field last-write-wins compares. The server clamps it to at most now()+5min, so
  * a device with a wrong clock can be a little ahead but cannot win forever.
  *
- * Two omissions are deliberate. `owner_id` is stamped by the transport from the
- * session, never carried in a payload. `circle_id` is left out entirely so that
- * an upsert of an existing row does not null out a circle the server assigned.
+ * `owner_id` is still omitted and always will be. It is stamped by the transport
+ * from the session, never carried in a payload: RLS would refuse a mismatched
+ * owner anyway, but a client that even tries to name one is a payload-shape bug
+ * away from writing to somebody else's rows.
+ *
+ * `circle_id` is now sent — when the task names one. The omission used to have a
+ * single job and now has two, one per branch of the upsert, and only one of them
+ * is the old one.
+ *
+ * On the UPDATE branch an absent key is a column PostgREST does not touch. That
+ * is what keeps a row staked before this feature — or one the backfill in
+ * `20260831210000` assigned — carrying the circle the server already gave it,
+ * rather than having it nulled by a client that never knew about the column.
+ *
+ * On the INSERT branch there is nothing to leave alone: an absent key defaults
+ * to NULL, and NULL is not neutral. `tasks_select` gates `friends` on
+ * `shares_circle_on(circle_id, owner_id)`, so a goal with no circle reaches its
+ * owner and nobody else. The server chose that closure precisely because NULL is
+ * what a client that forgets the column writes, and a permissive NULL would be a
+ * bypass that never failed loudly. So omitting here is an answer rather than an
+ * oversight: it is the right one for somebody in no circle, and for anybody else
+ * the only way to reach it is a bug upstream of this function.
+ *
+ * Nothing here validates the id, and nothing here can — this has a task and no
+ * membership list. It does not need to. `tasks_insert` refuses a circle the
+ * owner is not in with 42501, and `classify` treats every SQLSTATE that is not a
+ * network or transient failure as non-retryable, so the entry is dropped rather
+ * than retried forever against a server that will answer the same way every
+ * time.
+ *
+ * `tasks_update`, by contrast, carries no circle clause at all, and that is
+ * deliberate — the migration explains that a WITH CHECK sees only NEW, so it
+ * would fire on every `done_at` toggle and make leaving a circle jam the queue.
+ * A moved `circle_id` on a row that already exists therefore succeeds. The
+ * boundary is the read predicate, not the write: mis-tagging is not a
+ * capability, because `shares_circle_on` asks about the owner too, so a goal
+ * tagged to a room its owner is not in has been published to nobody. Which is
+ * why the picker only ever offers circles `state.circles` already holds.
  */
 export function taskToRow(task: Task, weekStart: string, at: number): Record<string, unknown> {
   const stamp = new Date(at).toISOString();
@@ -122,6 +157,7 @@ export function taskToRow(task: Task, weekStart: string, at: number): Record<str
     // the completion moment costs nothing the client has to maintain.
     done_at: task.done ? stamp : null,
     updated_at: stamp,
+    ...(task.circleId ? { circle_id: task.circleId } : null),
   };
 }
 

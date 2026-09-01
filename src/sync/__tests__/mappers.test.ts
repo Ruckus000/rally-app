@@ -182,6 +182,40 @@ describe('the circle a goal was staked in', () => {
     });
     expect('circleId' in moment).toBe(false);
   });
+
+  const staked = (over: Partial<Task> = {}): Task => ({
+    id: 'x',
+    day: 1,
+    title: 'Swim 2k',
+    cat: 'Fitness',
+    pts: 40,
+    done: false,
+    aud: 'friends',
+    pair: [],
+    pairKind: null,
+    cmts: [],
+    source: 'staked',
+    ...over,
+  });
+
+  it('sends it back up when the task names one', () => {
+    expect(taskToRow(staked({ circleId: CIRCLE }), '2026-08-10', 0).circle_id).toBe(CIRCLE);
+  });
+
+  it('omits the key rather than sending null when it does not', () => {
+    // `in`, not `toBeUndefined()`, and the difference is the contract. An absent
+    // key is a column PostgREST does not touch on the UPDATE branch of the
+    // upsert — which is what keeps a row the backfill assigned, or one staked
+    // before this feature, carrying the circle the server already gave it. A
+    // key set to null would clear it on every completion toggle.
+    const row = taskToRow(staked(), '2026-08-10', 0);
+    expect('circle_id' in row).toBe(false);
+  });
+
+  it('survives the round trip', () => {
+    const row = taskToRow(staked({ circleId: CIRCLE }), '2026-08-10', 0);
+    expect(rowToTask({ ...row, category: row.category }).circleId).toBe(CIRCLE);
+  });
 });
 
 describe('mondayOf', () => {

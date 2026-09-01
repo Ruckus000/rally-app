@@ -6,6 +6,9 @@
  * different sort.
  */
 import {
+  AUDIENCE_LABEL,
+  AUDIENCE_WORD,
+  Audience,
   CATEGORY_POINTS,
   HistoryWeek,
   Moment,
@@ -564,6 +567,81 @@ export function circleSuggestions(state: State, limit = 6): Suggestion[] {
  */
 export const activeCircle = (state: State): CircleRef | null =>
   state.circles.find((c) => c.id === state.activeCircleId) ?? state.circles[0] ?? null;
+
+/**
+ * Which circle a new stake belongs to.
+ *
+ * Resolved here and read by the reducer, which is the opposite of how `aud`
+ * works one field over — and the difference is worth stating, because the
+ * asymmetry looks like an oversight. `effectiveAudience` is computed in the
+ * provider for exactly one reason: its fallback is `config.defaultAudience`,
+ * and `config` is a prop on `<App>` rather than part of `State`, so the reducer
+ * *cannot* reach it. That is a workaround for where a value happens to live.
+ * This fallback is `activeCircle`, which is pure over `State` — so threading it
+ * through an action payload would buy nothing and cost the thing `draftPts`'
+ * comment warns about: reading one answer from two places is how a button ends
+ * up promising something the stake does not honour.
+ *
+ * The last clause only fires when `circles` is empty, which means one of two
+ * things, and `worldSeen` is already the field that tells them apart. Seen and
+ * empty is a fact — you are in no circle, `null` is the honest answer, and the
+ * server reads a NULL `circle_id` as owner-only, which is correct for somebody
+ * with nobody to show it to. Unseen and empty is ignorance: a cold start before
+ * the first pull, where `circles` is always empty because it is deliberately
+ * not persisted. There the preference on disk is the best evidence the device
+ * has. Answering `null` in that window would publish a `friends` goal to nobody
+ * and say nothing about it; answering with a stale id at worst earns a 42501,
+ * which is permanent, which the outbox surfaces in a banner the app already
+ * draws. A loud failure beats a silent one.
+ */
+export const stakeCircleId = (state: State): string | null =>
+  state.draftCircleId ??
+  activeCircle(state)?.id ??
+  (state.worldSeen ? null : state.activeCircleId);
+
+/**
+ * The circle an id names, or null when nothing on this device knows it.
+ *
+ * Takes the list rather than the whole state so the callers that render rows
+ * can memoise on one stable argument, the same reason `ranking` gives.
+ */
+export const circleNameOf = (
+  circleId: string | null | undefined,
+  circles: CircleRef[],
+): string | null => (circleId ? (circles.find((c) => c.id === circleId)?.name ?? null) : null);
+
+/**
+ * The word a staked goal wears, glyphs and all. Replaces `AUDIENCE_LABEL[t.aud]`
+ * at every site that renders a *task* rather than an abstract choice.
+ *
+ * `friends` stopped naming anything once a person could be in two rooms: it
+ * meant "someone you share a circle with" on a card belonging to one specific
+ * circle out of several. So it becomes the circle's name — but only when the id
+ * resolves against the list of circles *you* are in. There are three ways to
+ * fall back to the bare word and all three are correct: the goal names no
+ * circle (a fixture, a row staked before this feature, a solo user), the pull
+ * has not landed yet, or the id names a room this device is not in. That last
+ * one is reachable — an `aud='everyone'` goal crosses circle lines by design —
+ * and it is the one that matters: the app must never invent a name, and naming
+ * a room the reader is not in would be a disclosure rather than a label.
+ */
+export const circleLabel = (
+  task: Pick<Task, 'aud' | 'circleId'>,
+  circles: CircleRef[],
+): string =>
+  task.aud === 'friends'
+    ? (circleNameOf(task.circleId, circles) ?? AUDIENCE_LABEL.friends)
+    : AUDIENCE_LABEL[task.aud];
+
+/** The same answer, bare, for the places a glyph would be noise. */
+export const circleWord = (
+  aud: Audience,
+  circleId: string | null | undefined,
+  circles: CircleRef[],
+): string =>
+  aud === 'friends'
+    ? (circleNameOf(circleId, circles) ?? AUDIENCE_WORD.friends)
+    : AUDIENCE_WORD[aud];
 
 /** "Maya", "Maya and Dre", "Maya, Dre and 2 others" — the card has one line. */
 const joinFirstNames = (names: string[]): string => {

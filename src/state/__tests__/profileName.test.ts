@@ -23,7 +23,7 @@ import { flush, load, save, __resetForTests as __resetPersistenceForTests } from
 import { freshState } from '../../test/baseState';
 
 const onboard = (state: State, name: string) =>
-  reducer(state, { type: 'FINISH_ONBOARD', name, stakes: [], aud: 'friends' });
+  reducer(state, { type: 'FINISH_ONBOARD', name, stakes: [], aud: 'friends', circleId: null });
 
 const live = (): State => reducer(freshState, { type: 'SET_ACCOUNT', mode: 'live' });
 const SESSION_ID = '7c1f4a2e-0000-4000-8000-000000000001';

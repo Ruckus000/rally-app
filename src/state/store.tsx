@@ -57,7 +57,7 @@ import {
   personOf,
   withFixtureTints,
 } from '../data/people';
-import { aggregatesFrom, closingWeek, stakedPoints } from './selectors';
+import { aggregatesFrom, circleMembers, closingWeek, stakeCircleId, stakedPoints } from './selectors';
 import { useWeekReminder } from '../lib/reminders';
 import { flush, load, save } from './persistence';
 import { hasSupabaseConfig } from '../lib/supabase';
@@ -333,6 +333,17 @@ export type State = {
   draftPair: PersonId[];
   /** null = fall back to config.defaultAudience */
   draftAud: Audience | null;
+  /**
+   * Which circle this stake goes into, when the composer has been told.
+   *
+   * `null` is not "no circle" — it is "not overridden", the same shape and the
+   * same reason as `draftAud` above. The default is whichever circle the app is
+   * currently about, and `stakeCircleId` resolves that at read time so a picker
+   * the user never opened cannot pin the composer to a room they have since
+   * left. Only ever an id `state.circles` held at the moment it was tapped; see
+   * `SET_DRAFT_CIRCLE`, which is where that is enforced and why it can be.
+   */
+  draftCircleId: string | null;
   /** Non-null when the composer is editing an existing stake rather than adding one. */
   editingId: string | null;
 
@@ -438,6 +449,7 @@ const initialState: State = {
   draftReason: '',
   draftPair: [],
   draftAud: null,
+  draftCircleId: null,
   editingId: null,
   planOpen: false,
   settingsOpen: false,
@@ -471,6 +483,7 @@ export type Action =
   | { type: 'SET_DRAFT_RATING'; points: number; verdict: 'ok' | 'blocked'; reason: string }
   | { type: 'SET_DRAFT_DAY'; day: DayIndex }
   | { type: 'SET_DRAFT_AUD'; aud: Audience }
+  | { type: 'SET_DRAFT_CIRCLE'; id: string | null }
   | { type: 'TOGGLE_PAIR'; key: PersonId }
   | { type: 'ADD_TASK'; aud: Audience }
   | { type: 'START_EDIT'; id: string }
@@ -507,7 +520,7 @@ export type Action =
   | { type: 'ROLLOVER_DETECTED'; to: WeekContext }
   | { type: 'COMMIT_ROLLOVER'; carryIds: string[] }
   | { type: 'SKIP_ONBOARD' }
-  | { type: 'FINISH_ONBOARD'; stakes: OnboardStake[]; aud: Audience; name: string }
+  | { type: 'FINISH_ONBOARD'; stakes: OnboardStake[]; aud: Audience; name: string; circleId: string | null }
   | { type: 'RENAME_SELF'; name: string }
   | { type: 'SESSION'; session: SessionState }
   | { type: 'UNSAVED'; count: number }
@@ -656,6 +669,7 @@ const ABANDON_EDIT = {
   draft: '',
   draftPair: [],
   draftAud: null,
+  draftCircleId: null,
   draftDay: null,
   // An empty composer has nothing to block. Leaving this set would carry a
   // refusal about a goal that is no longer on the screen into the next one.
@@ -931,6 +945,37 @@ export function reducer(state: State, action: Action): State {
     case 'SET_DRAFT_AUD':
       return { ...state, draftAud: action.aud };
 
+    /**
+     * Point the composer at a circle.
+     *
+     * This one checks `state.circles` where `SET_ACTIVE_CIRCLE` deliberately
+     * does not, and the difference is which question the two fields answer.
+     * `activeCircleId` is a preference restored from disk before the first pull
+     * has filled `circles`, so a reducer that corrected it would erase a choice
+     * made on another device, once per launch. `draftCircleId` is a tap made a
+     * moment ago on a picker that could only offer what `circles` already held
+     * — so an id outside that list is not a stale preference, it is a bug, and
+     * `tasks_insert` answers a room you are not in with a 42501 that costs the
+     * user the stake rather than the setting.
+     */
+    case 'SET_DRAFT_CIRCLE': {
+      if (action.id !== null && !state.circles.some((c) => c.id === action.id)) return state;
+      if (action.id === state.draftCircleId) return state;
+      // Moving the room keeps only the people who are in both. A pair reaching
+      // across circles is not untidy, it is broken: `profiles_select` is
+      // membership-scoped, so everyone else in the goal's room renders that
+      // face as "Someone". Asked through `circleMembers` rather than by reading
+      // `circleIds` directly, because that selector has a fallback for a
+      // directory whose rows predate memberships — a hand-rolled filter would
+      // silently empty the pair on every seeded account.
+      const allowed = circleMembers(state, action.id);
+      return {
+        ...state,
+        draftCircleId: action.id,
+        draftPair: state.draftPair.filter((k) => allowed.includes(k)),
+      };
+    }
+
     case 'TOGGLE_PAIR':
       return {
         ...state,
@@ -948,6 +993,7 @@ export function reducer(state: State, action: Action): State {
       if (state.draftVerdict === 'blocked') return state;
       // Staked at what was shown, never recomputed. See `draftPts`.
       const pts = state.draftPts;
+      const circleId = stakeCircleId(state);
       const task: Task = {
         id: nextTaskId(),
         day: state.draftDay ?? state.day,
@@ -960,6 +1006,11 @@ export function reducer(state: State, action: Action): State {
         pairKind: state.draftPair.length ? 'loose' : null,
         cmts: [],
         source: 'staked',
+        // The key is omitted rather than set to undefined when there is no
+        // circle, the same idiom and the same reason `rowToTask` gives:
+        // `tasksAreSound` is all-or-nothing, so a key it cannot read costs the
+        // whole persisted week rather than the one field.
+        ...(circleId ? { circleId } : null),
       };
       return withToast(
         {
@@ -967,6 +1018,7 @@ export function reducer(state: State, action: Action): State {
           draft: '',
           draftPair: [],
           draftAud: null,
+          draftCircleId: null,
           draftPts: CATEGORY_POINTS[state.draftCat] ?? 30,
           draftVerdict: 'ok',
           draftReason: '',
@@ -995,6 +1047,11 @@ export function reducer(state: State, action: Action): State {
         draftDay: t.day,
         draftPair: [...t.pair],
         draftAud: t.aud,
+        // The room it is already in, not the room the app is currently about.
+        // Without this, editing a goal staked elsewhere would show the active
+        // circle and `SAVE_EDIT` would then move the goal there — a silent
+        // re-publication nobody asked for.
+        draftCircleId: t.circleId ?? null,
       };
     }
 
@@ -1005,6 +1062,11 @@ export function reducer(state: State, action: Action): State {
       // Re-priced from the current rating, which is what closes the obvious
       // loop: stake something demanding, get 60, then edit it down to nothing.
       const pts = state.draftPts;
+      // Written out rather than left to the `...t` spread. The picker is a
+      // control, and a control the save path ignores is not one. Resolving to
+      // null contributes nothing and the spread keeps whatever the row has,
+      // which is what a user in no circle editing a backfilled goal needs.
+      const circleId = stakeCircleId(state);
       return withToast(
         {
           ...state,
@@ -1020,6 +1082,7 @@ export function reducer(state: State, action: Action): State {
                   aud: action.aud,
                   pair: [...state.draftPair],
                   pairKind: state.draftPair.length ? (t.pairKind ?? 'loose') : null,
+                  ...(circleId ? { circleId } : null),
                 },
           ),
           ...ABANDON_EDIT,
@@ -1034,6 +1097,13 @@ export function reducer(state: State, action: Action): State {
     case 'ADD_SUGGESTION': {
       const s = action.suggestion;
       if (state.usedSugg[s.id]) return state;
+      const circleId = stakeCircleId(state);
+      // A suggestion is built from somebody else's moment, so the pair it
+      // carries is whoever staked the original — who need not be in the room
+      // this one is going into. Unfiltered, the rail quietly drags a stranger
+      // across a circle line on every tap.
+      const allowed = circleMembers(state, circleId);
+      const pair = (s.pair ?? []).filter((k) => allowed.includes(k));
       const task: Task = {
         id: nextTaskId(),
         day: state.draftDay ?? state.day,
@@ -1042,11 +1112,12 @@ export function reducer(state: State, action: Action): State {
         pts: s.pts,
         done: false,
         aud: 'friends',
-        pair: s.pair ?? [],
-        pairKind: (s.pair ?? []).length ? 'loose' : null,
+        pair,
+        pairKind: pair.length ? 'loose' : null,
         cmts: [],
         source: 'staked',
         fromSuggestion: s.id,
+        ...(circleId ? { circleId } : null),
       };
       return withToast(
         {
@@ -1103,15 +1174,24 @@ export function reducer(state: State, action: Action): State {
       );
     }
 
-    case 'CYCLE_TASK_AUD':
+    case 'CYCLE_TASK_AUD': {
+      const circleId = stakeCircleId(state);
       return {
         ...state,
-        myTasks: state.myTasks.map((t) =>
-          t.id === action.id
-            ? { ...t, aud: AUDIENCES[(AUDIENCES.indexOf(t.aud) + 1) % AUDIENCES.length] }
-            : t,
-        ),
+        myTasks: state.myTasks.map((t) => {
+          if (t.id !== action.id) return t;
+          const aud = AUDIENCES[(AUDIENCES.indexOf(t.aud) + 1) % AUDIENCES.length];
+          // Landing on `friends` with no room is the one combination the server
+          // reads as owner-only, so the tap that asks for it also answers the
+          // question it implies — otherwise the chip says "Friends" over a goal
+          // filed where nobody can reach it. An existing circle is never
+          // overwritten: this control is about audience, and this is only the
+          // floor under it. Safe on the wire because the row already exists and
+          // `tasks_update` carries no membership check, by design.
+          return aud === 'friends' && !t.circleId && circleId ? { ...t, aud, circleId } : { ...t, aud };
+        }),
       };
+    }
 
     case 'SET_COMPOSER':
       return { ...state, composerOpen: action.open, composerVal: '' };
@@ -1122,6 +1202,7 @@ export function reducer(state: State, action: Action): State {
     case 'SUBMIT_COMPOSER': {
       const title = state.composerVal.trim();
       if (!title) return state;
+      const circleId = stakeCircleId(state);
       const task: Task = {
         id: nextTaskId(),
         day: state.day,
@@ -1134,6 +1215,10 @@ export function reducer(state: State, action: Action): State {
         pairKind: null,
         cmts: [],
         source: 'quicklog',
+        // No picker here, and there should not be one: a quick log is fixed at
+        // 20 points, `friends`, no pair, today. The room it lands in is the
+        // room the app is about.
+        ...(circleId ? { circleId } : null),
       };
       return withToast(
         { ...state, composerVal: '', composerOpen: false, myTasks: [...state.myTasks, task] },
@@ -1156,6 +1241,9 @@ export function reducer(state: State, action: Action): State {
           draftCat: s.cat ?? state.draftCat,
           draftPair: s.pair ?? [],
           draftDay: s.day ?? state.day,
+          // A route in from somebody else's card starts in whichever circle the
+          // app is about, not whichever one the composer was last pointed at.
+          draftCircleId: null,
         },
         s.toast,
       );
@@ -1468,6 +1556,12 @@ export function reducer(state: State, action: Action): State {
         pairKind: null,
         cmts: [],
         source: 'staked',
+        // Carried on the action rather than resolved here, unlike every other
+        // minting case. Onboarding is the one path where the circle was decided
+        // seconds ago by an RPC whose answer the pull has not landed yet, so
+        // `state.circles` is still empty and `stakeCircleId` would find nothing.
+        // The caller holds the only copy; see `runCircleCall`.
+        ...(action.circleId ? { circleId: action.circleId } : null),
       }));
       /**
        * The name goes into the people directory, which is where every screen
