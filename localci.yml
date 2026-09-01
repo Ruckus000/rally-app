@@ -21,7 +21,7 @@ gate:
   - npm run lint
 
 suite:
-  # 1232 tests across 86 suites, ~25s.
+  # 1373 tests across 93 suites, ~7s.
   - npm test -- --ci
   # One step, not five, because of the trap. CI marks `supabase stop` with
   # `if: always()`; localci stops at the first non-zero exit, so a failing
