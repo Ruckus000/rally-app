@@ -99,10 +99,11 @@
   <h1>Stake your week.<br><em>Your friends</em> keep you honest.</h1>
   <p class="lede">Every Monday, put a few goals on the line. Your circle sees them, cheers when you close one, and Sunday the week closes and asks what carries. No streaks. Nothing resets.</p>
 
+  <!-- Until the App Store link exists, point this at the TestFlight public link. Same button, same copy. -->
   <div class="row" id="get">
-    <a class="btn lime" id="play" href="https://play.google.com/store/apps/details?id=app.rally.weekspine">Get it on Google Play</a>
+    <a class="btn lime" id="appstore" href="https://apps.apple.com/app/rally-stake-your-week/idREPLACE_WITH_APP_ID">Get it on the App Store</a>
   </div>
-  <p class="note">Android today. iPhone when the developer program is paid for, which is soon. If your circle is on iPhone, <a href="mailto:lordruckus.nb@gmail.com?subject=Rally%20on%20iPhone">say so</a> and you'll be first to know.</p>
+  <p class="note">iPhone today. If your circle has someone on Android, <a href="mailto:lordruckus.nb@gmail.com?subject=Rally%20on%20Android">say so</a> and they'll be first to know.</p>
 
   <h2>How a week goes</h2>
   <ol class="how">
@@ -137,6 +138,9 @@
     el.textContent = code;
     document.getElementById('join').hidden = false;
     document.title = 'Join on Rally · ' + code;
+    // The card's button goes where the page's one store button goes, so the
+    // link lives in exactly one place.
+    document.getElementById('store').href = document.getElementById('appstore').href;
     var btn = document.getElementById('copy');
     btn.addEventListener('click', function () {
       var done = function () { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = 'Copy code'; }, 1600); };

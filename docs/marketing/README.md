@@ -1,52 +1,54 @@
 # Marketing Rally on $50
 
-> Written 1 September 2026, against the code as it stands on `main` (#125). Every
-> price below was checked on that date; every product claim was read from the
-> repo, not assumed. Where the plan depends on something only you can confirm,
-> it says so.
+> Written 1 September 2026, against the code as it stands on `main` (#125),
+> for an **iOS-only launch on an Apple Developer account that is already
+> paid for**. Every price below was checked on that date; every product claim
+> was read from the repo, not assumed.
 
 ## The honest assessment first
 
-You asked for a marketing plan. The objective read is that Rally is not yet in a
-position where marketing is the constraint, and a $50 plan that pretends
-otherwise would waste the $50. Five things a skeptical board member would put
-on the table before approving any spend:
+You asked for a marketing plan. The objective read is that Rally's constraint
+is not yet marketing, and a $50 plan that pretends otherwise wastes the $50.
+Five things a skeptical board member would put on the table before approving
+any spend:
 
-1. **$50 does not buy an iOS launch.** The Apple Developer Program is $99/year.
-   `eas.json` has an empty `submit` block and `TESTING.md` says the Apple
-   account is "the missing piece, which only you can supply", so this plan
-   assumes you are not enrolled. Without it there is no TestFlight, no App
-   Store, and no push on iPhones. A free Apple ID sideloads to your own phone
-   for seven days. That is not distribution. If you *are* enrolled, skip to
-   *If you already pay Apple* below, because it changes the plan for the better.
+1. **$50 buys a link, not attention.** Apple Ads Advanced has a $1/day
+   minimum, but delivery throttles below roughly $30/day and the US median
+   cost per tap is near $2. Fifty dollars is twenty-five taps. Reddit Ads'
+   $5/day floor buys three clicks. No paid channel exists at this budget, so
+   the plan spends almost nothing and treats your hours as the real budget.
 2. **The unit of acquisition is a circle, not a user.** Rally's own thesis
    (`HANDOFF.md`: "the social layer is the accountability mechanism") means a
    single install lands on "A circle of one" and has nothing to do. Every
-   channel that delivers individuals (Reddit ads, Product Hunt, Search Ads)
+   channel that delivers individuals (ads, Product Hunt, App Store search)
    delivers churn. Bottom-up here means recruiting groups that already exist:
    a run club, a writing group, a founder Discord, four friends in a group chat.
 3. **The invite loop has no link in it.** The share message is
    `Join {circle} on Rally with the code {code}` (`DetailSheet.tsx:784`).
    The recipient gets a code and nowhere to tap. Wave C rejected deep links
    because "rally.app/join implies a website that does not exist". This plan
-   makes the website exist for $0, which is the single highest-leverage thing
-   in it. The one-line app change that uses it is in *Product asks* below.
-4. **You cannot measure anything.** The privacy policy promises no analytics,
+   makes the website exist for $9.99, which is the single highest-leverage
+   thing in it. The one-line app change that uses it is in *Product asks*.
+4. **The thesis is untested on a real phone.** `TESTING.md`: "a simulator can
+   never receive a remote push", and the APNs key is the one missing piece.
+   A cheer landing on a lock screen is the product. If the founding cohort
+   runs without push, you are testing a to-do list with a feed, and the
+   numbers will say so. The APNs key is set up before a single tester is
+   invited, or the cohort is wasted.
+5. **You cannot measure anything.** The privacy policy promises no analytics,
    and that is a real asset with users. It also means the marketing funnel has
    to be read out of Postgres. `metrics.sql` in this folder is that dashboard.
    Without it you will be guessing whether any of this worked.
-5. **Android-only cripples the circle thesis in the US.** Roughly six in ten
-   US phones are iPhones. A circle that cannot include the iPhone friends is a
-   circle missing its members. The plan below is the best $50 plan available.
-   The best plan is $49 more than you gave me, and I would be failing you not
-   to say it once, plainly, here.
 
-Two smaller ones: the Global feed is the Oz bots, who are openly fictional
-(`docs/backend.md`, *Humans on the global feed*). Nothing in this plan
-promises a global community, and nothing you post should either. And "Rally"
-is an unwinnable search term (Rally Health, rally racing games), so store
-search will bring near zero installs; word of mouth has to carry the name,
-which is fine for a bottom-up plan but rules out any ASO fantasy.
+Three smaller ones. The Global feed is the Oz bots, who are openly fictional
+(`docs/backend.md`, *Humans on the global feed*); nothing you post should
+promise a global community, and App Review should be told about them up front
+(the note is in `store-listing.md`). "Rally" is an unwinnable search term
+(Rally Health, rally racing games), so App Store search brings near zero and
+word of mouth has to carry the name, which suits a bottom-up plan and rules
+out any ASO fantasy. And iOS-only excludes the Android friend in roughly four
+US circles out of ten; it is the smaller half of the problem, and the $25
+Play account is the eventual fix, so the reserve below is sized to cover it.
 
 ## Positioning
 
@@ -71,36 +73,40 @@ Never guilt-trip. Never a bare zero.
 
 | Item | Cost | Why | When |
 |---|---:|---|---|
-| Google Play developer account | $25.00 | The only store $50 reaches. One-time. Personal accounts must run a closed test with 12 testers opted in for 14 continuous days before production access; that requirement *is* the launch campaign below. | Day 1 |
+| Apple Developer Program | paid | Already yours. TestFlight's public link takes up to 10,000 external testers at no cost, builds last 90 days, and the App Store follows. | done |
 | `rallyweek.app` domain, 1 year | $9.99 | The invite link. `rally.app`, `getrally.app`, `joinrally.app` are taken; `weekspine.app` is also $9.99 if you prefer the codename. Hosted on the same free Vercel setup as the legal pages. | Day 1 |
-| Reserve | $15.01 | Held. Do not spend on ads: Reddit's $5/day floor buys three clicks and no signal, and Apple Ads is out of reach without the program. Release trigger: if the closed test is short of 12 opted-in testers on day 5, spend it as a perfect-week prize for the first cohort. | Day 5 or never |
+| Reserve | $40.01 | Held, with two named triggers. **A.** The founding cohort clears the targets below: spend $25 on a Google Play account the day an Android friend blocks a circle, and hold the rest. **B.** The cohort is short of three live circles on day 5: spend up to $15 as a perfect-week prize for cohort one. Never on ads; see objection 1. | Trigger or never |
 | **Total** | **$50.00** | | |
 
 What is deliberately $0: the landing page (Vercel free tier, already used for
-`rally-app-legal`), the Play listing assets, every message template, Discord
+`rally-app-legal`), the App Store assets, every message template, Discord
 and Reddit presence, the build-in-public thread, and the metrics dashboard.
-Your time is the real budget. This plan costs roughly 25 hours over six weeks.
+This plan costs roughly 25 hours of your time over six weeks.
 
 ## The plan, bottom up
 
 ### Week 0 — 1 to 6 September: make the store possible
 
-- Pay Google the $25. Identity verification takes up to two business days.
 - Buy `rallyweek.app`. Point it at a new Vercel project deployed from
   `docs/marketing/landing/` (no build step; same shape as `docs/legal`).
   Check `https://rallyweek.app/join?code=TEST` shows the code.
-- Build the release bundle (`eas build -p android --profile production`, or a
-  local `bundleRelease`). Create the Play app, upload to a **closed testing**
-  track, paste the store listing from `store-listing.md`, and take the five
-  screenshots listed there on the simulator (`npm run sim`).
+- **Set up push.** Generate the APNs key in the developer portal, attach it
+  to the EAS project, and prove a cheer buzzes a real phone before anyone else
+  is invited. This is objection 4 and it is the first task, not the last.
+- Finish App Store Connect: privacy and support URLs, the App Privacy
+  questionnaire (answers in `docs/legal/README.md`, step 4), the four
+  `APPLE_*` secrets and `link-apple` (step 6). Paste the listing from
+  `store-listing.md` and take the five screenshots on the simulator.
+- Upload the build (`eas build -p ios --profile production`), add it to an
+  external TestFlight group, submit for Beta App Review (usually a day),
+  enable the **public link** with a tester limit of 100, and write the
+  *What to Test* text from `store-listing.md`.
 - Recruit **five circle captains** from your own contacts using the captain
-  message in `outreach.md`. A captain is someone who will bring three to five
-  people they already talk to. You need at least 12 opted-in testers; aim for
-  20 so that drop-off does not break the 14-day clock.
-- Post the tester call in `r/AndroidClosedTesting` and `r/TestMyApp`, which
-  exist for exactly this rule and allow it. Expect strangers; they count toward
-  the 12 but not toward the product. Put them in one circle together with you
-  as captain so they are not solo.
+  message in `outreach.md`. A captain brings three to five people they
+  already talk to. Aim for 20 testers across at least three circles.
+- Post the tester call in `r/TestFlight`, which exists for public links and
+  allows it. Expect strangers; put everyone from that thread into one circle
+  with you as captain so nobody is solo.
 
 ### Weeks 1 and 2 — 7 to 20 September: the founding circles
 
@@ -113,17 +119,19 @@ you are the supply.
   circle's ledger screenshot back to you. Those screenshots are your first
   marketing assets, with permission.
 - Collect one sentence from anyone who closes a perfect week. Those are the
-  review quotes for the listing and the landing page.
-- Ship fixes fast; testers on a 14-day clock forgive bugs and remember
-  responsiveness.
+  quotes for the landing page and the promotional text.
+- Ship fixes fast. TestFlight testers forgive bugs and remember
+  responsiveness; a new build reaches them without a review.
 - Read `metrics.sql` on Monday 14 September. The numbers that matter: how many
   testers staked at least once, how many circles have three or more members,
   cheers per member, and how many accounts stake again in week two.
 
-### Week 3 — 21 to 27 September: apply for production
+### Week 3 — 21 to 27 September: submit for review
 
-The 14 days complete on 21 September. Apply for production access the same
-day (Google's review can take up to a week). Meanwhile:
+Two rollovers have happened. Submit the build for App Store review with the
+review notes from `store-listing.md` (the demo account, the fictional Global
+feed, where report and block and account deletion live). First reviews take
+one to three days; choose **manual release** so the date is yours.
 
 - Start the build-in-public thread (template in `outreach.md`) with the real
   week-two numbers, whatever they are. Honest small numbers are the story;
@@ -131,13 +139,14 @@ day (Google's review can take up to a week). Meanwhile:
 - Ask the founding circles to keep going. A circle that survives three
   rollovers is your first retention proof.
 
-### Week 4 — 28 September to 4 October: listing goes live
+### Week 4 — 28 September to 4 October: release quietly
 
-- Promote to production. Do not announce yet; let the listing settle and get
-  the first organic ratings from founding members, asked the compliant way
-  (the template asks for an honest rating, offers nothing for it).
-- Send the "it's live" message to every tester with the Play link and their
-  circle's code.
+- Release on Monday 28 September without announcing. TestFlight users cannot
+  leave ratings; the store version can, so the founding members move over
+  now and the first honest ratings land before anyone else looks. Ask the
+  compliant way (the template asks for an honest rating and offers nothing).
+- Send the "it's live" message to every tester with the App Store link and
+  their circle's code.
 
 ### Week 5 — Monday 5 October: public launch
 
@@ -152,16 +161,16 @@ yield:
    tagged *accountability* on Disboard). Message a moderator first with the
    mod template; offer to run a "Rally week" where the server's existing weekly
    check-in thread becomes a circle. Never post the link without permission.
-3. **`r/SideProject` and `r/androidapps`** with the launch post. These allow
-   maker posts. `r/getdisciplined` and `r/GetMotivatedBuddies` do not allow
-   promotion; participate there as a person, and only mention Rally if someone
-   asks what you use.
+3. **`r/SideProject` and `r/iosapps`** with the launch post. Both allow maker
+   posts. `r/getdisciplined` and `r/GetMotivatedBuddies` do not allow
+   promotion; participate there as a person, and only mention Rally if
+   someone asks what you use.
 4. **Build-in-public** on X, Threads, or Bluesky, whichever you already use.
    Weekly, on Mondays, with the ledger.
 
 Skip Product Hunt. The research is unambiguous: it rewards makers who already
-have a list, and it delivers individuals, not circles. Revisit when iOS exists
-and you have 200 people to bring.
+have a list, and it delivers individuals, not circles. Revisit when you have
+200 people to bring on the day.
 
 ### November — writers
 
@@ -175,8 +184,7 @@ where a weekly-stakes-with-friends app is exactly the shape of the need.
 
 The category peaks in January. Being listed with eight weeks of real circles,
 a handful of honest ratings, and a working invite link by then is worth more
-than anything you could buy now. Plan to have the Apple program by December if
-the Android numbers earn it; see below.
+than anything you could buy now.
 
 ## What "worked" means
 
@@ -184,14 +192,14 @@ Read from `metrics.sql` every Monday. Targets for the founding cohort:
 
 | Metric | Target | Why this number |
 |---|---|---|
-| Opted-in testers, 14 days continuous | 12 minimum, 20 planned | Google's gate |
+| Testers who install and stake in week 1 | 12 | Enough for three real circles |
 | Circles with 3+ members | 3 | Below three, one absence kills the room |
 | Accounts that stake in their first week | 60% | Onboarding stakes for you; below this, onboarding is broken, not marketing |
 | Cheers per member per week | 2 | The thesis. If nobody cheers, nothing else matters |
 | Stake again in week 2 | 40% | The first honest retention number |
-| Circles that survive 3 rollovers | 2 of 3 | The proof that earns the $99 |
+| Circles that survive 3 rollovers | 2 of 3 | The proof that earns wider outreach |
 
-If the cohort clears these, the next dollar goes to Apple, not to ads. If it
+If the cohort clears these, the next dollar goes to Android, not to ads. If it
 does not, no marketing spend would have helped, and the money was saved.
 
 ## Product asks
@@ -202,38 +210,28 @@ Marketing found these; they are product work and are not in this branch.
    share string should read
    `Join {name} on Rally: https://rallyweek.app/join?code={code}`. One line in
    `DetailSheet.tsx`. Wave C's objection (no website) no longer holds.
-2. **A link in the app to the support page.** `docs/legal/README.md` notes the
+2. **The APNs key**, so the thesis is real for the cohort. See objection 4.
+3. **A link in the app to the support page.** `docs/legal/README.md` notes the
    app has no contact route at all. Testers will hit bugs and have nowhere to
    say so except the store review.
-3. **Onboarding should not let a live account leave without a name.** Wave C
+4. **Onboarding should not let a live account leave without a name.** Wave C
    flagged it. "Someone" cheering you is a worse first impression than any ad.
-4. **Firebase Cloud Messaging credentials** for Android push, so a cheer lands
-   on a lock screen for the founding cohort. Free.
-
-## If you already pay Apple
-
-Then the plan improves and the budget shifts. TestFlight's public link takes up
-to 10,000 external testers at $0, builds last 90 days, and iPhone friends can
-join circles. Do both stores in parallel, lead the tester call with the
-TestFlight link, keep the Play closed test on the same 12-tester clock, and
-move the $15 reserve to a second year of the domain. Everything else stands.
 
 ## Files
 
 | File | What it is |
 |---|---|
-| `store-listing.md` | Google Play and App Store copy, keywords, screenshot plan |
+| `store-listing.md` | App Store copy, keywords, TestFlight *What to Test*, App Review notes, screenshot plan |
 | `outreach.md` | Every message in the plan, ready to send |
 | `metrics.sql` | The funnel, readable in the Supabase SQL editor |
 | `landing/` | The landing page and invite-code resolver, deployable as-is |
 
 ## Sources checked on 1 September 2026
 
-- Apple Developer Program fee, $99/year: https://magora-systems.com/apple-developer-fee/
-- Google Play $25 one-time and the 12-tester, 14-day rule for personal accounts: https://support.google.com/googleplay/android-developer/answer/14151465 and https://www.iconikai.com/blog/google-play-developer-account-fee-2026
-- TestFlight limits (10,000 external, 90-day builds): https://developer.apple.com/testflight/
+- TestFlight limits (10,000 external testers, 90-day builds, public links): https://developer.apple.com/testflight/
+- Apple Ads costs, $1/day minimum and throttling below ~$30/day: https://www.businessofapps.com/marketplace/apple-search-ads/research/apple-search-ads-costs/ and https://adapty.io/blog/apple-search-ads/
 - Reddit Ads floor ($5/day, ~3 clicks): https://www.stackmatix.com/blog/reddit-ads-minimum-budget-requirements-2026
-- Apple Ads costs and delivery throttling below ~$30/day: https://www.businessofapps.com/marketplace/apple-search-ads/research/apple-search-ads-costs/
+- Google Play $25 one-time and the 12-tester rule, for the Android trigger: https://support.google.com/googleplay/android-developer/answer/14151465
 - Product Hunt in 2026: https://www.puthusu.com/blog/is-product-hunt-worth-it
 - Competitor landscape (stickK, Beeminder, Focusmate, HabitShare, Finch): https://www.accountablo.com/blog/best-accountability-apps
 - Accountability subreddits and their promotion rules: https://dev.to/sh20raj/reddit-self-promotion-framework-how-to-post-smart-and-stay-unbanned-1kfg
