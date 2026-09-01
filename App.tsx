@@ -16,9 +16,26 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
+// Six faces, and every one of them is drawn with. Two more were listed here
+// and had no call site anywhere; they are gone.
+//
+// What is *not* true, and was worth an hour to find out: dropping them does not
+// shrink the app. Measured in the installed `Rally.app`, before and after, and
+// again after a clean install with Metro's cache cleared —
+// **1,189,744 bytes of .ttf either way**, across fifteen files, for the 272,632
+// bytes these six weights need. Bricolage ships all seven weights and
+// Instrument Sans ships four italics nothing has ever referenced.
+//
+// Per-weight deep imports (`.../700Bold`) do not change it either; that was
+// tried and reverted, because each package's root `index.js` `require()`s every
+// face and something in the Expo asset pipeline embeds them regardless of what
+// the import graph asks for. Whatever that something is, it is not the
+// `expo-font` config plugin — a bare plugin entry returns early with no props.
+//
+// So this list is dead-code removal and two fewer native font registrations at
+// boot, and it is not a download saving. If ~900KB of unused faces is worth
+// chasing, the lever is in the asset pipeline, not here.
 import {
-  BricolageGrotesque_500Medium,
-  BricolageGrotesque_600SemiBold,
   BricolageGrotesque_700Bold,
   BricolageGrotesque_800ExtraBold,
 } from '@expo-google-fonts/bricolage-grotesque';
@@ -62,9 +79,9 @@ export default function Entry() {
       .catch(() => setPreference('system'));
   }, []);
 
+  // Six registrations, not eight. The bytes are a different question, and the
+  // import block above has the measurement.
   const [loaded, error] = useFonts({
-    BricolageGrotesque_500Medium,
-    BricolageGrotesque_600SemiBold,
     BricolageGrotesque_700Bold,
     BricolageGrotesque_800ExtraBold,
     InstrumentSans_400Regular,

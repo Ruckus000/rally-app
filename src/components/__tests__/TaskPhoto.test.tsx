@@ -35,12 +35,12 @@ it('draws the local file when this device has one', () => {
   // Free, already decoded, and there before any round trip — which is what
   // makes a photo appear the instant it is picked.
   render(<TaskPhoto media={photo({ localUri: 'file:///tmp/a.jpg', url: 'https://x/1' })} />);
-  expect(sourceOf()).toEqual({ uri: 'file:///tmp/a.jpg' });
+  expect(sourceOf().uri).toBe('file:///tmp/a.jpg');
 });
 
 it('draws the signed url when it does not — which is every friend’s photo', () => {
   render(<TaskPhoto media={photo({ url: 'https://x/1' })} />);
-  expect(sourceOf()).toEqual({ uri: 'https://x/1' });
+  expect(sourceOf().uri).toBe('https://x/1');
 });
 
 it('renders nothing at all when neither source is there', () => {
@@ -57,13 +57,13 @@ it('falls back to the url when the local file has gone', () => {
   // reassigns that id on some updates — so a live photo can have a dead local
   // path and a working signed url sitting right beside it.
   render(<TaskPhoto media={photo({ localUri: 'file:///gone.jpg', url: 'https://x/1' })} />);
-  expect(sourceOf()).toEqual({ uri: 'file:///gone.jpg' });
+  expect(sourceOf().uri).toBe('file:///gone.jpg');
 
   act(() => {
     screen.UNSAFE_getByProps({ recyclingKey: 'm1' }).props.onError();
   });
 
-  expect(sourceOf()).toEqual({ uri: 'https://x/1' });
+  expect(sourceOf().uri).toBe('https://x/1');
 });
 
 it('survives a zero height rather than taking the screen', () => {
@@ -82,8 +82,23 @@ it('floors a very tall photo so it cannot push everything off screen', () => {
 it('keys the byte cache on the photo, never the url', () => {
   // Signed urls are re-minted as they age. Keyed on one, expo-image would treat
   // every re-signing as a new image and re-download the whole feed.
+  //
+  // This asserted `recyclingKey` for as long as it has existed, which is a
+  // different prop — it resets a recycled view, and says nothing about bytes.
+  // The name was right and the assertion was not, so the disk cache could never
+  // hit and the test that existed to notice reported success.
   render(<TaskPhoto media={photo({ url: 'https://x/1' })} />);
-  expect(shown()?.props.recyclingKey).toBe('m1');
+  expect(sourceOf().cacheKey).toBe('m1');
+});
+
+it('keeps the byte cache key when the url is re-signed', () => {
+  // The whole point, stated as the thing that changes: a second render with a
+  // fresh signed url is the same image to the cache.
+  const { rerender } = render(<TaskPhoto media={photo({ url: 'https://x/1?sig=a' })} />);
+  expect(sourceOf()).toEqual({ uri: 'https://x/1?sig=a', cacheKey: 'm1' });
+
+  rerender(<TaskPhoto media={photo({ url: 'https://x/1?sig=b' })} />);
+  expect(sourceOf()).toEqual({ uri: 'https://x/1?sig=b', cacheKey: 'm1' });
 });
 
 it('can say whose photo it is', () => {

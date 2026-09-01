@@ -173,6 +173,11 @@ function Probe() {
       <Text testID="received">{String(store.state.profile.cheersReceived)}</Text>
       {/* Other people's cheers, per moment — never including your own. */}
       <Text testID="cheers">{store.state.moments.map((m) => String(m.cheers ?? '')).join(',')}</Text>
+      {/* What `PersonSheet` draws a friend's week from. Rendered because the
+          gate that decides whether a pull is worth merging did not compare it. */}
+      <Text testID="feedDone">
+        {store.state.moments.map((m) => `${m.title}:${m.done ? 'done' : 'open'}`).join(',')}
+      </Text>
       <Text testID="feedNotes">
         {store.state.moments.flatMap((m) => (m.cmts ?? []).map((c) => c.t)).join(',')}
       </Text>
@@ -774,6 +779,81 @@ describe('other people’s weeks', () => {
     // `time` is recomputed from the clock every pull, so a comparison over the
     // rendered shape would report a change every minute forever.
     expect(rendered.count).toBe(renders);
+  });
+
+  it('notices a friend closing a goal, which moves nothing else on their card', async () => {
+    // `sameMoments` decides whether a pull's feed is worth merging, and it
+    // compared everything about a card except whether it was finished. Ticking
+    // a goal changes only `done` and `done_at` — and `time` is excluded from
+    // the comparison on purpose — so the pull answered "no news" and the
+    // merge never happened.
+    //
+    // What made it hard to see: the Circle header reads `stats`, which comes
+    // from a different key and did update. So the two disagreed on screen at
+    // once, and only the sheet was wrong.
+    const theirs = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    mount();
+    await settle();
+    const me = currentUserId() as string;
+    inACircleWith(me);
+    fakeSupabase.seed({
+      tasks: [
+        {
+          id: theirs,
+          owner_id: OTHER,
+          week_start: weekOnScreen(),
+          day: 2,
+          title: 'Swim 2k',
+          category: 'Fitness',
+          points: 40,
+          aud: 'friends',
+          source: 'staked',
+        },
+      ],
+    });
+    await settle(60_000);
+    expect(screen.getByTestId('feedDone')).toHaveTextContent('Swim 2k:open');
+
+    // `done` is derived from `done_at`, which is also what `time` reads — and
+    // `time` is deliberately outside the comparison, so this really does move
+    // exactly one compared field.
+    await getSupabase()
+      .from('tasks')
+      .update({ done_at: new Date().toISOString() })
+      .eq('id', theirs);
+    await settle(60_000);
+
+    expect(screen.getByTestId('feedDone')).toHaveTextContent('Swim 2k:done');
+  });
+
+  it('remembers a pull that arrived while one was already open', async () => {
+    // `pulling` used to make the second caller return, which is a drop and not
+    // a wait — and `realtime.ts` clears its own debounce flag before calling
+    // back, so the event was gone from both sides and its news waited out the
+    // 60s tick. That is the socket's whole purpose spent for the length of one
+    // round trip, and it lands hardest on the case realtime exists for: a
+    // friend closing their week writes a task, a rollup and several cheers over
+    // a few seconds, so the burst that starts the pull is the one it swallows.
+    mount();
+    await settle();
+    inACircleWith(currentUserId() as string);
+    await settle(60_000);
+    fakeSupabase.calls.length = 0;
+
+    // Two foregrounds in one commit: the first starts a pull and suspends on
+    // the round trip, the second arrives while it is open.
+    await act(async () => {
+      appState('active');
+      appState('active');
+    });
+    await settle(1_000);
+
+    const worlds = fakeSupabase.calls.filter(
+      (c) => c.method === 'rpc' && c.table === 'pull_world',
+    );
+    // Two, not one — and not three. A flag, so several events waiting on one
+    // pull cost a single follow-up rather than a chain of them.
+    expect(worlds).toHaveLength(2);
   });
 
   it('counts the cheers that landed on your own week', async () => {

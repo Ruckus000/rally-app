@@ -58,7 +58,12 @@ export function Bri({
   // or a card, both of which flip. Anything drawn on a dark surface passes an
   // `onDark` rung explicitly and never reaches this default.
   const colors = useColors();
-  const w = (weight < 500 ? 500 : weight) as 500 | 600 | 700 | 800;
+  // Floors to the lightest Bricolage the app actually loads. `Weight` is shared
+  // with `<Sans>`, which does carry 400/500/600, so tsc will not reject a
+  // `<Bri weight={600}>` — the cast is what silences it. The clamp is what
+  // makes such a call render Bold rather than reach for a `fontFamily` that is
+  // not registered, which on Android is a silent fall back to the system face.
+  const w = (weight < 700 ? 700 : weight) as 700 | 800;
   return (
     <Text
       maxFontSizeMultiplier={MAX_FONT_SCALE}

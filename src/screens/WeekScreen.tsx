@@ -293,12 +293,30 @@ function PersonalFeed() {
 function Feed() {
   const color = useColors();
   const { state, config, dispatch } = useStore();
-  // Filter + merge + sort, keyed on the two slices it reads. It used to
-  // re-sort the whole feed on every render of this screen.
+  // Filter + merge + sort, keyed on every slice it reads. It used to re-sort
+  // the whole feed on every render of this screen.
+  //
+  // `blocked` and `reported` are in the list because `mergedFeed` reads them
+  // and neither writer touches anything else here: `BLOCK` returns
+  // `{...state, blocked}` and `REPORT_FILED` returns `{...state, reported}`.
+  // Without them the memo hands back the previous array and the card you just
+  // reported stays on screen — and `reported` is local-only, so nothing on the
+  // server will ever heal it. Blocking healed at the next pull only because
+  // RLS drops the rows; reporting never did.
+  //
+  // The disable stays. `mergedFeed` takes the whole `state`, so the rule wants
+  // `state` in the deps, which is the same as having no memo at all.
   const entries = React.useMemo(
     () => mergedFeed(state, config.quietComebacks),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.moments, state.globalPosts, config.quietComebacks],
+    [
+      state.moments,
+      state.globalPosts,
+      state.blocked,
+      state.reported,
+      state.selfId,
+      config.quietComebacks,
+    ],
   );
   // `null`, not the active circle. "Alone" here means nobody at all is
   // watching — and being the only person in one of three circles is not being

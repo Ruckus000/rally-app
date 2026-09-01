@@ -45,9 +45,23 @@ export const cheersGiven = (state: State) =>
  * "in the circle", so a cheer given to a stranger on the global feed must not
  * inflate it.
  */
-export const circleCheersGiven = (state: State) =>
-  state.profile.baseCheersGiven +
-  cheeredIds(state).filter((id) => state.moments.some((m) => m.id === id)).length;
+export const circleCheersGiven = (state: State) => {
+  // A `Set`, because the scan inside the scan was the one piece of work in this
+  // file that grows with both the account's age and its circle at once — and it
+  // runs on *every* dispatch, from `MeScreen`'s rank line, on a screen that is
+  // usually not the one you are looking at. `TabPane` hides the inactive tabs
+  // with `display: none` rather than unmounting them, deliberately, so all
+  // three screen bodies re-run whatever is on top.
+  //
+  // Deliberately not a `useMemo` around `myRank` the way `CircleScreen` wraps
+  // `ranking`. That is the symptom: it would leave the quadratic in place for
+  // `PersonSheet`, and buy a nine-entry dependency array for the next person to
+  // keep in step. Linear here fixes it for every caller and needs no upkeep.
+  const inCircle = new Set(state.moments.map((m) => m.id));
+  return (
+    state.profile.baseCheersGiven + cheeredIds(state).filter((id) => inCircle.has(id)).length
+  );
+};
 
 export const myStats = (state: State): MemberStats => ({
   done: state.myTasks.filter((t) => t.done).length,
