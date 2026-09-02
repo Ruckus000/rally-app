@@ -16,35 +16,30 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
-// Six faces, and every one of them is drawn with. Two more were listed here
-// and had no call site anywhere; they are gone.
+// Per weight, never from the package root, and this is worth 718KB rather
+// than being a matter of taste.
 //
-// What is *not* true, and was worth an hour to find out: dropping them does not
-// shrink the app. Measured in the installed `Rally.app`, before and after, and
-// again after a clean install with Metro's cache cleared —
-// **1,189,744 bytes of .ttf either way**, across fifteen files, for the 272,632
-// bytes these six weights need. Bricolage ships all seven weights and
-// Instrument Sans ships four italics nothing has ever referenced.
+// Each package's root `index.js` is generated as one `require()` per face —
+// seven for Bricolage, eight for Instrument Sans — so naming a single weight
+// from there puts every weight in Metro's asset graph and every one of them in
+// the app. The weight subdirectories require exactly one file each, and neither
+// package declares an `exports` map, so these paths resolve straight to them.
 //
-// Per-weight deep imports (`.../700Bold`) do not change it either; that was
-// tried and reverted, because each package's root `index.js` `require()`s every
-// face and something in the Expo asset pipeline embeds them regardless of what
-// the import graph asks for. Whatever that something is, it is not the
-// `expo-font` config plugin — a bare plugin entry returns early with no props.
+// Measured with `expo export:embed`, which prints the count outright:
+// "Copying 15 asset files" from the root, "Copying 6" from here. In the
+// installed `Rally.app`, 1,189,744 bytes of .ttf becomes 454,640.
 //
-// So this list is dead-code removal and two fewer native font registrations at
-// boot, and it is not a download saving. If ~900KB of unused faces is worth
-// chasing, the lever is in the asset pipeline, not here.
-import {
-  BricolageGrotesque_700Bold,
-  BricolageGrotesque_800ExtraBold,
-} from '@expo-google-fonts/bricolage-grotesque';
-import {
-  InstrumentSans_400Regular,
-  InstrumentSans_500Medium,
-  InstrumentSans_600SemiBold,
-  InstrumentSans_700Bold,
-} from '@expo-google-fonts/instrument-sans';
+// A previous pass concluded the opposite and reverted this. It was measuring
+// `ios/build-release`, which is a persistent `-derivedDataPath` whose asset
+// copy never prunes — the nine dead faces were left over from earlier builds,
+// and uninstalling the app from the simulator does not touch them. See the
+// CLAUDE.md gotcha before trusting any before/after size taken from a build.
+import { BricolageGrotesque_700Bold } from '@expo-google-fonts/bricolage-grotesque/700Bold';
+import { BricolageGrotesque_800ExtraBold } from '@expo-google-fonts/bricolage-grotesque/800ExtraBold';
+import { InstrumentSans_400Regular } from '@expo-google-fonts/instrument-sans/400Regular';
+import { InstrumentSans_500Medium } from '@expo-google-fonts/instrument-sans/500Medium';
+import { InstrumentSans_600SemiBold } from '@expo-google-fonts/instrument-sans/600SemiBold';
+import { InstrumentSans_700Bold } from '@expo-google-fonts/instrument-sans/700Bold';
 import { Root } from './src/App';
 import { loadPersistedState } from './src/state/store';
 import { loadSchemePreference } from './src/theme/schemePreference';
@@ -79,8 +74,9 @@ export default function Entry() {
       .catch(() => setPreference('system'));
   }, []);
 
-  // Six registrations, not eight. The bytes are a different question, and the
-  // import block above has the measurement.
+  // Six faces, and the app draws with all six. Two Bricolage weights were listed
+  // here with no call site in any file; the import block above is what keeps the
+  // other nine out of the binary.
   const [loaded, error] = useFonts({
     BricolageGrotesque_700Bold,
     BricolageGrotesque_800ExtraBold,
