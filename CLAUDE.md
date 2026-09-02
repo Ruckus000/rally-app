@@ -81,6 +81,17 @@ npm run icons             # regenerates assets AND src/theme/mark.ts
   `init.sql` version plus your own clause silently reverts that hardening, and only
   the integration suite notices. Grep for `policy <name>` across `supabase/migrations/`
   and start from the *last* definition, not the first.
+- **Deploy migrations with `supabase db push`, not the Supabase MCP.** `db push` records
+  each migration under the version in its *filename*; the MCP's `apply_migration` mints a
+  fresh timestamp instead and ignores the name you pass. Nothing fails, which is the
+  problem: the schema is correct, and `supabase migration list --linked` then shows the
+  local file as pending and the MCP's version as remote-only, *forever* — so the next
+  `db push` re-applies a migration that is already live. `execute_sql` runs read-only, so
+  it cannot correct the row afterwards, and a second `apply_migration` to fix it just
+  records a third. If it has already happened the cheap repair is to rename the local file
+  to whatever production recorded (`select version, name from
+  supabase_migrations.schema_migrations order by version desc limit 3`) — see #129, which
+  is this mistake and its rename.
 - **Env:** `EXPO_PUBLIC_*` is baked into the bundle. Publishable key only, never service-role.
   `GEMINI_API_KEY` is unprefixed on purpose (scripts only); the edge function reads it from
   `supabase secrets set`, not `.env`.
