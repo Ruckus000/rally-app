@@ -101,6 +101,18 @@ npm run icons             # regenerates assets AND src/theme/mark.ts
   `quietComebacks` (defaults in `DEFAULT_CONFIG`, `src/state/store.tsx`).
 - Under jest-expo `BackHandler` is an iOS stub — use `src/test/backPress.ts`.
 - `/ios` and `/android` are gitignored (prebuild output).
+- **Never measure app size from a build without deleting the product first.**
+  `scripts/sim.sh` builds into `ios/build-release` via `-derivedDataPath`, and Xcode's
+  asset copy only ever *adds*: a file Metro has stopped emitting stays in `Rally.app`
+  forever. Uninstalling from the simulator does not help — the staleness is in the build
+  directory, not the container — and neither does clearing `${TMPDIR}metro-*`. This cost a
+  wrong conclusion once, recorded and then reversed in b8a5d66 → #131: per-weight font
+  imports looked like they saved nothing and in fact save 718KB. Either
+  `rm -rf ios/build-release/Build/Products/Release-iphonesimulator/Rally.app` before
+  rebuilding, or skip the build entirely and read Metro's own number —
+  `npx expo export:embed --entry-file index.ts --platform ios --dev false
+  --bundle-output /tmp/b.js --assets-dest /tmp/a` prints "Copying N asset files" in about
+  five seconds.
 
 ## Where to read more
 
