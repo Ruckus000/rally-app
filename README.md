@@ -1,5 +1,33 @@
 # Rally — Week Spine
 
+**A portrait-only phone app for small friend groups: stake a few tasks on your
+week, pair up with friends on them, and the circle cheers each other through,
+ranked by follow-through.**
+
+**Live demo:** none. It's a native iOS/Android app with no web build; see
+[Running it](#running-it).
+
+**Stack:** Expo SDK 57 · React Native 0.86 · React 19 · TypeScript (strict) ·
+Supabase (Postgres + row-level security, Realtime, Edge Functions) · Gemini
+(through an edge function) · Jest
+
+- **A weekly loop**: stake tasks on days, pair with friends, cheer, close
+  them for points, and get a ledger when the week rolls over.
+- **Local-first.** The reducer is the source of truth and every tap lands
+  instantly; an outbox syncs to Supabase with retries, and realtime pulls
+  changes back.
+- **Two offline account modes** (the demo circle, or an empty account) that
+  make zero network calls. Only `live` mode touches the server.
+- **Goals priced by a model.** An edge function asks Gemini to price each goal
+  (10–60 points) and, in a separate prompt, to screen it for harm. If anything
+  fails it falls back to a fixed category price, and the limits are measured
+  below.
+- **Tested against a real database.** 1,384 unit tests (measured 2026-10-08),
+  plus an integration suite that runs every row-level-security policy against
+  a local Postgres.
+
+---
+
 A social goal-tracking app. You **stake** a small number of tasks on a week, optionally **pair** with friends on them, and the circle **cheers** each other through. Points come from closing staked tasks; a leaderboard ranks the circle by follow-through, and a weekly **ledger** closes the loop.
 
 This is a React Native (Expo) build of the design handoff in [`design-reference/HANDOFF.md`](design-reference/HANDOFF.md). The HTML prototype in that folder is the visual reference — it is read for structure, copy and interaction logic, and none of its templating is ported.
