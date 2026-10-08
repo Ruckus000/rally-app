@@ -112,6 +112,25 @@ npm run lint
 | `scripts/sim.sh` | Boots an iOS simulator and runs the standalone build. |
 | `scripts/android.sh` | The same for an Android emulator. |
 
+## Decisions and trade-offs
+
+- **Local-first, not a round trip per tap** ([`docs/backend.md`](docs/backend.md)).
+  "The reducer stays the source of truth. The server is a sync target, not the
+  thing the UI waits on." The rejected alternative is "far less code", but taps
+  would stop being instant and "the app stops working on a plane". The cost is
+  an outbox with retry and ordering, idempotent mutations, reconciliation on
+  every read and last-write-wins per field — "the larger half of the work".
+- **The transport answers "retry" or "never", and never throws**
+  (`src/sync/transport.ts`). An outbox can only do those two things, so getting
+  the split wrong is the expensive bug: "a permanent failure classed retryable
+  is an entry that jams the queue forever, and a retryable one classed
+  permanent is a tap the user made and lost."
+- **Persisted state is discarded rather than migrated** (see
+  [Persistence](#persistence)). A version mismatch, malformed JSON or an
+  out-of-range day throws the whole payload away instead of half-restoring into
+  a crash. The trade: a changed fixture doesn't reach an existing install until
+  the version in `src/state/persistence.ts` is bumped.
+
 ## Decisions made on the handoff's open questions
 
 The handoff lists seven gaps needing a product decision before building. What this build does:
