@@ -1,10 +1,66 @@
 # Rally — Week Spine
 
+**A portrait-only phone app for small friend groups: stake a few tasks on your
+week, pair up with friends on them, and the circle cheers each other through,
+ranked by follow-through.**
+
+**Live demo:** none. It's a native iOS/Android app with no web build; see
+[How to run it](#how-to-run-it).
+
+**Stack:** Expo SDK 57 · React Native 0.86 · React 19 · TypeScript (strict) ·
+Supabase (Postgres + row-level security, Realtime, Edge Functions) · Gemini
+(through an edge function) · Jest
+
+- **A weekly loop**: stake tasks on days, pair with friends, cheer, close
+  them for points, and get a ledger when the week rolls over.
+- **Local-first.** The reducer is the source of truth and every tap lands
+  instantly; an outbox syncs to Supabase with retries, and realtime pulls
+  changes back.
+- **Two offline account modes** (the demo circle, or an empty account) that
+  make zero network calls. Only `live` mode touches the server.
+- **Goals priced by a model.** An edge function asks Gemini to price each goal
+  (10–60 points) and, in a separate prompt, to screen it for harm. If anything
+  fails it falls back to a fixed category price, and the limits are measured
+  below.
+- **Tested against a real database.** 1,384 unit tests (measured 2026-10-08),
+  plus an integration suite that runs every row-level-security policy against
+  a local Postgres.
+
+---
+
 A social goal-tracking app. You **stake** a small number of tasks on a week, optionally **pair** with friends on them, and the circle **cheers** each other through. Points come from closing staked tasks; a leaderboard ranks the circle by follow-through, and a weekly **ledger** closes the loop.
 
 This is a React Native (Expo) build of the design handoff in [`design-reference/HANDOFF.md`](design-reference/HANDOFF.md). The HTML prototype in that folder is the visual reference — it is read for structure, copy and interaction logic, and none of its templating is ported.
 
-## Running it
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph Device
+    UI["Screens and overlays<br/>src/screens · src/overlays"] -- "actions" --> ST["One reducer + Context<br/>src/state/store.tsx"]
+    ST -- "state" --> UI
+    ST <--> PS["AsyncStorage<br/>src/state/persistence.ts"]
+    ST -- "observed changes" --> OB["Outbox<br/>src/sync/outbox.ts"]
+    OB --> TR["Transport<br/>src/sync/transport.ts"]
+    RC["Reconcile + realtime<br/>src/sync/reconcile.ts · realtime.ts"] --> ST
+  end
+  TR -- "only Supabase caller" --> DB[("Supabase Postgres<br/>row-level security")]
+  DB -- "pull / realtime" --> RC
+  UI -. "rate as you type" .-> EF["Edge function rate-goal"] --> LLM["Gemini"]
+```
+
+- **No navigation library.** Routing is reducer state (`tab`, `planOpen`,
+  `sheet`, `notifOpen`, …) rendered conditionally in `src/App.tsx`, and
+  transitions are actions.
+- **`transport.ts` is the only file that talks to Supabase.** It returns
+  retryable-vs-permanent instead of throwing, and `mappers.ts` converts rows
+  to domain objects.
+- **The Supabase client is built lazily**, so the two local account modes
+  never open one.
+
+## How to run it
+
+Needs macOS with Xcode for the iOS simulator, or an Android emulator.
 
 ```bash
 npm install
@@ -32,7 +88,7 @@ npm run typecheck
 npm run lint
 ```
 
-`npm test` is the unit suite — 38 files and 682 tests covering reducer rules, selector maths, persistence round-trips, the sync engine and its outbox, and render tests that drive the real screens through the store. It runs in a few seconds and needs nothing installed beyond `npm install`. There is a second suite, `npm run test:integration`, which talks to a real local Postgres and needs Docker; it is deliberately kept out of `npm test` so a contributor without Docker is never blocked. See [TESTING.md](TESTING.md) for both. TypeScript runs in strict mode. CI runs typecheck, lint and the unit suite in one job, plus the integration suite in a second that stands the local stack up on the runner — expect 4–7 minutes for that one, almost all of it the Docker image pull. Both fire on pushes to `main` and on every pull request; a feature branch with no PR open is not checked by anything.
+`npm test` is the unit suite — 95 suites and 1,384 tests as of 2026-10-08, covering reducer rules, selector maths, persistence round-trips, the sync engine and its outbox, and render tests that drive the real screens through the store. It runs in under a minute and needs nothing installed beyond `npm install`. There is a second suite, `npm run test:integration`, which talks to a real local Postgres and needs Docker; it is deliberately kept out of `npm test` so a contributor without Docker is never blocked. See [TESTING.md](TESTING.md) for both. TypeScript runs in strict mode. CI runs locally through `localci` ([`localci.yml`](localci.yml)): a pre-push hook runs typecheck and lint and blocks the push if either fails, and `localci suite` runs the unit and integration suites and reports the result to GitHub as the `localci/suite` commit status, which is the check `main` requires. The GitHub Actions workflow (`.github/workflows/ci.yml`) mirrors it but has been disabled since 2026-08-24, when the account ran out of Actions minutes (#107).
 
 ## Layout
 
@@ -55,6 +111,25 @@ npm run lint
 | `src/overlays/` | Plan, Ledger, Notifications, Join, and the detail sheet. |
 | `scripts/sim.sh` | Boots an iOS simulator and runs the standalone build. |
 | `scripts/android.sh` | The same for an Android emulator. |
+
+## Decisions and trade-offs
+
+- **Local-first, not a round trip per tap** ([`docs/backend.md`](docs/backend.md)).
+  "The reducer stays the source of truth. The server is a sync target, not the
+  thing the UI waits on." The rejected alternative is "far less code", but taps
+  would stop being instant and "the app stops working on a plane". The cost is
+  an outbox with retry and ordering, idempotent mutations, reconciliation on
+  every read and last-write-wins per field — "the larger half of the work".
+- **The transport answers "retry" or "never", and never throws**
+  (`src/sync/transport.ts`). An outbox can only do those two things, so getting
+  the split wrong is the expensive bug: "a permanent failure classed retryable
+  is an entry that jams the queue forever, and a retryable one classed
+  permanent is a tap the user made and lost."
+- **Persisted state is discarded rather than migrated** (see
+  [Persistence](#persistence)). A version mismatch, malformed JSON or an
+  out-of-range day throws the whole payload away instead of half-restoring into
+  a crash. The trade: a changed fixture doesn't reach an existing install until
+  the version in `src/state/persistence.ts` is bumped.
 
 ## Decisions made on the handoff's open questions
 
